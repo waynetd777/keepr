@@ -85,8 +85,10 @@ function Sidebar() {
         })}
         {!restoring && (
           <button className={`side-item${screen.name === "plans" && screen.isNew ? " on" : ""}`} onClick={() => go({ name: "plans", isNew: true })} title="Make a new backup plan ⌘N" style={{ color: "var(--accent-text)" }}>
-            <Icon name="plus" size={13} stroke={2.4} />
-            <span className="grow">New plan</span>
+            <span style={{ width: 20, height: 20, borderRadius: 10, background: "var(--accent)", color: "var(--accent-ink)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginLeft: -3 }}>
+              <Icon name="plus" size={14} stroke={2.8} />
+            </span>
+            <span className="grow" style={{ fontWeight: 600 }}>New plan</span>
           </button>
         )}
       </div>
