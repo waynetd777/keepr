@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Comparison, type Conflict, type Entry, type SnapInfo, type Version } from "./api";
 import { useApp } from "./App";
 import { Icon } from "./icons";
-import { Sheet, Switch, useAct, useToast } from "./ui";
+import { PlanProgress, Sheet, Switch, useAct, useToast } from "./ui";
 import { bytes, dayKey, dayLabel, longWhen, tilde, when } from "./format";
 
 const DAYS_SHOWN = 10;
@@ -269,6 +269,9 @@ export default function Restore() {
     }
   };
   const version = versions?.[ver];
+  // A restore from this plan running or waiting: the footer shows its progress instead.
+  const restoring = ov?.job?.kind === "restore" && ov.job.plan === plan.id ? ov.job : null;
+  const restoreQueued = ov?.queued.find((q) => q.plan === plan.id && q.kind === "restore");
 
   return (
     <>
@@ -437,7 +440,20 @@ export default function Restore() {
         )}
       </div>
 
-      {snap && (
+      {snap && (restoring || restoreQueued) && (
+        <footer style={{ height: 72, flexShrink: 0, display: "flex", alignItems: "center", gap: 18, padding: "0 32px", background: "var(--surface)", borderTop: "1px solid var(--line)" }}>
+          <div className="col" style={{ gap: 2, minWidth: 150 }}>
+            <span style={{ fontWeight: 600 }}>{restoring ? "Restoring" : "Restore waiting"}</span>
+            <span className="small muted">
+              {restoring ? `${restoring.filesRead.toLocaleString()} of ${restoring.filesToRead.toLocaleString()} files · ${bytes(restoring.bytesRead)} of ${bytes(restoring.bytesToRead)}` : "Starts when the current job finishes"}
+            </span>
+          </div>
+          <div className="grow">
+            <PlanProgress job={restoring} queued={restoring ? undefined : restoreQueued} />
+          </div>
+        </footer>
+      )}
+      {snap && !restoring && !restoreQueued && (
         <footer style={{ height: 72, flexShrink: 0, display: "flex", alignItems: "center", gap: 18, padding: "0 32px", background: "var(--surface)", borderTop: "1px solid var(--line)" }}>
           <div className="col" style={{ gap: 2, minWidth: 150 }}>
             <span style={{ fontWeight: 600 }}>{items.length === 0 ? "Nothing chosen" : `${items.length} item${items.length === 1 ? "" : "s"} chosen`}</span>
