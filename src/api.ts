@@ -126,6 +126,7 @@ export const api = {
   suggestName: (place: Place, except?: string) => invoke<string>("suggest_name", { place, except: except ?? null }),
   testPlace: (place: Place, password?: string) => invoke<Tested>("test_place", { place, password: password ?? null }),
   discoverServers: () => invoke<string[]>("discover_servers"),
+  savedSmbLogin: (server: string) => invoke<{ user: string; source: "keepr" | "finder" } | null>("saved_smb_login", { server }),
   listShares: (server: string, user: string, password?: string) => invoke<string[]>("list_shares", { server, user, password: password ?? null }),
   hasPassword: (accountKind: "plan" | "smb", id: string, user?: string) => invoke<boolean>("has_password", { accountKind, id, user: user ?? null }),
   recoveryKey: (id: string) => invoke<string | null>("recovery_key", { id }),

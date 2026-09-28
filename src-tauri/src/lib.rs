@@ -480,11 +480,29 @@ async fn discover_servers(core: State<'_, Core_>) -> Result<Vec<String>, String>
 #[tauri::command]
 async fn list_shares(server: String, user: String, password: Option<String>) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let pw = password.filter(|p| !p.is_empty()).or_else(|| keychain::get(&keychain::smb_account(&user, &server))).unwrap_or_default();
+        let pw = password
+            .filter(|p| !p.is_empty())
+            .or_else(|| keychain::get(&keychain::smb_account(&user, &server)))
+            .or_else(|| keychain::finder_smb_password(&server, &user))
+            .unwrap_or_default();
         smb::shares(&server, &user, &pw)
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SavedLogin {
+    user: String,
+    /// "keepr" or "finder".
+    source: String,
+}
+
+/// A login already saved for this server, so the dialogs can fill it in.
+#[tauri::command]
+async fn saved_smb_login(server: String) -> Option<SavedLogin> {
+    tauri::async_runtime::spawn_blocking(move || keychain::saved_smb_user(&server).map(|(user, source)| SavedLogin { user, source: source.into() })).await.ok().flatten()
 }
 
 #[tauri::command]
@@ -876,6 +894,7 @@ pub fn run() {
             discover_servers,
             list_shares,
             save_smb_password,
+            saved_smb_login,
             has_password,
             recovery_key,
             recovery_saved,

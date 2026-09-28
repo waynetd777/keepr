@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { api, type Destination, type Place, type Tested } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
-import { Sheet, useAct } from "./ui";
+import { SAVED_PASSWORD, Sheet, useAct, useSavedLogin } from "./ui";
 import { bytes, tilde } from "./format";
 
 const LATER: [string, string][] = [
@@ -35,6 +35,12 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   const [named, setNamed] = useState(!!editing);
   const [tested, setTested] = useState<Tested | null>(null);
   const [busy, setBusy] = useState("");
+  const savedFrom = useSavedLogin(server, user, setUser, setPassword, (s) => {
+    setShares(s);
+    if (!share && s.length) setShare(s.includes("Backups") ? "Backups" : s[0]);
+  }, setBusy);
+  // The saved password is used where the field still shows it.
+  const pw = password === SAVED_PASSWORD ? undefined : password;
 
   useEffect(() => {
     api.discoverServers().then((s) => {
@@ -56,7 +62,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
 
   const test = async () => {
     setBusy("Connecting…");
-    const t = await api.testPlace(place, password).catch((e) => ({ ok: false, message: String(e), free: null, total: null, mbps: null }));
+    const t = await api.testPlace(place, pw).catch((e) => ({ ok: false, message: String(e), free: null, total: null, mbps: null }));
     setTested(t);
     setBusy("");
     return t;
@@ -64,7 +70,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   const listShares = async () => {
     setBusy("Asking for its shares…");
     try {
-      const s = await api.listShares(server, user, password);
+      const s = await api.listShares(server, user, pw);
       setShares(s);
       if (!share && s.length) setShare(s.includes("Backups") ? "Backups" : s[0]);
     } catch (e) {
@@ -75,7 +81,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   const add = async () => {
     const t = tested?.ok ? tested : await test();
     if (!t.ok) return;
-    const saved = await act(() => api.saveDestination({ id: editing?.id ?? "", name: name.trim(), place, disconnectAfter: true }, keychain ? password : undefined));
+    const saved = await act(() => api.saveDestination({ id: editing?.id ?? "", name: name.trim(), place, disconnectAfter: true }, keychain ? pw : undefined));
     if (saved) {
       await refresh();
       onClose();
@@ -214,7 +220,8 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
                 </label>
                 <label className="field">
                   <span>Password</span>
-                  <input className="input" type="password" placeholder={editing ? "Unchanged" : ""} value={password} onChange={(e) => setPassword(e.target.value)} />
+                  <input className="input" type="password" placeholder={editing ? "Unchanged" : ""} value={password} onFocus={() => password === SAVED_PASSWORD && setPassword("")} onChange={(e) => setPassword(e.target.value)} />
+                  {savedFrom && password === SAVED_PASSWORD && <span className="tiny faint">Saved {savedFrom === "finder" ? "by Finder" : "by Keepr"} in your Keychain</span>}
                 </label>
                 <label className="field" style={{ gridColumn: "span 2" }}>
                   <span>Folder in the share</span>

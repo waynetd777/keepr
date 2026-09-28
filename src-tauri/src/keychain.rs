@@ -60,6 +60,47 @@ pub fn delete(account: &str) {
     let _ = delete_generic_password(SERVICE, account);
 }
 
+/// A login for an SMB server that's already saved: Keepr's own, else one Finder saved ("Remember
+/// this password" in Connect to Server). Returns the user name and where it came from; the
+/// password itself is only read when it's used.
+pub fn saved_smb_user(server: &str) -> Option<(String, &'static str)> {
+    let host = server.trim().to_lowercase();
+    if host.is_empty() {
+        return None;
+    }
+    {
+        let mut c = CACHE.lock().unwrap();
+        let map = load(&mut c);
+        if let Some(user) = map.keys().find_map(|k| k.strip_prefix("smb:").and_then(|r| r.strip_suffix(&format!("@{host}"))).map(str::to_string)) {
+            return Some((user, "keepr"));
+        }
+    }
+    // Finder's item: its attributes (not its password) can be read without asking.
+    for h in [server.trim().to_string(), server.trim().trim_end_matches(".local").to_string()] {
+        let out = std::process::Command::new("/usr/bin/security").args(["find-internet-password", "-s", &h, "-r", "smb "]).output().ok()?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        if let Some(acct) = text.lines().find_map(|l| l.trim().strip_prefix("\"acct\"<blob>=\"").and_then(|r| r.strip_suffix('"'))) {
+            return Some((acct.to_string(), "finder"));
+        }
+    }
+    None
+}
+
+/// The password Finder saved for an SMB server, if there is one. macOS may ask once to let Keepr
+/// read Finder's item.
+pub fn finder_smb_password(server: &str, user: &str) -> Option<String> {
+    use security_framework::os::macos::passwords::find_internet_password;
+    use security_framework_sys::keychain::{SecAuthenticationType, SecProtocolType};
+    for h in [server.trim(), server.trim().trim_end_matches(".local")] {
+        if let Ok((pw, _)) = find_internet_password(None, h, None, user, "", None, SecProtocolType::SMB, SecAuthenticationType::Any) {
+            if let Ok(s) = String::from_utf8(pw.to_owned()) {
+                return Some(s);
+            }
+        }
+    }
+    None
+}
+
 pub fn smb_account(user: &str, server: &str) -> String {
     format!("smb:{}@{}", user, server.to_lowercase())
 }

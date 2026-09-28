@@ -7,7 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { api, type Every, type Often, type Place, type Plan, type Retention } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
-import { PlanProgress, Seg, Sheet, Switch, useAct, useMenu, useToast } from "./ui";
+import { PlanProgress, SAVED_PASSWORD, Seg, Sheet, Switch, useAct, useMenu, useSavedLogin, useToast } from "./ui";
 import { ago, bytes, next, tilde } from "./format";
 
 const DEFAULT_RETENTION: Retention = { allHours: 24, dailyDays: 30, weeklyWeeks: 52, monthlyMonths: 0, keepDeletedDays: 90 };
@@ -215,6 +215,11 @@ export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; 
   useEffect(() => {
     api.discoverServers().then(setServers);
   }, []);
+  const savedFrom = useSavedLogin(server, user, setUser, setPassword, (s) => {
+    setShares(s);
+    if (!share && s[0]) setShare(s[0]);
+  }, setMsg);
+  const pw = password === SAVED_PASSWORD ? undefined : password;
   const place: Place = { kind: "smb", server: server.trim(), share: share.trim(), folder: folder.trim(), user: user.trim() };
   return (
     <Sheet
@@ -234,10 +239,10 @@ export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; 
             onClick={async () => {
               setBusy(true);
               setMsg("Connecting…");
-              const t = await api.testPlace(place, password).catch((e) => ({ ok: false, message: String(e) }));
+              const t = await api.testPlace(place, pw).catch((e) => ({ ok: false, message: String(e) }));
               setBusy(false);
               if (!t.ok) return setMsg(t.message);
-              if (password) await invoke("save_smb_password", { server: place.server, user: place.user, password });
+              if (pw) await invoke("save_smb_password", { server: place.server, user: place.user, password: pw });
               onAdd(place);
               onClose();
             }}
@@ -268,7 +273,8 @@ export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; 
           </label>
           <label className="field">
             <span>Password</span>
-            <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <input className="input" type="password" value={password} onFocus={() => password === SAVED_PASSWORD && setPassword("")} onChange={(e) => setPassword(e.target.value)} />
+            {savedFrom && password === SAVED_PASSWORD && <span className="tiny faint">Saved {savedFrom === "finder" ? "by Finder" : "by Keepr"} in your Keychain</span>}
           </label>
           <label className="field">
             <span>Share</span>
@@ -280,7 +286,7 @@ export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; 
                 onClick={async () => {
                   setMsg("Asking for its shares…");
                   try {
-                    const s = await api.listShares(server, user, password);
+                    const s = await api.listShares(server, user, pw);
                     setShares(s);
                     if (!share && s[0]) setShare(s[0]);
                     setMsg("");

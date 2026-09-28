@@ -244,3 +244,34 @@ export function ClearButton({ onClick }: { onClick: () => void }) {
     </button>
   );
 }
+
+/** Stands in for a saved password in a password field: never sent, the saved one is used. */
+export const SAVED_PASSWORD = "••••••••";
+
+/** When a server is chosen, fill in a login already saved for it (Keepr's or Finder's) and list
+ *  its shares. `password` shows SAVED_PASSWORD until someone types a new one. */
+export function useSavedLogin(server: string, user: string, setUser: (u: string) => void, setPassword: (p: string) => void, onShares: (s: string[]) => void, onMessage: (m: string) => void) {
+  const [source, setSource] = useState<"keepr" | "finder" | null>(null);
+  useEffect(() => {
+    const host = server.trim();
+    if (!host) return;
+    const t = window.setTimeout(async () => {
+      const saved = await api.savedSmbLogin(host).catch(() => null);
+      if (!saved || (user && user !== saved.user)) return setSource(null);
+      setUser(saved.user);
+      setPassword(SAVED_PASSWORD);
+      setSource(saved.source);
+      onMessage("Asking for its shares…");
+      try {
+        onShares(await api.listShares(host, saved.user));
+        onMessage("");
+      } catch (e) {
+        onMessage(String(e));
+      }
+    }, 450);
+    return () => window.clearTimeout(t);
+    // Only a new server looks again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [server]);
+  return source;
+}

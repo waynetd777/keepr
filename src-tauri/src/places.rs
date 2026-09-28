@@ -153,8 +153,9 @@ pub fn unique_name(base: &str, taken: &[String]) -> String {
     (2..).map(|i| format!("{base} {i}")).find(|n| free(n)).unwrap()
 }
 
+/// A share's password: Keepr's saved one, else Finder's.
 pub fn smb_password(s: &Smb) -> Option<String> {
-    keychain::get(&keychain::smb_account(&s.user, &s.server))
+    keychain::get(&keychain::smb_account(&s.user, &s.server)).or_else(|| keychain::finder_smb_password(&s.server, &s.user))
 }
 
 pub fn describe(p: &Place) -> String {
