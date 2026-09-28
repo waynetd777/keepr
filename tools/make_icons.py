@@ -3,7 +3,7 @@
 src-tauri/icons/ (tray@2x.png, tray-busy@2x.png, tray-alert@2x.png).
 
 The mark is three stacked lines, the last one short: layers of kept versions. The app icon puts
-them in white on a green rounded tile; the menu-bar images are TEMPLATES (black plus alpha),
+them in Keepr green on a light rounded tile, with a soft shadow so it holds up on light Docks; the menu-bar images are TEMPLATES (black plus alpha),
 which macOS tints for light and dark menu bars. Drawn with PIL, supersampled for smooth edges.
 
     python3 tools/make_icons.py            # then: npx tauri icon design/icon.png
@@ -16,8 +16,10 @@ from PIL import Image, ImageDraw
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SS = 4
-GREEN_TOP = (26, 138, 104)
-GREEN_BOTTOM = (13, 98, 74)
+# A light tile with Keepr-green bars (the sidebar and splash marks are the reverse: green tile, white bars).
+TILE_TOP = (255, 255, 255)
+TILE_BOTTOM = (232, 238, 235)
+GREEN = (15, 122, 92)
 
 
 def app_icon():
@@ -30,18 +32,24 @@ def app_icon():
     grad = Image.new("RGBA", (1, S))
     for y in range(S):
         t = y / S
-        grad.putpixel((0, y), tuple(int(a + (b - a) * t) for a, b in zip(GREEN_TOP, GREEN_BOTTOM)) + (255,))
+        grad.putpixel((0, y), tuple(int(a + (b - a) * t) for a, b in zip(TILE_TOP, TILE_BOTTOM)) + (255,))
     grad = grad.resize((S, S))
     mask = Image.new("L", (S, S), 0)
     ImageDraw.Draw(mask).rounded_rectangle((m, m, S - m, S - m), radius=185 * SS, fill=255)
     tile.paste(grad, (0, 0), mask)
+    from PIL import ImageFilter
+    shadow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).rounded_rectangle((m, m + 10 * SS, S - m, S - m + 10 * SS), radius=185 * SS, fill=(0, 0, 0, 70))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(14 * SS))
+    img = Image.alpha_composite(img, shadow)
     img = Image.alpha_composite(img, tile)
+    ImageDraw.Draw(img).rounded_rectangle((m, m, S - m, S - m), radius=185 * SS, outline=(0, 0, 0, 22), width=2 * SS)
     d = ImageDraw.Draw(img)
     w = 70 * SS
     x0, x1, xs = 300 * SS, 724 * SS, 560 * SS
     for y, right in ((380, x1), (512, x1), (644, xs)):
         y *= SS
-        d.rounded_rectangle((x0, y - w // 2, right, y + w // 2), radius=w // 2, fill=(255, 255, 255, 255))
+        d.rounded_rectangle((x0, y - w // 2, right, y + w // 2), radius=w // 2, fill=GREEN + (255,))
     out = ROOT / "design" / "icon.png"
     out.parent.mkdir(exist_ok=True)
     img.resize((1024, 1024), Image.LANCZOS).save(out)
