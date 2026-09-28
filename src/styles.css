@@ -265,15 +265,16 @@ html.tray body { background: transparent; }
 
 /* A name that is edited in place: looks like a heading, but a pencil and a hover outline say it
    can be typed into. The input sizes to its text so the pencil sits right after the name. */
-.editable-title { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; max-width: 100%; margin-left: -8px; padding: 0 10px 0 8px; border-radius: 8px; border: 1px solid transparent; cursor: text; color: var(--ink3); transition: background 0.12s, border-color 0.12s; }
+.editable-title { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; max-width: 100%; margin-left: -8px; padding: 0 10px 0 8px; border-radius: 8px; border: 1.5px solid transparent; cursor: text; color: var(--ink3); transition: background 0.12s, border-color 0.12s; }
 .editable-title input { field-sizing: content; min-width: 6ch; max-width: 100%; border: 0; padding: 0; height: 44px; font-family: var(--display); font-weight: 650; letter-spacing: -0.02em; font-size: 30px; background: transparent; color: var(--ink); outline: none; }
 .editable-title input::placeholder { color: var(--ink3); }
-.editable-title:hover { background: var(--hover); border-color: var(--line2); color: var(--ink2); }
-.editable-title:focus-within { background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); color: var(--accent-text); }
+.editable-title:hover { background: var(--hover); border: 1.5px dashed var(--ink3); color: var(--ink2); }
+.editable-title:focus-within { background: var(--surface); border: 1.5px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); color: var(--accent-text); }
 .source-name { border-radius: 5px !important; margin-left: -4px !important; padding: 0 4px !important; }
-.source-name:hover { background: var(--hover) !important; box-shadow: 0 0 0 1px var(--line2); }
+.source-name:hover { background: var(--hover) !important; outline: 1.5px dashed var(--ink3); outline-offset: 0; }
+.source-name:focus { outline: none; }
 .source-name:focus { background: var(--surface) !important; box-shadow: 0 0 0 1.5px var(--accent); }
 /* The retention boxes are pop-up menus: say so on hover. */
 .keep-box { cursor: pointer; transition: border-color 0.12s, background 0.12s; }
-.keep-box:hover { border-color: var(--line2); background: var(--hover); }
+.keep-box:hover { border: 1px dashed var(--ink3); background: var(--hover); }
 .keep-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
