@@ -33,12 +33,12 @@ type AppCtx = {
 const Ctx = createContext<AppCtx>(null as unknown as AppCtx);
 export const useApp = () => useContext(Ctx);
 
+// Plans aren't here: they're listed under Backup Plans below, each opening its own settings.
 const NAV: [Screen["name"], string, string, string][] = [
   ["overview", "Overview", "overview", "⌘1"],
-  ["plans", "Plans", "plans", "⌘2"],
-  ["restore", "Restore", "restore", "⌘3"],
-  ["activity", "Activity", "activity", "⌘4"],
-  ["destinations", "Destinations", "server", "⌘5"],
+  ["restore", "Restore", "restore", "⌘2"],
+  ["activity", "Activity", "activity", "⌘3"],
+  ["destinations", "Destinations", "server", "⌘4"],
 ];
 
 export function statusDot(status: string): string {
@@ -69,30 +69,27 @@ function Sidebar() {
           </button>
         ))}
       </div>
-      {plans.length > 0 && (
-        <>
-          <div className="side-section">
-            <span className="caps">{restoring ? "Restore from" : "Plans"}</span>
-            {!restoring && (
-              <button className="iconbtn" style={{ width: 20, height: 20 }} aria-label="New plan" title="New plan ⌘N" onClick={() => go({ name: "plans", isNew: true })}>
-                <Icon name="plus" size={14} stroke={2.2} />
-              </button>
-            )}
-          </div>
-          <div className="col" style={{ gap: 2 }}>
-            {plans.map((p) => {
-              const on = (screen.name === "restore" || screen.name === "plans") && screen.plan === p.id;
-              return (
-                <button key={p.id} className={`side-item${on ? " on" : ""}`} onClick={() => go(restoring ? { name: "restore", plan: p.id } : { name: "plans", plan: p.id })}>
-                  <span className={statusDot(p.status)} />
-                  <span className="grow ellipsis">{p.name}</span>
-                  <span className="tiny faint">{restoring ? p.snapshots.toLocaleString() : p.status === "running" ? "…" : shortAgo(p.lastSuccess)}</span>
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
+      <div className="side-section">
+        <span className="caps">{restoring ? "Restore from" : "Backup Plans"}</span>
+      </div>
+      <div className="col" style={{ gap: 2 }}>
+        {plans.map((p) => {
+          const on = (screen.name === "restore" || screen.name === "plans") && (screen.plan === p.id || (!screen.plan && !(screen.name === "plans" && screen.isNew) && plans[0].id === p.id));
+          return (
+            <button key={p.id} className={`side-item${on ? " on" : ""}`} onClick={() => go(restoring ? { name: "restore", plan: p.id } : { name: "plans", plan: p.id })} title={restoring ? `Restore from ${p.name}` : `${p.name}: ${p.schedule}`}>
+              <span className={statusDot(p.status)} />
+              <span className="grow ellipsis">{p.name}</span>
+              <span className="tiny faint">{restoring ? p.snapshots.toLocaleString() : p.status === "running" ? "…" : shortAgo(p.lastSuccess)}</span>
+            </button>
+          );
+        })}
+        {!restoring && (
+          <button className={`side-item${screen.name === "plans" && screen.isNew ? " on" : ""}`} onClick={() => go({ name: "plans", isNew: true })} title="Make a new backup plan ⌘N" style={{ color: "var(--accent-text)" }}>
+            <Icon name="plus" size={13} stroke={2.4} />
+            <span className="grow">New plan</span>
+          </button>
+        )}
+      </div>
       <div className="grow" />
       {nas && (
         <div className="side-card">
@@ -265,7 +262,7 @@ export default function App() {
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       if (!e.metaKey) return;
-      const i = "12345".indexOf(e.key);
+      const i = "1234".indexOf(e.key);
       if (i >= 0) {
         e.preventDefault();
         go({ name: NAV[i][0] } as Screen);

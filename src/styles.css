@@ -246,3 +246,6 @@ html.tray body { background: transparent; }
 .traywin { margin: 0; background: var(--surface); border: 1px solid var(--line2); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
 .traywin .menu-item { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; text-align: left; width: 100%; }
 .traywin .menu-item:hover { background: var(--accent-soft); color: var(--accent-text); }
+
+/* A source's default name reads as its name, not as a hint. */
+.source-name::placeholder { color: var(--ink); opacity: 1; }

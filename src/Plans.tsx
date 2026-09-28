@@ -505,7 +505,7 @@ export default function Plans() {
                     <input
                       aria-label="Source name"
                       title="Rename this source"
-                      className="input"
+                      className="input source-name"
                       value={s.name ?? ""}
                       placeholder={fallback}
                       onChange={(e) => update((p) => ({ ...p, sources: p.sources.map((x, j) => (j === i ? { ...x, name: e.target.value || null } : x)) }))}
