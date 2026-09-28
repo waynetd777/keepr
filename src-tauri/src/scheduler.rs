@@ -97,7 +97,9 @@ pub fn tick(core: &Arc<Core>) {
 }
 
 pub fn start(core: Arc<Core>) {
-    if core.frozen {
+    // KEEPR_NO_SCHEDULE: a second Keepr (a dev build beside a command-line backup) that mustn't
+    // start backups of its own.
+    if core.frozen || std::env::var_os("KEEPR_NO_SCHEDULE").is_some() {
         return;
     }
     std::thread::spawn(move || {
