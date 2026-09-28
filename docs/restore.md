@@ -1,0 +1,53 @@
+# Restore
+
+Restore shows your files as they were at any backup, and puts back whichever you choose: one file, a folder, or everything. Open it from the sidebar (⌘2), **Restore…** on a plan's card, or **Restore a file…** in the menu bar.
+
+<a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/restore-dark.png"><img alt="Restore: Documents & Projects as they were at its latest snapshot, with the snapshots along the top and the files below" src="images/restore-light.png"></picture></a>
+
+[Going back to a moment](#going-back-to-a-moment) · [A file's versions](#a-files-versions) · [Restoring](#restoring) · [Finding a file in any backup](#finding-a-file-in-any-backup) · [Removing something from a backup](#removing-something-from-a-backup)
+
+## Going back to a moment
+
+The tabs along the top are your plans, each with the number of snapshots it has. Pick one, and it opens at its latest snapshot: "Your files as they were on…".
+
+- **Earlier** and **Later**, or the ← and → keys, step through the snapshots; **Latest** goes back to the newest.
+- The strip shows ten days at a time, one bar per snapshot, taller for more new data. Click a bar to go to that snapshot; the button at its left goes back to earlier days.
+- **Find in** searches this snapshot by name.
+- **Show deleted files** also lists files that were in an earlier snapshot but not this one, struck through.
+
+The list shows each file's modified time and size, how many versions of it are kept, and whether it's **New**, **Changed** or **Deleted** in this snapshot. Click the arrow beside a folder, or double-click it, to open it.
+
+## A file's versions
+
+Click a file to see every version the backup keeps of it, newest first, each with its date and size. The one in the snapshot you're looking at is marked **In this snapshot**.
+
+<a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/versions-dark.png"><img alt="The versions of Budget 2026.numbers, with Quick Look, Compare with current and Restore this version" src="images/versions-light.png"></picture></a>
+
+- **Quick Look** opens the version in Quick Look, to see what's in it, without restoring it.
+- **Compare with current** compares the version with the file on the Mac now. For a text file it shows the lines that differ: those only in the backup and those only on the Mac. For other files it says whether they're the same.
+- **Restore this version** puts it back, as below.
+
+Click a folder to see its size and how many items it held at that snapshot.
+
+## Restoring
+
+Tick what you want back: files, folders, or a mix. A ticked folder comes back with everything in it as it was then. The bar at the bottom says how much you've chosen, and:
+
+- **Restore to** — **Original location**, where each item was, making any folders that no longer exist; or **Another folder…**, where items keep their folders inside the folder you choose.
+- **If a file is already there** — **Keep both (add "restored")**, which names the restored copy "Budget (restored).numbers"; **Replace it**; or **Skip it**.
+
+Then click **Restore**. Each file is written under a temporary name and only takes its real name once it's complete, so a restore that's stopped never leaves half a file. Files get back their modified times and permissions. A deleted file comes from the last snapshot that had it.
+
+A restore runs like a backup, one job at a time, and shows in [Activity](day-to-day.md#activity). Files backed up from an S3 bucket can only be restored to a folder on the Mac, never back into the bucket.
+
+## Finding a file in any backup
+
+Type a name in the toolbar's search box (⌘K) and press Return to search every plan and every snapshot at once. Each result shows its folder, its plan, its newest version and its size, and whether it has been deleted. Click one to open Restore at the newest snapshot that holds it, with the file picked and its versions showing.
+
+<a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/search-dark.png"><img alt="Search results for notes across every backup" src="images/search-light.png"></picture></a>
+
+A plan whose destination can't be reached (an unplugged drive, say) isn't searched, and the results say so.
+
+## Removing something from a backup
+
+**Remove from backup…**, under a file's or folder's versions, takes it out of every snapshot, to free the space or because it should never have been backed up. Keepr asks twice first; it can't be undone. To stop it being backed up again, add a rule for it in the plan's [What to leave out](plans.md#what-to-leave-out).

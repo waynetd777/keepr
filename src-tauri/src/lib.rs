@@ -10,6 +10,7 @@ mod config;
 mod core;
 #[cfg(target_os = "macos")]
 mod folder_panel;
+mod help;
 mod keychain;
 #[cfg(target_os = "macos")]
 mod login_item;
@@ -1184,7 +1185,13 @@ pub fn run() {
             show_main_window,
             quit
         ])
+        .on_menu_event(|app, ev| {
+            if ev.id() == help::MENU_ID {
+                help::show(app);
+            }
+        })
         .setup(move |app| {
+            help::add_to_menu(app.handle())?;
             if !frozen {
                 std::thread::spawn(keychain::warm);
             }

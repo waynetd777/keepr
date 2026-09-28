@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleHelpBookFolder</key>
+	<string>Keepr.help</string>
+	<key>CFBundleHelpBookName</key>
+	<string>com.wayned.keepr.help</string>
 	<key>NSDocumentsFolderUsageDescription</key>
 	<string>Keepr backs up the folders you choose, including ones in Documents.</string>
 	<key>NSDesktopFolderUsageDescription</key>

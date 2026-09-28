@@ -13,6 +13,17 @@
     }
   },
   {
+    "name": "versions",
+    "screen": {
+      "name": "restore",
+      "plan": "docs00000001",
+      "focus": {
+        "snapshot": "",
+        "path": "{home}/Documents/Finance/Budget 2026.numbers"
+      }
+    }
+  },
+  {
     "name": "plan",
     "screen": {
       "name": "plans",

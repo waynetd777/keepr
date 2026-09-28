@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Screenshots of Keepr's screens, from demo data: design/screens/<scene>-<theme>.png.
+"""Retake the README and docs screenshots, from demo data: docs/images/<scene>-<theme>.png.
 
-Makes a demo in .demo/ (gitignored): sample folders, a "NAS" folder as the destination, and a
-drive that isn't connected. It backs the folders up a few times with `Keepr --back-up`, editing
+Makes a demo in .demo/ (gitignored): sample folders in a demo home, a backup folder as the
+destination, and a drive that isn't connected. It backs the folders up a few times with `Keepr --back-up`, editing
 files between runs, so there are snapshots and versions to show. Then it launches the dev build
 once per scene and theme with the scene in KEEPR_SCENE (the app saves and runs nothing), and
 captures the window. Nothing outside .demo/ is read or written, and no snapshots of the Mac are
@@ -36,7 +36,7 @@ from PIL import Image, ImageCms
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HERE = ROOT / "tools" / "screenshots"
 DEMO = ROOT / ".demo"
-OUT = ROOT / "design" / "screens"
+OUT = ROOT / "docs" / "images"
 BIN = ROOT / "src-tauri" / "target" / "debug" / "Keepr"
 DEV_URL = "http://localhost:1420"
 WIDTH = 1400
@@ -80,7 +80,8 @@ def build(tmp):
 
 
 def env():
-    return {**os.environ, "KEEPR_DATA": str(DEMO / "data"), "KEEPR_NO_STILL": "1"}
+    # HOME is the demo's, so paths show as ~/Documents and not as where this repo is on this Mac.
+    return {**os.environ, "HOME": str(DEMO / "Home"), "KEEPR_DATA": str(DEMO / "data"), "KEEPR_NO_STILL": "1"}
 
 
 def write(p, data):
@@ -113,7 +114,7 @@ def make_demo():
     for i in range(24):
         write(pics / "2026" / f"IMG_{4100 + i}.jpg", noise(300_000 + i * 5_000, 100 + i))
     write(notes / "Journal.md", "Notes\n")
-    nas = DEMO / "NAS" / "Backups" / "Keepr"
+    nas = home / "Backups" / "Keepr"
     nas.mkdir(parents=True)
     ex = ["node_modules/", "target/", ".DS_Store", "*.tmp", "~/Library/Caches", ".Trash/"]
 
@@ -130,7 +131,7 @@ def make_demo():
 
     config = {
         "destinations": [
-            {"id": "nas000000001", "name": "keep-nas", "place": {"kind": "folder", "path": str(nas)}, "disconnectAfter": True},
+            {"id": "nas000000001", "name": "Backups", "place": {"kind": "folder", "path": str(nas)}, "disconnectAfter": True},
             {"id": "ssd000000001", "name": "Archive SSD", "place": {"kind": "folder", "path": "/Volumes/Keepr Demo Archive SSD/Keepr"}, "disconnectAfter": True},
         ],
         "plans": [
@@ -176,7 +177,8 @@ def window_of(window_id, pid, timeout=30, any_layer=False):
 def shoot(scene, theme, window_id):
     sc = {k: v for k, v in scene.items() if k not in ("name", "crop")}
     sc["theme"] = theme
-    app = subprocess.Popen([str(BIN)], cwd=ROOT / "src-tauri", env={**env(), "KEEPR_SCENE": json.dumps(sc)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # "{home}" in a scene is the demo's home folder, for the paths of files in it.
+    app = subprocess.Popen([str(BIN)], cwd=ROOT / "src-tauri", env={**env(), "KEEPR_SCENE": json.dumps(sc).replace("{home}", str(DEMO / "Home"))}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         floating = bool(scene.get("tray"))
         win = window_of(window_id, app.pid, any_layer=floating)

@@ -16,3 +16,6 @@ __pycache__/
 
 # tools/screenshots.py's demo files and backups
 .demo/
+
+# tools/helpbook.py builds the Help Book here from docs/
+src-tauri/gen/help
