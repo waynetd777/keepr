@@ -78,29 +78,27 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
       <button className="iconbtn" aria-label="Forward" title="Forward ⌘]" disabled={!canForward} onClick={forward}>
         <Icon name="forward" stroke={2} />
       </button>
-      {screen.name !== "restore" && (
-        <form
-          className="search"
-          style={{ marginLeft: 8 }}
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (q.trim()) go({ name: "search", query: q.trim() });
-          }}
-        >
-          <Icon name="search" size={15} stroke={2} />
-          <input ref={input} aria-label="Find a file in any backup" placeholder="Find a file in any backup" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQ("")} />
-          {q ? (
-            <ClearButton
-              onClick={() => {
-                setQ("");
-                input.current?.focus();
-              }}
-            />
-          ) : (
-            <span className="kbd">⌘K</span>
-          )}
-        </form>
-      )}
+      <form
+        className="search"
+        style={{ marginLeft: 8 }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (q.trim()) go({ name: "search", query: q.trim() });
+        }}
+      >
+        <Icon name="search" size={15} stroke={2} />
+        <input ref={input} aria-label="Find a file in any backup" placeholder="Find a file in any backup" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQ("")} />
+        {q ? (
+          <ClearButton
+            onClick={() => {
+              setQ("");
+              input.current?.focus();
+            }}
+          />
+        ) : (
+          <span className="kbd">⌘K</span>
+        )}
+      </form>
       <div className="spacer" data-tauri-drag-region />
       {watching > 0 && (
         <span className="row small muted" style={{ gap: 6 }}>
