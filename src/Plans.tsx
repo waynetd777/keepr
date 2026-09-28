@@ -251,8 +251,8 @@ export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; 
         {servers.length > 0 && (
           <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
             {servers.map((s) => (
-              <button key={s} className={`btn small${server === `${s}.local` ? " primary" : ""}`} onClick={() => setServer(`${s}.local`)}>
-                {s}
+              <button key={s} className={`btn small${server === s ? " primary" : ""}`} onClick={() => setServer(s)}>
+                {s.replace(/\.local$/, "")}
               </button>
             ))}
           </div>
@@ -273,7 +273,7 @@ export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; 
           <label className="field">
             <span>Share</span>
             <div className="row" style={{ gap: 6 }}>
-              <input className="input grow" list="smb-shares" value={share} onChange={(e) => setShare(e.target.value)} />
+              <input className="input grow" value={share} onChange={(e) => setShare(e.target.value)} />
               <button
                 className="btn"
                 disabled={!server}
@@ -292,12 +292,17 @@ export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; 
                 List
               </button>
             </div>
-            <datalist id="smb-shares">
-              {shares.map((s) => (
-                <option key={s} value={s} />
-              ))}
-            </datalist>
           </label>
+          {shares.length > 0 && (
+            <div className="row" style={{ gridColumn: "span 2", flexWrap: "wrap", gap: 6 }}>
+              <span className="small muted">Shares on {server}:</span>
+              {shares.map((s) => (
+                <button key={s} className={`btn small${share === s ? " primary" : ""}`} onClick={() => setShare(s)}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
           <label className="field">
             <span>Folder in the share</span>
             <input className="input mono" placeholder="/ for all of it" value={folder} onChange={(e) => setFolder(e.target.value)} />

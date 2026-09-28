@@ -52,6 +52,26 @@ fn decode(s: &str) -> String {
     String::from_utf8_lossy(&out).to_string()
 }
 
+/// Servers of SMB shares mounted now ("192.168.1.20", "keep-nas").
+pub fn mounted_servers() -> Vec<String> {
+    let mut out = Vec::new();
+    let mut buf: *mut libc::statfs = std::ptr::null_mut();
+    let n = unsafe { libc::getmntinfo(&mut buf, libc::MNT_NOWAIT) };
+    for i in 0..n.max(0) as usize {
+        let m = unsafe { &*buf.add(i) };
+        if unsafe { CStr::from_ptr(m.f_fstypename.as_ptr()) }.to_string_lossy() != "smbfs" {
+            continue;
+        }
+        let from = decode(&unsafe { CStr::from_ptr(m.f_mntfromname.as_ptr()) }.to_string_lossy());
+        let rest = from.trim_start_matches('/');
+        let rest = rest.rsplit_once('@').map_or(rest, |(_, r)| r);
+        if let Some((host, _)) = rest.split_once('/') {
+            out.push(host.split("._smb._tcp").next().unwrap_or(host).to_string());
+        }
+    }
+    out
+}
+
 /// Where `server`'s `share` is mounted already, if it is.
 pub fn find_mount(server: &str, share: &str) -> Option<PathBuf> {
     let (want_host, want_share) = (norm_host(server), share.trim_matches('/').to_lowercase());
@@ -134,21 +154,45 @@ pub fn unmount(path: &std::path::Path) {
     }
 }
 
-/// Servers offering SMB on this network, by their Bonjour names ("keep-nas"). Takes about a second.
+/// Servers offering SMB on this network, by their Bonjour names ("keep-nas"). Takes about a
+/// second. Asks Bonjour directly (dns_sd): `dns-sd -B` buffers its output when it isn't writing to
+/// a terminal, so reading it for a second gets nothing.
 pub fn discover() -> Vec<String> {
-    let Ok(mut child) = std::process::Command::new("/usr/bin/dns-sd").args(["-B", "_smb._tcp", "local."]).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).spawn() else {
-        return vec![];
-    };
-    std::thread::sleep(std::time::Duration::from_millis(1200));
-    let _ = child.kill();
-    let out = child.wait_with_output().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default();
-    let mut names: Vec<String> = out
-        .lines()
-        .filter(|l| l.contains(" Add ") && l.contains("_smb._tcp."))
-        .filter_map(|l| l.split("_smb._tcp.").nth(1).map(|n| n.trim().to_string()))
-        .filter(|n| !n.is_empty())
-        .collect();
-    names.sort();
+    use std::ffi::{c_char, c_void, CStr};
+    type BrowseReply = extern "C" fn(sd: *mut c_void, flags: u32, iface: u32, err: i32, name: *const c_char, regtype: *const c_char, domain: *const c_char, ctx: *mut c_void);
+    extern "C" {
+        fn DNSServiceBrowse(sd: *mut *mut c_void, flags: u32, iface: u32, regtype: *const c_char, domain: *const c_char, cb: BrowseReply, ctx: *mut c_void) -> i32;
+        fn DNSServiceRefSockFD(sd: *mut c_void) -> i32;
+        fn DNSServiceProcessResult(sd: *mut c_void) -> i32;
+        fn DNSServiceRefDeallocate(sd: *mut c_void);
+    }
+    extern "C" fn reply(_sd: *mut c_void, flags: u32, _i: u32, err: i32, name: *const c_char, _t: *const c_char, _d: *const c_char, ctx: *mut c_void) {
+        const ADD: u32 = 0x2;
+        if err == 0 && flags & ADD != 0 && !name.is_null() {
+            let names = unsafe { &mut *(ctx as *mut Vec<String>) };
+            names.push(unsafe { CStr::from_ptr(name) }.to_string_lossy().to_string());
+        }
+    }
+    let mut names: Vec<String> = Vec::new();
+    unsafe {
+        let mut sd: *mut c_void = std::ptr::null_mut();
+        if DNSServiceBrowse(&mut sd, 0, 0, c"_smb._tcp".as_ptr(), c"local.".as_ptr(), reply, &mut names as *mut Vec<String> as *mut c_void) != 0 {
+            return vec![];
+        }
+        let fd = DNSServiceRefSockFD(sd);
+        let end = std::time::Instant::now() + std::time::Duration::from_millis(1200);
+        while let Some(left) = end.checked_duration_since(std::time::Instant::now()) {
+            let mut p = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+            if libc::poll(&mut p, 1, left.as_millis() as i32) <= 0 {
+                break;
+            }
+            if DNSServiceProcessResult(sd) != 0 {
+                break;
+            }
+        }
+        DNSServiceRefDeallocate(sd);
+    }
+    names.sort_by_key(|n| n.to_lowercase());
     names.dedup();
     names
 }
@@ -167,10 +211,12 @@ pub fn shares(server: &str, user: &str, password: &str) -> Result<Vec<String>, S
     let target = if user.is_empty() { format!("//{server}") } else { format!("//{}@{server}", percent(user)) };
     let stdio = |fd: i32| std::process::Stdio::from(unsafe { std::fs::File::from_raw_fd(libc::dup(fd)) });
     let mut cmd = std::process::Command::new("/usr/bin/smbutil");
-    cmd.args(["view", &target]).stdin(stdio(slave)).stdout(stdio(slave)).stderr(stdio(slave));
+    cmd.arg("view");
+    // Options before the server: smbutil stops reading options at the first other argument.
     if user.is_empty() {
         cmd.arg("-N");
     }
+    cmd.arg(&target).stdin(stdio(slave)).stdout(stdio(slave)).stderr(stdio(slave));
     unsafe {
         cmd.pre_exec(|| {
             libc::setsid();
@@ -242,6 +288,16 @@ fn parse_shares(out: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// Against a real server: KEEPR_TEST_SMB_HOST=192.168.1.20 cargo test smb -- --ignored
+    #[test]
+    #[ignore]
+    fn lists_a_real_servers_shares_as_guest() {
+        let host = std::env::var("KEEPR_TEST_SMB_HOST").expect("KEEPR_TEST_SMB_HOST");
+        let s = super::shares(&host, "", "").unwrap();
+        assert!(!s.is_empty());
+        println!("shares: {s:?}; servers: {:?}", super::discover());
+    }
+
     #[test]
     fn parses_share_lists() {
         let out = "Password for keep-nas:\r\nShare                                           Type    Comments\n-------------------------------\nBackups                                         Disk    \nMy Photos                                       Disk    family\nIPC$                                            Pipe    IPC Service\nADMIN$                                          Disk    \n\n3 shares listed\n";

@@ -39,7 +39,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   useEffect(() => {
     api.discoverServers().then((s) => {
       setServers(s);
-      if (!server && s[0]) setServer(`${s[0]}.local`);
+      if (!server && s[0]) setServer(s[0]);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -161,21 +161,22 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
             <>
               {servers.length > 0 && (
                 <div className="col" style={{ gap: 6 }}>
-                  <span className="caps">Found on your network</span>
+                  <span className="caps">Servers</span>
                   <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
                     {servers.map((s) => {
-                      const on = server === `${s}.local`;
+                      const on = server === s;
+                      const short = s.replace(/\.local$/, "");
                       return (
                         <button
                           key={s}
                           aria-pressed={on}
-                          onClick={() => setServer(`${s}.local`)}
+                          onClick={() => setServer(s)}
                           style={{ flex: 1, minWidth: 160, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", border: on ? "1.5px solid var(--accent)" : "1px solid var(--line)", borderRadius: 10, background: on ? "var(--accent-soft)" : "var(--surface)", textAlign: "left" }}
                         >
                           <Icon name="server" size={18} />
                           <span className="col" style={{ gap: 0 }}>
-                            <span style={{ fontWeight: 600 }}>{s}</span>
-                            <span className="tiny muted">{s}.local</span>
+                            <span style={{ fontWeight: 600 }}>{short}</span>
+                            <span className="tiny muted">{s}</span>
                           </span>
                         </button>
                       );
@@ -191,17 +192,22 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
                 <label className="field">
                   <span>Share</span>
                   <div className="row" style={{ gap: 6 }}>
-                    <input className="input grow" list="dest-shares" value={share} onChange={(e) => setShare(e.target.value)} />
+                    <input className="input grow" value={share} onChange={(e) => setShare(e.target.value)} />
                     <button className="btn" disabled={!server || !!busy} onClick={listShares} title="Ask the server which shares it has">
                       List
                     </button>
                   </div>
-                  <datalist id="dest-shares">
-                    {shares.map((s) => (
-                      <option key={s} value={s} />
-                    ))}
-                  </datalist>
                 </label>
+                {shares.length > 0 && (
+                  <div className="row" style={{ gridColumn: "span 2", flexWrap: "wrap", gap: 6 }}>
+                    <span className="small muted">Shares on {server}:</span>
+                    {shares.map((s) => (
+                      <button key={s} className={`btn small${share === s ? " primary" : ""}`} onClick={() => setShare(s)}>
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <label className="field">
                   <span>User name</span>
                   <input className="input" value={user} onChange={(e) => setUser(e.target.value)} />

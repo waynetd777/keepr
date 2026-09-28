@@ -430,9 +430,19 @@ async fn test_place(core: State<'_, Core_>, place: Place, password: Option<Strin
     .map_err(|e| e.to_string())
 }
 
+/// SMB servers to offer: ones Keepr already uses, ones mounted now, and ones on Bonjour.
 #[tauri::command]
-async fn discover_servers() -> Vec<String> {
-    tauri::async_runtime::spawn_blocking(smb::discover).await.unwrap_or_default()
+async fn discover_servers(core: State<'_, Core_>) -> Result<Vec<String>, String> {
+    let mut known: Vec<String> = {
+        let c = core.config.lock().unwrap();
+        c.destinations.iter().map(|d| &d.place).chain(c.plans.iter().flat_map(|p| p.sources.iter())).filter_map(|p| if let Place::Smb(s) = p { Some(s.server.clone()) } else { None }).collect()
+    };
+    known.extend(smb::mounted_servers());
+    let found = tauri::async_runtime::spawn_blocking(smb::discover).await.unwrap_or_default();
+    known.extend(found.into_iter().map(|n| format!("{n}.local")));
+    let mut seen = std::collections::HashSet::new();
+    known.retain(|s| seen.insert(s.to_lowercase()));
+    Ok(known)
 }
 
 #[tauri::command]
