@@ -2,7 +2,6 @@
 // SMB share, with the cloud services shown as coming later).
 
 import { useEffect, useState } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { api, type Destination, type Place, type Tested } from "./api";
 import { useApp } from "./App";
 import { Icon } from "./icons";
@@ -142,8 +141,8 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
                 <button
                   className="btn"
                   onClick={async () => {
-                    const f = await openDialog({ directory: true, title: "Keep backups in this folder" });
-                    if (typeof f === "string") setPath(f);
+                    const [f] = await api.chooseFolders("Keep backups in this folder", false, path || undefined);
+                    if (f) setPath(f);
                   }}
                 >
                   Choose…

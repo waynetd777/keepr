@@ -2,7 +2,6 @@
 // any file's versions, and put them back where they were or into another folder.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { api, type Comparison, type Conflict, type Entry, type SnapInfo, type Version } from "./api";
 import { useApp } from "./App";
 import { Icon } from "./icons";
@@ -263,8 +262,8 @@ export default function Restore() {
     toast(`Restoring ${paths.length === 1 ? paths[0].split("/").pop() : `${paths.length} items`}. Activity shows how it's going.`);
   };
   const chooseFolder = async () => {
-    const f = await openDialog({ directory: true, title: "Restore into this folder" });
-    if (typeof f === "string") {
+    const [f] = await api.chooseFolders("Restore into this folder", false, folder || undefined);
+    if (f) {
       setFolder(f);
       setDest("folder");
     }

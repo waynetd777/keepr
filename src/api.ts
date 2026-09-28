@@ -139,6 +139,8 @@ export const api = {
   search: (plan: string, snapshot: string, query: string) => invoke<Entry[]>("search_snapshot", { plan, snapshot, query }),
   quickLook: (plan: string, snapshot: string, path: string) => invoke<void>("quick_look", { plan, snapshot, path }),
   compare: (plan: string, snapshot: string, path: string) => invoke<Comparison>("compare", { plan, snapshot, path }),
+  /** macOS's folder panel, one kept and reused (a new one takes ~26 s on macOS 27). */
+  chooseFolders: (title: string, multiple = false, start?: string) => invoke<string[]>("choose_folders", { title, multiple, start: start ?? null }),
   version: () => invoke<[string, string]>("app_version"),
   home: () => invoke<string>("home_dir"),
   loginItem: () => invoke<[boolean, boolean]>("login_item"),

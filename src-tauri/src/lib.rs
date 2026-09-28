@@ -4,6 +4,8 @@
 mod browse;
 mod config;
 mod core;
+#[cfg(target_os = "macos")]
+mod folder_panel;
 mod keychain;
 #[cfg(target_os = "macos")]
 mod login_item;
@@ -575,6 +577,25 @@ async fn quick_look(core: State<'_, Core_>, plan: String, snapshot: String, path
 
 // ---- the app ----
 
+/// The folder panel (see folder_panel.rs), run on the main thread.
+#[tauri::command]
+async fn choose_folders(app: AppHandle, title: String, multiple: bool, start: Option<String>) -> Vec<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let _ = app.run_on_main_thread(move || {
+            let mtm = objc2::MainThreadMarker::new().expect("on the main thread");
+            let _ = tx.send(folder_panel::choose(mtm, &title, multiple, start.as_deref()));
+        });
+        tauri::async_runtime::spawn_blocking(move || rx.recv().unwrap_or_default()).await.unwrap_or_default()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, title, multiple, start);
+        vec![]
+    }
+}
+
 #[tauri::command]
 fn app_version() -> (String, String) {
     (env!("CARGO_PKG_VERSION").to_string(), option_env!("KEEPR_BUILD").unwrap_or("dev").to_string())
@@ -794,6 +815,7 @@ pub fn run() {
             quick_look,
             compare,
             app_version,
+            choose_folders,
             home_dir,
             login_item,
             set_login_item,

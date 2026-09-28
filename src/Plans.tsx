@@ -3,7 +3,6 @@
 // plan is saved with Create.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { api, type Every, type Often, type Place, type Plan, type Retention } from "./api";
 import { useApp } from "./App";
@@ -380,8 +379,7 @@ export default function Plans() {
   };
 
   const addFolders = async () => {
-    const picked = await openDialog({ directory: true, multiple: true, title: "Choose folders to back up" });
-    const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+    const paths = await api.chooseFolders("Choose folders to back up", true);
     if (paths.length) update((p) => ({ ...p, sources: [...p.sources, ...paths.filter((x) => !p.sources.some((s) => s.kind === "folder" && s.path === x)).map((path) => ({ kind: "folder" as const, path }))], name: p.name || (paths[0].split("/").pop() ?? "") }));
   };
 
