@@ -3,6 +3,7 @@
 
 mod aws_setup;
 mod b2_setup;
+mod verify;
 mod browse;
 mod config;
 mod core;
@@ -970,6 +971,17 @@ pub fn cli(args: &[String]) -> Option<i32> {
     // Before anything reads a file: both the app and these commands may meet cloud-only files.
     system::allow_cloud_downloads();
     match args.first().map(String::as_str) {
+        // Restores a plan's latest snapshot into a folder and compares it with the sources.
+        Some("--verify-restore") if args.len() == 3 => {
+            return Some(match verify::run(&args[1], std::path::Path::new(&args[2])) {
+                Ok(true) => 0,
+                Ok(false) => 3,
+                Err(e) => {
+                    eprintln!("{e}");
+                    1
+                }
+            });
+        }
         // Lists what's in an S3 destination's bucket, for looking into its size.
         Some("--list-destination") if args.len() == 2 => {
             let c: config::Config = config::read(&config::data_dir(), "config.json");
