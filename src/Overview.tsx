@@ -227,6 +227,10 @@ export default function Overview() {
         {ov.plans.map((p) => (
           <PlanCard key={p.id} p={p} />
         ))}
+        <button className="card" onClick={() => go({ name: "plans", isNew: true })} title="Make another plan ⌘N" style={{ height: 56, border: "1.5px dashed var(--line2)", background: "transparent", color: "var(--accent-text)", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexShrink: 0 }}>
+          <Icon name="plus" size={14} stroke={2.4} />
+          Add a plan
+        </button>
       </section>
 
       <aside className="col" style={{ width: 340, flexShrink: 0, gap: 16 }}>
