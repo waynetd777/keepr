@@ -579,6 +579,12 @@ fn remove_source_data(core: State<Core_>, plan: String, source: Place) -> String
     core.enqueue(Job::RemoveSource { plan, source })
 }
 
+/// Takes a file or folder out of every snapshot of the plan (after the user has confirmed).
+#[tauri::command]
+fn remove_path_data(core: State<Core_>, plan: String, path: String) -> String {
+    core.enqueue(Job::RemovePath { plan, path })
+}
+
 #[tauri::command]
 fn check_now(core: State<Core_>, plan: String, all: bool) -> String {
     core.enqueue(Job::Check { plan, all })
@@ -847,8 +853,38 @@ fn toggle_tray_window(app: &AppHandle, rect: tauri::Rect) {
 /// `Keepr --back-up <plan id>…`: runs those backups without a window and exits, for scripts
 /// (tools/screenshots.py makes its demo backups this way). Exit status 1 if any didn't complete.
 pub fn cli(args: &[String]) -> Option<i32> {
-    if args.first().map(String::as_str) != Some("--back-up") {
-        return None;
+    match args.first().map(String::as_str) {
+        // Copies one plan's backup password to another, so a new plan can share it.
+        Some("--copy-plan-password") if args.len() == 3 => {
+            let Some(pw) = keychain::get(&keychain::plan_account(&args[1])) else {
+                eprintln!("no password for plan {}", args[1]);
+                return Some(1);
+            };
+            return Some(match keychain::set(&keychain::plan_account(&args[2]), &pw) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("{e}");
+                    1
+                }
+            });
+        }
+        // Takes a path out of every snapshot of a plan, as Restore's Remove from backup does.
+        Some("--remove-path") if args.len() == 3 => {
+            let core = Core::new(config::data_dir(), Box::new(|_, _| {}), Box::new(|t, b| eprintln!("{t}: {b}")), false);
+            core.start();
+            core.enqueue(Job::RemovePath { plan: args[1].clone(), path: args[2].clone() });
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            while core.running() || core.busy_with_any() {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            let r = core.state.lock().unwrap().history.last().cloned();
+            if let Some(r) = &r {
+                println!("{} {}: {}", r.kind, r.result, r.message);
+            }
+            return Some(if r.is_some_and(|r| r.result == "ok") { 0 } else { 1 });
+        }
+        Some("--back-up") => {}
+        _ => return None,
     }
     let core = Core::new(config::data_dir(), Box::new(|_, _| {}), Box::new(|t, b| eprintln!("{t}: {b}")), false);
     core.start();
@@ -904,6 +940,7 @@ pub fn run() {
             restore,
             check_now,
             remove_source_data,
+            remove_path_data,
             job_status,
             job_cancel,
             job_pause,

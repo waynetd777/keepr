@@ -143,6 +143,73 @@ fn size_of(repo: &Repo, t: &crate::tree::Tree) -> Result<(u64, u64)> {
     Ok((bytes, files))
 }
 
+/// A tree without the entry at `names` (a path below it). Returns the new tree's id and the size
+/// and file count taken out, or None if the path isn't there.
+fn without(repo: &Repo, tree: &Id, names: &[&str]) -> Result<Option<(Id, u64, u64)>> {
+    let mut t = (*repo.load_tree(tree)?).clone();
+    let Some(i) = t.nodes.iter().position(|n| n.name == names[0]) else { return Ok(None) };
+    let (bytes, files) = if names.len() == 1 {
+        let n = t.nodes.remove(i);
+        match n.kind {
+            NodeKind::File => (n.size, 1),
+            NodeKind::Dir => {
+                if n.size > 0 || n.files > 0 {
+                    (n.size, n.files)
+                } else {
+                    n.subtree.map(|s| crate::browse::du(repo, &s)).transpose()?.unwrap_or((0, 0))
+                }
+            }
+            NodeKind::Symlink => (0, 0),
+        }
+    } else {
+        let Some(sub) = t.nodes[i].subtree else { return Ok(None) };
+        let Some((new, b, f)) = without(repo, &sub, &names[1..])? else { return Ok(None) };
+        let n = &mut t.nodes[i];
+        n.subtree = Some(new);
+        n.size = n.size.saturating_sub(b);
+        n.files = n.files.saturating_sub(f);
+        (b, f)
+    };
+    Ok(Some((repo.save_tree(&t)?, bytes, files)))
+}
+
+/// Removes a file or folder (by its original path) from every snapshot, then frees the space
+/// only it used. A source's own path removes the whole source. As with sources, new snapshots
+/// are written before the old ones are removed.
+pub fn remove_path(repo: &Arc<Repo>, path: &str, ctl: &Control) -> Result<Pruned> {
+    let path = path.trim_end_matches('/');
+    let is_source = repo.snapshots()?.iter().any(|s| s.sources.iter().any(|x| x.trim_end_matches('/') == path));
+    if is_source {
+        return remove_source(repo, path, ctl);
+    }
+    let _lock = repo.lock(true)?;
+    let mut out = Pruned::default();
+    for s in repo.snapshots()? {
+        ctl.checkpoint()?;
+        let Some(src) = s.sources.iter().filter(|x| path.starts_with(&format!("{}/", x.trim_end_matches('/')))).max_by_key(|x| x.len()).cloned() else {
+            out.kept += 1;
+            continue;
+        };
+        let rest: Vec<&str> = path[src.trim_end_matches('/').len()..].trim_start_matches('/').split('/').collect();
+        let mut names = vec![src.as_str()];
+        names.extend(rest);
+        let Some((tree, b, f)) = without(repo, &s.tree, &names)? else {
+            out.kept += 1;
+            continue;
+        };
+        let mut ns = s.clone();
+        ns.tree = tree;
+        ns.stats.bytes = ns.stats.bytes.saturating_sub(b);
+        ns.stats.files = ns.stats.files.saturating_sub(f);
+        repo.flush()?;
+        repo.save_snapshot(&mut ns)?;
+        repo.forget(&s.id)?;
+        out.forgotten += 1;
+    }
+    reclaim(repo, ctl, &mut out)?;
+    Ok(out)
+}
+
 /// Removes a source (by its path, as the snapshots name it) from every snapshot, then frees the
 /// space only it used. New snapshots are written before the old ones are removed, so a stop
 /// part-way leaves both, never neither.
@@ -320,6 +387,29 @@ mod tests {
             assert!(crate::browse::node_at(&r2, s, &format!("{}/keep.txt", a.path().display())).unwrap().is_some());
         }
         assert!(crate::check::run(&r2, 1.0, &Control::default()).unwrap().problems.is_empty());
+    }
+
+    #[test]
+    fn removes_a_folder_inside_a_source_everywhere() {
+        let (a, _dst, repo) = setup(Some("pw"));
+        fs::create_dir_all(a.path().join("Pictures/Photos Library.photoslibrary/originals")).unwrap();
+        let big: Vec<u8> = { let mut x = 9u64; (0..2_000_000).map(|_| { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x as u8 }).collect() };
+        fs::write(a.path().join("Pictures/Photos Library.photoslibrary/originals/IMG.heic"), &big).unwrap();
+        fs::write(a.path().join("Pictures/keep.jpg"), b"keep").unwrap();
+        let s1 = backup::run(&repo, &opts(a.path()), None, &Control::default()).unwrap();
+        backup::run(&repo, &opts(a.path()), Some(&s1), &Control::default()).unwrap();
+        let lib = format!("{}/Pictures/Photos Library.photoslibrary", a.path().display());
+        let p = remove_path(&repo, &lib, &Control::default()).unwrap();
+        assert_eq!(p.forgotten, 2);
+        assert!(p.bytes_freed > 1_900_000, "{p:?}");
+        for s in repo.snapshots().unwrap() {
+            assert!(crate::browse::node_at(&repo, &s, &lib).unwrap().is_none());
+            assert!(crate::browse::node_at(&repo, &s, &format!("{}/Pictures/keep.jpg", a.path().display())).unwrap().is_some());
+            assert_eq!((s.stats.bytes, s.stats.files), (4, 1));
+            let top = repo.load_tree(&s.tree).unwrap();
+            assert_eq!(top.nodes[0].size, 4, "folder totals updated up the chain");
+        }
+        assert!(crate::check::run(&repo, 1.0, &Control::default()).unwrap().problems.is_empty());
     }
 
     #[test]

@@ -139,6 +139,7 @@ export const api = {
   restore: (plan: string, snapshot: string, items: string[], target: Target, conflict: Conflict) => invoke<string>("restore", { plan, snapshot, items, target, conflict }),
   checkNow: (plan: string, all: boolean) => invoke<string>("check_now", { plan, all }),
   removeSourceData: (plan: string, source: Place) => invoke<string>("remove_source_data", { plan, source }),
+  removePathData: (plan: string, path: string) => invoke<string>("remove_path_data", { plan, path }),
   jobStatus: () => invoke<JobStatus | null>("job_status"),
   cancel: (id = "") => invoke<void>("job_cancel", { id }),
   pause: (paused: boolean) => invoke<void>("job_pause", { paused }),

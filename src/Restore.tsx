@@ -280,6 +280,17 @@ export default function Restore() {
     }
   };
   const version = versions?.[ver];
+  // Deleting a file or folder from every snapshot: asked twice, as it can't be undone.
+  const removeFromBackup = async (e: Entry) => {
+    const { ask } = await import("@tauri-apps/plugin-dialog");
+    const where = tilde(e.path, home);
+    const first = await ask(`Remove ${where} from every snapshot of ${plan.name}? Its space is freed, and none of its versions can be restored afterwards.`, { title: `Remove ${e.name} from the backup`, kind: "warning", okLabel: "Continue", cancelLabel: "Cancel" });
+    if (!first) return;
+    const sure = await ask(`Delete every backed-up version of ${where}? This can't be undone.`, { title: "Are you sure?", kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" });
+    if (!sure) return;
+    await act(() => api.removePathData(plan.id, e.path));
+    toast(`Removing ${e.name} from the backup. Activity shows how it's going.`);
+  };
   // A restore from this plan running or waiting: the footer shows its progress instead.
   const restoring = ov?.job?.kind === "restore" && ov.job.plan === plan.id ? ov.job : null;
   const restoreQueued = ov?.queued.find((q) => q.plan === plan.id && q.kind === "restore");
@@ -436,12 +447,24 @@ export default function Restore() {
                   </div>
                 </>
               )}
+              {picked && picked.tag !== "deleted" && (
+                <div style={{ padding: "0 16px 12px", display: picked.kind === "dir" ? "none" : "flex" }}>
+                  <button className="btn small danger" onClick={() => removeFromBackup(picked)} title="Take this out of every snapshot and free its space">
+                    <Icon name="trash" size={13} />
+                    Remove from backup…
+                  </button>
+                </div>
+              )}
               {picked?.kind === "dir" && (
                 <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 10, color: "var(--ink2)", lineHeight: 1.5 }}>
                   <span>
                     {picked.name.startsWith("/") ? tilde(picked.name, home) : picked.name} held {bytes(picked.size)} at this snapshot{picked.items ? `, ${picked.items.toLocaleString()} items at its top` : ""}.
                   </span>
                   <span>Tick the folder to restore everything in it as it was then. Pick a file to see its versions.</span>
+                  <button className="btn small danger" style={{ alignSelf: "flex-start" }} onClick={() => removeFromBackup(picked)} title="Take this folder out of every snapshot and free its space">
+                    <Icon name="trash" size={13} />
+                    Remove from backup…
+                  </button>
                 </div>
               )}
             </aside>

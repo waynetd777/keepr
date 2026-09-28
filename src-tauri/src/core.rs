@@ -25,12 +25,14 @@ pub enum Job {
     Prune { plan: String },
     /// Take a source out of every snapshot and free the space only it used.
     RemoveSource { plan: String, source: Place },
+    /// Take a file or folder (by its original path) out of every snapshot.
+    RemovePath { plan: String, path: String },
 }
 
 impl Job {
     pub fn plan(&self) -> &str {
         match self {
-            Job::Backup { plan, .. } | Job::Restore { plan, .. } | Job::Check { plan, .. } | Job::Prune { plan } | Job::RemoveSource { plan, .. } => plan,
+            Job::Backup { plan, .. } | Job::Restore { plan, .. } | Job::Check { plan, .. } | Job::Prune { plan } | Job::RemoveSource { plan, .. } | Job::RemovePath { plan, .. } => plan,
         }
     }
     fn kind(&self) -> &'static str {
@@ -40,7 +42,7 @@ impl Job {
             Job::Restore { .. } => "restore",
             Job::Check { .. } => "check",
             Job::Prune { .. } => "prune",
-            Job::RemoveSource { .. } => "remove",
+            Job::RemoveSource { .. } | Job::RemovePath { .. } => "remove",
         }
     }
 }
@@ -477,6 +479,7 @@ impl Core {
             Job::Check { plan, all } => self.check(&cur, plan, *all, &mut run),
             Job::Prune { plan } => self.prune(&cur, plan, &mut run),
             Job::RemoveSource { plan, source } => self.remove_source(&cur, plan, source, &mut run),
+            Job::RemovePath { plan, path } => self.remove_key(&cur, plan, path, &mut run),
         };
         run.finished = now();
         match outcome {
@@ -835,7 +838,18 @@ impl Core {
             Place::Smb(_) => places::resolve(source, &self.mounts, true, true)?.to_string_lossy().to_string(),
         };
         run.note(format!("Taking {} out of every snapshot", places::tilde(&key)));
-        let p = keepr_engine::prune::remove_source(&repo, &key, &cur.ctl).map_err(|e| e.0)?;
+        let _ = repo;
+        self.remove_key(cur, plan_id, &key, run)
+    }
+
+    /// Takes a path (a source, or anything inside one) out of every snapshot.
+    fn remove_key(&self, cur: &Arc<Current>, plan_id: &str, key: &str, run: &mut Run) -> Result<(), String> {
+        let repo = self.repo(plan_id, false)?;
+        Self::set_stage(cur, "Removing");
+        if !run.log.iter().any(|l| l.contains("Taking")) {
+            run.note(format!("Taking {} out of every snapshot", places::tilde(key)));
+        }
+        let p = keepr_engine::prune::remove_path(&repo, key, &cur.ctl).map_err(|e| e.0)?;
         run.note(format!("{} snapshots rewritten, {} unchanged; {} freed", p.forgotten, p.kept, human_bytes(p.bytes_freed)));
         {
             let mut s = self.state.lock().unwrap();
@@ -845,7 +859,7 @@ impl Core {
             ps.last_prune = Some(now());
         }
         self.refresh_stats(plan_id, &repo);
-        run.message = format!("{} removed from {} snapshot{} · {} freed", places::tilde(&key), p.forgotten, if p.forgotten == 1 { "" } else { "s" }, human_bytes(p.bytes_freed));
+        run.message = format!("{} removed from {} snapshot{} · {} freed", places::tilde(key), p.forgotten, if p.forgotten == 1 { "" } else { "s" }, human_bytes(p.bytes_freed));
         Ok(())
     }
 
