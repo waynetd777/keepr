@@ -1,7 +1,7 @@
 // Activity: what is running now, step by step, and the history of every backup, check, tidy-up
 // and restore.
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { api, type Run } from "./api";
 import { useApp } from "./App";
 import { Icon } from "./icons";
@@ -153,6 +153,13 @@ export default function Activity() {
   const { ov, job } = useApp();
   const [runs, setRuns] = useState<Run[]>([]);
   const [filter, setFilter] = useState<"all" | "problems" | "restores">("all");
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const toggle = (id: string) => {
+    const s = new Set(open);
+    if (s.has(id)) s.delete(id);
+    else s.add(id);
+    setOpen(s);
+  };
   useEffect(() => {
     api.history(300).then(setRuns);
   }, [ov]);
@@ -186,9 +193,18 @@ export default function Activity() {
               {shown.map((r) => {
                 const secs = (new Date(r.finished).getTime() - new Date(r.started).getTime()) / 1000;
                 const tone = r.result === "ok" ? "ok" : r.result === "failed" ? "bad" : r.result === "cancelled" ? "plain" : "warn";
+                const isOpen = open.has(r.id);
                 return (
-                  <tr key={r.id}>
-                    <td className="muted nowrap">{when(r.started)}</td>
+                  <Fragment key={r.id}>
+                  <tr onClick={() => toggle(r.id)} style={{ cursor: "default" }} title={isOpen ? "Hide the log" : "Show the log"}>
+                    <td className="muted nowrap">
+                      <span className="row" style={{ gap: 6 }}>
+                        <button className={`disc${isOpen ? " open" : ""}`} aria-label={isOpen ? "Hide the log" : "Show the log"} aria-expanded={isOpen} onClick={(e) => (e.stopPropagation(), toggle(r.id))}>
+                          <Icon name="forward" size={12} stroke={2.6} />
+                        </button>
+                        {when(r.started)}
+                      </span>
+                    </td>
                     <td>{nameOf(r.plan)}</td>
                     <td className="muted">{kindName[r.kind] ?? r.kind}</td>
                     <td className="muted">{r.result !== "ok" && r.result !== "warning" ? "—" : r.kind === "backup" || r.kind === "full" ? (r.changed ? `${r.changed.toLocaleString()} changed` : "none changed") : r.files ? r.files.toLocaleString() : "—"}</td>
@@ -205,6 +221,16 @@ export default function Activity() {
                       {r.message && <div className="small muted" style={{ marginTop: 3 }}>{r.message}</div>}
                     </td>
                   </tr>
+                  {isOpen && (
+                    <tr>
+                      <td colSpan={7} style={{ borderTop: 0, paddingTop: 0 }}>
+                        <div className="mono" style={{ fontSize: 11, lineHeight: 1.6, background: "var(--sunk)", borderRadius: 8, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", userSelect: "text", WebkitUserSelect: "text", maxHeight: 360, overflow: "auto" }}>
+                          {r.log && r.log.length ? r.log.join("\n") : "No log for this run: it ran before Keepr kept logs."}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>

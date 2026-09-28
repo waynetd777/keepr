@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Comparison, type Conflict, type Entry, type SnapInfo, type Version } from "./api";
-import { useApp } from "./App";
+import { statusDot, useApp } from "./App";
 import { Icon } from "./icons";
 import { PlanProgress, Sheet, Switch, useAct, useToast } from "./ui";
 import { bytes, dayKey, dayLabel, longWhen, tilde, when } from "./format";
@@ -288,13 +288,15 @@ export default function Restore() {
     <>
       <div className="content col" style={{ gap: 16, padding: "20px 32px 18px", overflow: "hidden" }}>
         <div className="row" style={{ gap: 12 }}>
-          <select className="input" style={{ fontWeight: 600 }} value={plan.id} onChange={(e) => go({ name: "restore", plan: e.target.value })} aria-label="Plan to restore from">
+          <div className="tabs" role="tablist" aria-label="Plan to restore from">
             {plans.map((p) => (
-              <option key={p.id} value={p.id}>
+              <button key={p.id} role="tab" aria-selected={p.id === plan.id} className={p.id === plan.id ? "on" : ""} onClick={() => go({ name: "restore", plan: p.id })} title={`${p.snapshots.toLocaleString()} snapshots`}>
+                <span className={statusDot(p.status)} />
                 {p.name}
-              </option>
+                <span className="tiny faint">{p.snapshots.toLocaleString()}</span>
+              </button>
             ))}
-          </select>
+          </div>
           <label className="search" style={{ width: 360 }}>
             <Icon name="search" size={15} stroke={2} />
             <input aria-label="Find in this backup" placeholder={`Find in ${plan.name}`} value={query} onChange={(e) => setQuery(e.target.value)} />

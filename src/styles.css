@@ -250,3 +250,9 @@ html.tray body { background: transparent; }
 
 /* A source's default name reads as its name, not as a hint. */
 .source-name::placeholder { color: var(--ink); opacity: 1; }
+
+/* Tabs, as on the Restore screen: one per plan. */
+.tabs { display: flex; gap: 2px; padding: 3px; background: var(--sunk); border: 1px solid var(--line); border-radius: 10px; min-width: 0; overflow-x: auto; }
+.tabs button { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; white-space: nowrap; color: var(--ink2); }
+.tabs button:hover { color: var(--ink); }
+.tabs button.on { background: var(--surface); box-shadow: var(--seg); color: var(--ink); font-weight: 600; }

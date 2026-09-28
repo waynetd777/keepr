@@ -452,7 +452,7 @@ impl Core {
         *self.current.lock().unwrap() = Some(cur.clone());
         self.changed();
         let plan_name = self.config.lock().unwrap().plan(job.plan()).map(|p| p.name.clone()).unwrap_or_default();
-        let mut run = Run { id, plan: job.plan().into(), kind: job.kind().into(), started: cur.started_at.clone(), finished: String::new(), result: "ok".into(), message: String::new(), files: 0, changed: 0, read_bytes: 0, added_bytes: 0, stored_bytes: 0, dup_bytes: 0 };
+        let mut run = Run { id, plan: job.plan().into(), kind: job.kind().into(), started: cur.started_at.clone(), finished: String::new(), result: "ok".into(), message: String::new(), files: 0, changed: 0, read_bytes: 0, added_bytes: 0, stored_bytes: 0, dup_bytes: 0, log: vec![] };
         let outcome = match &job {
             Job::Backup { plan, full } => self.backup(&cur, plan, *full, &mut run),
             Job::Restore { plan, snapshot, items, target, conflict } => self.restore(&cur, plan, snapshot, items, target, *conflict, &mut run),
@@ -464,6 +464,7 @@ impl Core {
         match outcome {
             Ok(()) => {}
             Err(e) if e == "cancelled" => {
+                run.note("Stopped. Nothing half-done was kept.");
                 run.result = "cancelled".into();
                 run.message = "Stopped".into();
             }
@@ -476,6 +477,7 @@ impl Core {
                 }
                 drop(s);
                 run.result = if waiting { "waiting".into() } else { "failed".into() };
+                run.note(if waiting { format!("Waiting: {e}") } else { format!("Failed: {e}") });
                 run.message = e.clone();
                 if !waiting && self.config.lock().unwrap().settings.notify_failures {
                     (self.notify)(&format!("{plan_name}: {} didn't finish", if job.kind() == "restore" { "restore" } else { "backup" }), &e);
@@ -505,11 +507,15 @@ impl Core {
     }
 
     fn backup(self: &Arc<Self>, cur: &Arc<Current>, plan_id: &str, full: bool, run: &mut Run) -> Result<(), String> {
-        let (plan, _) = self.plan_and_dest(plan_id)?;
+        let (plan, dest) = self.plan_and_dest(plan_id)?;
+        run.note(format!("{} backup of {} to {}", if full { "Full" } else { "Incremental" }, plan.name, dest.name));
         let repo = self.repo(plan_id, true)?;
+        run.note(format!("Backup opened at {}{}", repo.backend.describe(), if repo.encrypted() { " (encrypted)" } else { "" }));
         let mut sources = Vec::new();
         for s in &plan.sources {
-            sources.push(places::resolve(s, &self.mounts, true, true)?);
+            let p = places::resolve(s, &self.mounts, true, true)?;
+            run.note(format!("Source: {}", places::tilde(&p.to_string_lossy())));
+            sources.push(p);
         }
         let repo_path = self.repos.lock().unwrap().get(plan_id).map(|(p, _)| p.clone());
         *cur.base.lock().unwrap() = (repo.counters.stored_bytes.load(Relaxed), repo.counters.dup_bytes.load(Relaxed));
@@ -525,14 +531,23 @@ impl Core {
             (Some((id, snap)), Some(p)) if !full && local && *snap == p.id.hex() => crate::fsevents::since(&sources, *id),
             _ => None,
         };
+        match (&changes, full) {
+            (_, true) => run.note("Reading every file (a full backup)"),
+            (Some(c), _) => run.note(format!("macOS's change record: {} folders changed since the last backup; the rest are taken as they were", c.touched.len())),
+            (None, _) if parent.is_some() => run.note("Comparing every file with the last snapshot"),
+            (None, _) => run.note("First backup: reading everything"),
+        }
         // Noted before the still copy is taken: anything after it is for the next backup to see.
         let event_id = if local { crate::fsevents::now_id() } else { 0 };
         let still = if local && self.still_copies.load(Relaxed) {
             Self::set_stage(cur, "Taking a still copy");
             match crate::still::take() {
-                Ok(s) => Some(s),
+                Ok(s) => {
+                    run.note(format!("Still copy of the startup disk taken ({})", s.date));
+                    Some(s)
+                }
                 Err(e) => {
-                    eprintln!("still copy: {e}; reading the files as they are");
+                    run.note(format!("No still copy ({e}); reading the files as they are"));
                     None
                 }
             }
@@ -557,6 +572,16 @@ impl Core {
         drop(still);
         let snap = snap?;
         let st = &snap.stats;
+        run.note(format!("Looked at {} files in {} folders ({})", st.files, st.dirs, human_bytes(st.bytes)));
+        run.note(format!("{} new, {} changed, {} removed; read {}", st.new_files, st.changed_files, st.removed_files, human_bytes(st.read_bytes)));
+        run.note(format!("Stored {} of new data as {}; {} was already kept", human_bytes(st.added_bytes), human_bytes(st.stored_bytes), human_bytes(st.dup_bytes)));
+        for e in &st.errors {
+            run.note(format!("Couldn't read {}", places::tilde(e)));
+        }
+        if st.error_count as usize > st.errors.len() {
+            run.note(format!("…and {} more", st.error_count as usize - st.errors.len()));
+        }
+        run.note(format!("Snapshot {} saved in {:.1} s", snap.id.short(), st.duration_ms as f64 / 1000.0));
         run.files = st.files;
         run.changed = st.new_files + st.changed_files + st.removed_files;
         run.read_bytes = st.read_bytes;
@@ -630,7 +655,19 @@ impl Core {
         let snap = repo.snapshots().map_err(|e| e.0)?.into_iter().find(|s| s.id.hex() == snapshot).ok_or("That snapshot is no longer in the backup.")?;
         *cur.repo.lock().unwrap() = Some(repo.clone());
         Self::set_stage(cur, "Restoring");
+        run.note(format!("Restoring {} item{} from the snapshot of {}", items.len(), if items.len() == 1 { "" } else { "s" }, snap.time));
+        for i in items.iter().take(50) {
+            run.note(format!("  {}", places::tilde(i)));
+        }
+        run.note(match target {
+            Target::Original => "To where each was".to_string(),
+            Target::Folder(f) => format!("Into {}", places::tilde(&f.to_string_lossy())),
+        });
         let r = keepr_engine::restore::run(&repo, &snap, items, target, conflict, &cur.ctl).map_err(|e| e.0)?;
+        run.note(format!("{} files ({}) written; {} kept beside an existing file; {} skipped", r.files, human_bytes(r.bytes), r.renamed, r.skipped));
+        for e in &r.errors {
+            run.note(format!("Couldn't write {}", places::tilde(e)));
+        }
         run.files = r.files;
         run.read_bytes = r.bytes;
         let mut parts = vec![format!("{} restored", if r.files == 1 { "1 file".to_string() } else { format!("{} files", r.files) })];
@@ -651,7 +688,12 @@ impl Core {
     fn check(&self, cur: &Arc<Current>, plan_id: &str, all: bool, run: &mut Run) -> Result<(), String> {
         let repo = self.repo(plan_id, false)?;
         Self::set_stage(cur, "Checking");
+        run.note(if all { "Checking every snapshot and reading all the data back" } else { "Checking every snapshot and reading a sample of the data back" });
         let rep = keepr_engine::check::run(&repo, if all { 1.0 } else { 0.05 }, &cur.ctl).map_err(|e| e.0)?;
+        run.note(format!("{} snapshots, {} folders, {} chunks in {} packs; {} packs ({}) read back", rep.snapshots, rep.trees, rep.chunks, rep.packs, rep.packs_read, human_bytes(rep.bytes_read)));
+        for p in &rep.problems {
+            run.note(format!("Problem: {p}"));
+        }
         self.state.lock().unwrap().plan(plan_id).last_check = Some(now());
         run.read_bytes = rep.bytes_read;
         if rep.problems.is_empty() {
@@ -669,7 +711,9 @@ impl Core {
         let (plan, _) = self.plan_and_dest(plan_id)?;
         let repo = self.repo(plan_id, false)?;
         Self::set_stage(cur, "Tidying up");
+        run.note("Applying the version rules");
         let p = keepr_engine::prune::run(&repo, &plan.retention, &cur.ctl).map_err(|e| e.0)?;
+        run.note(format!("{} snapshots kept, {} removed; {} packs deleted, {} rewritten; {} freed", p.kept, p.forgotten, p.packs_deleted, p.packs_rewritten, human_bytes(p.bytes_freed)));
         self.state.lock().unwrap().plan(plan_id).last_prune = Some(now());
         self.refresh_stats(plan_id, &repo);
         run.message = if p.forgotten == 0 && p.bytes_freed == 0 {
@@ -688,7 +732,9 @@ impl Core {
             Place::Folder { path, .. } => path.clone(),
             Place::Smb(_) => places::resolve(source, &self.mounts, true, true)?.to_string_lossy().to_string(),
         };
+        run.note(format!("Taking {} out of every snapshot", places::tilde(&key)));
         let p = keepr_engine::prune::remove_source(&repo, &key, &cur.ctl).map_err(|e| e.0)?;
+        run.note(format!("{} snapshots rewritten, {} unchanged; {} freed", p.forgotten, p.kept, human_bytes(p.bytes_freed)));
         {
             let mut s = self.state.lock().unwrap();
             let ps = s.plan(plan_id);

@@ -226,6 +226,18 @@ pub struct Run {
     pub stored_bytes: u64,
     #[serde(default)]
     pub dup_bytes: u64,
+    /// What happened, step by step, for Activity to show when the run is expanded.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub log: Vec<String>,
+}
+
+impl Run {
+    /// Adds a line to the run's log, stamped with the time.
+    pub fn note(&mut self, line: impl AsRef<str>) {
+        if self.log.len() < 400 {
+            self.log.push(format!("{}  {}", chrono::Local::now().format("%H:%M:%S"), line.as_ref()));
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

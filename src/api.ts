@@ -97,6 +97,7 @@ export type Run = {
   addedBytes: number;
   storedBytes: number;
   dupBytes: number;
+  log?: string[];
 };
 
 export type SnapInfo = { id: string; time: string; kind: string; files: number; bytes: number; changed: number; addedBytes: number };

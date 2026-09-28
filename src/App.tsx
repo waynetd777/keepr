@@ -4,7 +4,6 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { api, on, type Config, type JobStatus, type Overview as OverviewData } from "./api";
 import { Icon, Mark } from "./icons";
 import { pct, ToastProvider, Tooltips } from "./ui";
-import { bytes } from "./format";
 import Overview from "./Overview";
 import Plans from "./Plans";
 import Restore from "./Restore";
@@ -36,9 +35,9 @@ type AppCtx = {
 const Ctx = createContext<AppCtx>(null as unknown as AppCtx);
 export const useApp = () => useContext(Ctx);
 
-// Plans aren't here: they're listed under Backup Plans below, each opening its own settings.
+// Backup Plans is the overview of every plan; a plan's settings open from its card.
 const NAV: [Screen["name"], string, string, string][] = [
-  ["overview", "Overview", "overview", "⌘1"],
+  ["overview", "Backup Plans", "plans", "⌘1"],
   ["restore", "Restore", "restore", "⌘2"],
   ["activity", "Activity", "activity", "⌘3"],
   ["destinations", "Destinations", "server", "⌘4"],
@@ -53,10 +52,7 @@ export function statusDot(status: string): string {
 }
 
 function Sidebar() {
-  const { ov, screen, go } = useApp();
-  const restoring = screen.name === "restore";
-  const plans = ov?.plans ?? [];
-  const nas = ov?.destinations.find((d) => d.total);
+  const { screen, go } = useApp();
   return (
     <nav className="sidebar" aria-label="Sidebar">
       <div className="brand">
@@ -65,51 +61,14 @@ function Sidebar() {
       </div>
       <div className="nav">
         {NAV.map(([name, label, icon, key]) => (
-          <button key={name} className={screen.name === name ? "on" : ""} onClick={() => go({ name } as Screen)} title={`${label} ${key}`}>
+          <button key={name} className={screen.name === name || (name === "overview" && screen.name === "plans") ? "on" : ""} onClick={() => go({ name } as Screen)} title={`${label} ${key}`}>
             <Icon name={icon} />
             <span className="grow">{label}</span>
             <span className="key">{key}</span>
           </button>
         ))}
       </div>
-      <div className="side-section">
-        <span className="caps">{restoring ? "Restore from" : "Backup Plans"}</span>
-      </div>
-      <div className="col" style={{ gap: 2 }}>
-        {plans.map((p) => {
-          const on = (screen.name === "restore" || screen.name === "plans") && (screen.plan === p.id || (!screen.plan && !(screen.name === "plans" && screen.isNew) && plans[0].id === p.id));
-          return (
-            <button key={p.id} className={`side-item${on ? " on" : ""}`} onClick={() => go(restoring ? { name: "restore", plan: p.id } : { name: "plans", plan: p.id })} title={restoring ? `Restore from ${p.name}` : `${p.name}: ${p.schedule}`}>
-              <span className={statusDot(p.status)} />
-              <span className="grow ellipsis">{p.name}</span>
-              <span className="tiny faint">{restoring ? p.snapshots.toLocaleString() : p.status === "running" ? "…" : shortAgo(p.lastSuccess)}</span>
-            </button>
-          );
-        })}
-        {!restoring && (
-          <button className={`side-item${screen.name === "plans" && screen.isNew ? " on" : ""}`} onClick={() => go({ name: "plans", isNew: true })} title="Make a new backup plan ⌘N" style={{ color: "var(--accent-text)" }}>
-            <span style={{ width: 20, height: 20, borderRadius: 10, background: "var(--accent)", color: "var(--accent-ink)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginLeft: -3 }}>
-              <Icon name="plus" size={14} stroke={2.8} />
-            </span>
-            <span className="grow" style={{ fontWeight: 600 }}>New plan</span>
-          </button>
-        )}
-      </div>
       <div className="grow" />
-      {nas && (
-        <div className="side-card">
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <span className="caps">{nas.name}</span>
-            <span className="tiny faint">{nas.kind === "smb" ? "SMB" : "Folder"}</span>
-          </div>
-          <div className="meter">
-            <div style={{ width: `${Math.round((1 - (nas.free ?? 0) / (nas.total ?? 1)) * 100)}%` }} />
-          </div>
-          <span className="small muted">
-            {bytes((nas.total ?? 0) - (nas.free ?? 0))} used · {bytes(nas.free)} free
-          </span>
-        </div>
-      )}
       <button className={`navlink${screen.name === "settings" ? " on" : ""}`} style={{ marginTop: 10 }} onClick={() => go({ name: "settings" })} title="Settings ⌘,">
         <Icon name="settings" />
         <span className="grow">Settings</span>
@@ -119,16 +78,6 @@ function Sidebar() {
   );
 }
 
-function shortAgo(iso: string | null): string {
-  if (!iso) return "";
-  const s = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m`;
-  if (s < 86400) {
-    const d = new Date(iso);
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  }
-  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(iso).getDay()];
-}
 
 function Toolbar({ back, forward, canBack, canForward }: { back: () => void; forward: () => void; canBack: boolean; canForward: boolean }) {
   const { ov, go, screen } = useApp();
