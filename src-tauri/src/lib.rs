@@ -91,6 +91,16 @@ struct Overview {
     stored_bytes: u64,
     versions_bytes: u64,
     job: Option<JobStatus>,
+    /// Jobs waiting their turn.
+    queued: Vec<Queued>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Queued {
+    id: String,
+    plan: String,
+    kind: String,
 }
 
 fn schedule_label(p: &Plan) -> String {
@@ -214,6 +224,7 @@ fn overview_of(core: &Core) -> Overview {
         plans,
         destinations,
         job,
+        queued: core.queued().into_iter().map(|(id, plan, kind)| Queued { id, plan, kind }).collect(),
     }
 }
 

@@ -7,7 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { api, type Every, type Often, type Place, type Plan, type Retention } from "./api";
 import { useApp } from "./App";
 import { Icon } from "./icons";
-import { Seg, Sheet, Switch, useAct, useMenu, useToast } from "./ui";
+import { PlanProgress, Seg, Sheet, Switch, useAct, useMenu, useToast } from "./ui";
 import { ago, bytes, next, tilde } from "./format";
 
 const DEFAULT_RETENTION: Retention = { allHours: 24, dailyDays: 30, weeklyWeeks: 52, monthlyMonths: 0, keepDeletedDays: 90 };
@@ -460,10 +460,12 @@ export default function Plans() {
                 Delete plan…
               </button>
             </moreMenu.Menu>
-            <button className="btn primary" disabled={ov?.job?.plan === plan.id} onClick={() => api.backUp(plan.id)}>
-              <Icon name="up" size={14} stroke={2.2} />
-              Back up now
-            </button>
+            {ov?.job?.plan === plan.id || ov?.queued.some((q) => q.plan === plan.id) ? null : (
+              <button className="btn primary" onClick={() => api.backUp(plan.id)}>
+                <Icon name="up" size={14} stroke={2.2} />
+                Back up now
+              </button>
+            )}
           </>
         ) : (
           <>
@@ -477,6 +479,11 @@ export default function Plans() {
         )}
       </div>
 
+      {plan.id && (ov?.job?.plan === plan.id || ov?.queued.some((q) => q.plan === plan.id)) && (
+        <div className="card" style={{ padding: "14px 18px" }}>
+          <PlanProgress job={ov?.job?.plan === plan.id ? ov.job : null} queued={ov?.queued.find((q) => q.plan === plan.id)} />
+        </div>
+      )}
       <div className="plan-grid">
         <div className="col" style={{ gap: 16 }}>
           <section className="card section">

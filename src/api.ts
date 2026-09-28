@@ -80,7 +80,8 @@ export type JobStatus = {
   etaSecs: number | null;
   queued: number;
 };
-export type Overview = { plans: PlanSummary[]; destinations: DestSummary[]; storedBytes: number; versionsBytes: number; job: JobStatus | null };
+export type Queued = { id: string; plan: string; kind: string };
+export type Overview = { plans: PlanSummary[]; destinations: DestSummary[]; storedBytes: number; versionsBytes: number; job: JobStatus | null; queued: Queued[] };
 
 export type Run = {
   id: string;

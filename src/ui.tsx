@@ -1,6 +1,9 @@
 // Shared controls: the app's own tooltip (never macOS's), switches, segmented controls, sheets,
 // pop-up menus and a toast for passing messages.
 
+import { api, type JobStatus, type Queued } from "./api";
+import { Icon } from "./icons";
+import { secondsLeft } from "./format";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
 /** Every tooltip in the app. Give an element a `title` (or an icon-only button an aria-label). */
@@ -159,5 +162,53 @@ export function useAct() {
       }
     },
     [toast],
+  );
+}
+
+export function pct(job: JobStatus): number {
+  if (job.bytesToRead > 0) return Math.min(100, (100 * job.bytesRead) / job.bytesToRead);
+  return job.stage === "Saving" ? 99 : 0;
+}
+
+/** A plan's running or waiting job: a bar, what it's doing, and Stop (or Cancel while it waits). */
+export function PlanProgress({ job, queued, compact }: { job?: JobStatus | null; queued?: Queued; compact?: boolean }) {
+  if (!job && !queued) return null;
+  if (!job && queued) {
+    return (
+      <div className="row small muted" style={{ gap: 10 }}>
+        <span className="dot grey" />
+        <span className="grow">Waiting to start{queued.kind === "full" ? " (full backup)" : ""}</span>
+        <button className="btn small" onClick={() => api.cancel(queued.id)}>
+          Cancel
+        </button>
+      </div>
+    );
+  }
+  const j = job!;
+  const p = pct(j);
+  const what = j.kind === "check" ? "Checking" : j.kind === "prune" ? "Tidying up" : j.kind === "restore" ? "Restoring" : j.stage || "Starting";
+  return (
+    <div className="col" style={{ gap: 6 }}>
+      <div className="row" style={{ gap: 10 }}>
+        <span className="small" style={{ fontWeight: 600, color: "var(--accent-text)" }}>
+          {Math.floor(p)}%
+        </span>
+        <span className="small muted grow ellipsis">
+          {j.paused ? "Paused" : what}
+          {!compact && j.etaSecs != null && !j.paused ? ` · ${secondsLeft(j.etaSecs)}` : ""}
+        </span>
+        <button className="btn small" onClick={() => api.pause(!j.paused)} title={j.paused ? "Resume" : "Pause"}>
+          <Icon name={j.paused ? "play" : "pause"} size={12} stroke={2.4} />
+          {j.paused ? "Resume" : "Pause"}
+        </button>
+        <button className="btn small" onClick={() => api.cancel(j.id)} title="Stop this backup. Nothing half-done is kept as a snapshot.">
+          <Icon name="stop" size={12} />
+          Stop
+        </button>
+      </div>
+      <div className="progress" style={{ height: 6 }}>
+        <div className="solid" style={{ width: `${p}%`, transition: "width 0.4s" }} />
+      </div>
+    </div>
   );
 }

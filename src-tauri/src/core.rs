@@ -243,6 +243,11 @@ impl Core {
         self.current.lock().unwrap().as_ref().is_some_and(|c| c.job.plan() == plan) || self.queue.lock().unwrap().iter().any(|(_, j)| j.plan() == plan)
     }
 
+    /// Jobs waiting their turn: (job id, plan id, kind).
+    pub fn queued(&self) -> Vec<(String, String, String)> {
+        self.queue.lock().unwrap().iter().map(|(id, j)| (id.clone(), j.plan().to_string(), j.kind().to_string())).collect()
+    }
+
     pub fn busy_with_any(&self) -> bool {
         !self.queue.lock().unwrap().is_empty()
     }

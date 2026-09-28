@@ -7,6 +7,7 @@ import { useApp } from "./App";
 import { Icon } from "./icons";
 import { ago, bytes, longDate, next, when } from "./format";
 import { RecoverySheet } from "./Plans";
+import { PlanProgress } from "./ui";
 
 function Strata({ p, compact }: { p: PlanSummary; compact?: boolean }) {
   const max = Math.max(1, ...p.days.map((d) => d.added));
@@ -26,6 +27,7 @@ const TILE: Record<string, string> = { folder: "folder", photos: "image", notes:
 function PlanCard({ p }: { p: PlanSummary }) {
   const { go, ov } = useApp();
   const running = ov?.job?.plan === p.id;
+  const waiting = ov?.queued.find((q) => q.plan === p.id);
   if (p.status === "waiting" || p.status === "stale" || p.status === "failed") {
     const bad = p.status === "failed";
     return (
@@ -79,10 +81,17 @@ function PlanCard({ p }: { p: PlanSummary }) {
         <button className="btn" disabled={p.snapshots === 0} onClick={() => go({ name: "restore", plan: p.id })}>
           Restore…
         </button>
-        <button className="btn" style={{ width: 30, padding: 0 }} aria-label={`Back up ${p.name} now`} title="Back up now" disabled={running} onClick={() => api.backUp(p.id)}>
-          <Icon name="play" size={14} />
-        </button>
+        {running || waiting ? (
+          <button className="btn" style={{ width: 30, padding: 0 }} aria-label={`Stop ${p.name}`} title="Stop" onClick={() => api.cancel(running ? ov!.job!.id : waiting!.id)}>
+            <Icon name="stop" size={12} />
+          </button>
+        ) : (
+          <button className="btn" style={{ width: 30, padding: 0 }} aria-label={`Back up ${p.name} now`} title="Back up now" onClick={() => api.backUp(p.id)}>
+            <Icon name="play" size={14} />
+          </button>
+        )}
       </div>
+      {(running || waiting) && <PlanProgress job={running ? ov?.job : null} queued={waiting} />}
       <div className="col" style={{ gap: 5 }}>
         <Strata p={p} />
         <div className="row tiny faint" style={{ justifyContent: "space-between" }}>

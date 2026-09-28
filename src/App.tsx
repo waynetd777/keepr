@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api, on, type Config, type JobStatus, type Overview as OverviewData } from "./api";
 import { Icon, Mark } from "./icons";
-import { ToastProvider, Tooltips } from "./ui";
+import { pct, ToastProvider, Tooltips } from "./ui";
 import { bytes } from "./format";
 import Overview from "./Overview";
 import Plans from "./Plans";
@@ -174,11 +174,23 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
           {running ? `Backing up ${ov?.job?.planName}` : `Watching ${watching} plan${watching === 1 ? "" : "s"}`}
         </span>
       )}
-      {(ov?.plans.length ?? 0) > 0 && (
-        <button className="btn primary" onClick={() => api.backUpAll()} title="Back up every plan now ⌘B">
-          <Icon name="up" size={14} stroke={2.2} />
-          Back up now
-        </button>
+      {running ? (
+        <>
+          <div className="progress" style={{ width: 90, height: 6 }} aria-label="Progress">
+            <div className="solid" style={{ width: `${ov?.job ? pct(ov.job) : 0}%`, transition: "width 0.4s" }} />
+          </div>
+          <button className="btn" onClick={() => api.cancel(ov!.job!.id)} title="Stop this backup">
+            <Icon name="stop" size={12} />
+            Stop
+          </button>
+        </>
+      ) : (
+        (ov?.plans.length ?? 0) > 0 && (
+          <button className="btn primary" onClick={() => api.backUpAll()} title="Back up every plan now ⌘B">
+            <Icon name="up" size={14} stroke={2.2} />
+            Back up now
+          </button>
+        )
       )}
     </header>
   );
