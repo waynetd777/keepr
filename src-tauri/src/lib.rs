@@ -1153,6 +1153,9 @@ pub fn run() {
             quit
         ])
         .setup(move |app| {
+            if !frozen {
+                std::thread::spawn(keychain::warm);
+            }
             // Did Login Items start this, rather than someone opening the app? Asked first: the
             // answer is in the launch AppleEvent AppKit is dispatching now. A login launch stays in
             // the menu bar.

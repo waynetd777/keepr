@@ -26,6 +26,14 @@ fn store(map: &BTreeMap<String, String>) -> Result<(), String> {
     set_generic_password(SERVICE, ACCOUNT, &json).map_err(|e| format!("Couldn't save to the Keychain: {e}"))
 }
 
+/// Reads Keepr's Keychain item now, so that if macOS needs to ask (a new build, or "Deny"
+/// last time) it asks at startup, while someone is looking, not in the middle of the night
+/// when a backup needs a password and nobody is there to answer.
+pub fn warm() {
+    let mut c = CACHE.lock().unwrap();
+    load(&mut c);
+}
+
 pub fn get(account: &str) -> Option<String> {
     let mut c = CACHE.lock().unwrap();
     let map = load(&mut c);
