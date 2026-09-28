@@ -147,6 +147,32 @@ impl S3 {
         }
     }
 
+    /// Every object under `prefix` (a full key, ending '/' unless empty): its key, size,
+    /// modified time and ETag.
+    fn list_objects(&self, prefix: &str) -> io::Result<Vec<(String, u64, i64, String)>> {
+        let mut out = Vec::new();
+        let mut token: Option<String> = None;
+        loop {
+            let mut q = vec![("list-type", "2"), ("prefix", prefix)];
+            if let Some(t) = &token {
+                q.push(("continuation-token", t.as_str()));
+            }
+            let r = self.send("GET", "", &q, &[], None).map_err(|e| e.into_io(&self.cfg))?;
+            let text = String::from_utf8_lossy(&S3::body(r, 64 << 20)?).to_string();
+            for c in text.split("<Contents>").skip(1) {
+                let Some(k) = tag(c, "Key") else { continue };
+                let size = tag(c, "Size").and_then(|s| s.parse().ok()).unwrap_or(0);
+                let mtime = tag(c, "LastModified").and_then(|t| chrono::DateTime::parse_from_rfc3339(&t).ok()).and_then(|t| t.timestamp_nanos_opt()).unwrap_or(0);
+                let etag = tag(c, "ETag").unwrap_or_default().trim_matches('"').to_string();
+                out.push((k, size, mtime, etag));
+            }
+            token = (tag(&text, "IsTruncated").as_deref() == Some("true")).then(|| tag(&text, "NextContinuationToken")).flatten();
+            if token.is_none() {
+                return Ok(out);
+            }
+        }
+    }
+
     fn body(r: ureq::Response, limit: u64) -> io::Result<Vec<u8>> {
         let mut out = Vec::with_capacity(r.header("content-length").and_then(|l| l.parse().ok()).unwrap_or(0).min(limit as usize));
         r.into_reader().take(limit).read_to_end(&mut out)?;
@@ -187,29 +213,7 @@ impl Backend for S3 {
     fn list(&self, dir: &str) -> io::Result<Vec<String>> {
         let base = self.key(dir)?;
         let prefix = if base.is_empty() { String::new() } else { format!("{base}/") };
-        let mut out = Vec::new();
-        let mut token: Option<String> = None;
-        loop {
-            let mut q = vec![("list-type", "2"), ("prefix", prefix.as_str())];
-            if let Some(t) = &token {
-                q.push(("continuation-token", t.as_str()));
-            }
-            let r = self.send("GET", "", &q, &[], None).map_err(|e| e.into_io(&self.cfg))?;
-            let text = String::from_utf8_lossy(&S3::body(r, 64 << 20)?).to_string();
-            for c in text.split("<Contents>").skip(1) {
-                if let Some(k) = tag(c, "Key") {
-                    if let Some(rel) = k.strip_prefix(&prefix) {
-                        if !rel.is_empty() && !rel.ends_with('/') {
-                            out.push(rel.to_string());
-                        }
-                    }
-                }
-            }
-            token = (tag(&text, "IsTruncated").as_deref() == Some("true")).then(|| tag(&text, "NextContinuationToken")).flatten();
-            if token.is_none() {
-                return Ok(out);
-            }
-        }
+        Ok(self.list_objects(&prefix)?.into_iter().filter_map(|(k, ..)| k.strip_prefix(&prefix).filter(|r| !r.is_empty() && !r.ends_with('/')).map(str::to_string)).collect())
     }
 
     fn remove(&self, path: &str) -> io::Result<()> {
@@ -236,6 +240,21 @@ impl Backend for S3 {
         } else {
             format!("s3://{}/{}", self.cfg.bucket, self.cfg.prefix)
         }
+    }
+}
+
+/// A bucket as a source to back up. Only reads: listing and downloading.
+impl crate::backup::Remote for S3 {
+    fn objects(&self) -> io::Result<Vec<crate::backup::RemoteObject>> {
+        let prefix = if self.cfg.prefix.is_empty() { String::new() } else { format!("{}/", self.cfg.prefix) };
+        Ok(self.list_objects(&prefix)?.into_iter().filter_map(|(k, size, mtime, tag)| Some(crate::backup::RemoteObject { key: k.strip_prefix(&prefix)?.to_string(), size, mtime, tag })).collect())
+    }
+
+    fn open(&self, key: &str) -> io::Result<Box<dyn io::Read + Send>> {
+        // The key as the bucket has it: no checks on its shape, since Keepr didn't make it.
+        let full = if self.cfg.prefix.is_empty() { key.to_string() } else { format!("{}/{key}", self.cfg.prefix) };
+        let r = self.send("GET", &full, &[], &[], None).map_err(|e| e.into_io(&self.cfg))?;
+        Ok(Box::new(r.into_reader()))
     }
 }
 

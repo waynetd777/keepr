@@ -556,11 +556,22 @@ impl Core {
         let repo = self.repo(plan_id, true)?;
         run.note(format!("Backup opened at {}{}", repo.backend.describe(), if repo.encrypted() { " (encrypted)" } else { "" }));
         let mut sources = Vec::new();
+        let mut remote = Vec::new();
         for s in &plan.sources {
+            if let Place::S3(b) = s {
+                let r = places::s3_backend(b, None, "")?;
+                run.note(format!("Source: {} (read over the network)", places::describe(s)));
+                sources.push(PathBuf::from(places::describe(s)));
+                remote.push(Some(keepr_engine::backup::RemoteSource(Arc::new(r))));
+                continue;
+            }
             let p = places::resolve(s, &self.mounts, true, true)?;
             run.note(format!("Source: {}", places::tilde(&p.to_string_lossy())));
             sources.push(p);
+            remote.push(None);
         }
+        // The folders on this Mac: what macOS's change record and the still copy are about.
+        let on_disk: Vec<PathBuf> = sources.iter().zip(&remote).filter(|(_, r)| r.is_none()).map(|(s, _)| s.clone()).collect();
         let repo_path = self.repos.lock().unwrap().get(plan_id).map(|(p, _)| p.clone());
         *cur.base.lock().unwrap() = (repo.counters.stored_bytes.load(Relaxed), repo.counters.dup_bytes.load(Relaxed));
         *cur.repo.lock().unwrap() = Some(repo.clone());
@@ -569,10 +580,10 @@ impl Core {
         let snaps = repo.snapshots().map_err(|e| e.0)?;
         let parent = snaps.last();
         let st = self.state.lock().unwrap().plans.get(plan_id).cloned().unwrap_or_default();
-        let local = sources.iter().all(|s| crate::still::on_data_volume(s));
+        let local = !on_disk.is_empty() && on_disk.iter().all(|s| crate::still::on_data_volume(s));
         // What macOS recorded as changed since the last backup, when that backup is the parent.
         let changes = match (&st.fs_event, parent) {
-            (Some((id, snap)), Some(p)) if !full && local && *snap == p.id.hex() => crate::fsevents::since(&sources, *id),
+            (Some((id, snap)), Some(p)) if !full && local && *snap == p.id.hex() => crate::fsevents::since(&on_disk, *id),
             _ => None,
         };
         match (&changes, full) {
@@ -599,7 +610,7 @@ impl Core {
             None
         };
         Self::set_stage(cur, "");
-        let read_from = sources.iter().map(|s| still.as_ref().map(|st| crate::still::inside(st, s))).collect();
+        let read_from = sources.iter().zip(&remote).map(|(s, r)| if r.is_some() { None } else { still.as_ref().map(|st| crate::still::inside(st, s)) }).collect();
         let opts = Options {
             plan: plan_id.to_string(),
             sources,
@@ -611,6 +622,7 @@ impl Core {
             skip_paths: repo_path.into_iter().collect(),
             read_from,
             changes,
+            remote,
         };
         let snap = keepr_engine::backup::run(&repo, &opts, parent, &cur.ctl).map_err(|e| e.0);
         drop(still);
@@ -847,7 +859,8 @@ impl Core {
         // The snapshots name a source by the path it was read from.
         let key = match source {
             Place::Folder { path, .. } => path.clone(),
-            _ => places::resolve(source, &self.mounts, true, true)?.to_string_lossy().to_string(),
+            Place::S3(_) => places::describe(source),
+            Place::Smb(_) => places::resolve(source, &self.mounts, true, true)?.to_string_lossy().to_string(),
         };
         run.note(format!("Taking {} out of every snapshot", places::tilde(&key)));
         let _ = repo;

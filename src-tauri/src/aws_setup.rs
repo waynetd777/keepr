@@ -45,40 +45,64 @@ fn check(region: &str, bucket: &str) -> Result<(), String> {
     if region.is_empty() || !region.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
         return Err("Choose a region, such as eu-west-1.".into());
     }
-    let ok = (3..=63).contains(&bucket.len()) && bucket.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') && !bucket.starts_with('-') && !bucket.ends_with('-');
+    let ok = (3..=63).contains(&bucket.len()) && bucket.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.') && !bucket.starts_with('-') && !bucket.ends_with('-');
     if !ok {
-        return Err("A bucket name is 3 to 63 lower-case letters, digits and hyphens.".into());
+        return Err("A bucket name is 3 to 63 lower-case letters, digits, dots and hyphens.".into());
     }
     Ok(())
 }
 
+/// What the key is for: keeping backups in a bucket Keepr makes, or backing up a bucket that's
+/// already there, which Keepr may then only list and read.
+#[derive(Deserialize, Clone, Copy, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub enum Mode {
+    Destination,
+    Source,
+}
+
 /// The setup, as a shell script for the AWS CLI. Run in a subshell so a failure pasted into
 /// CloudShell doesn't close CloudShell.
-pub fn script(region: &str, bucket: &str) -> Result<String, String> {
+pub fn script(region: &str, bucket: &str, mode: Mode) -> Result<String, String> {
     check(region, bucket)?;
     // IAM user names stop at 64 characters.
-    let user = if bucket.starts_with("keepr") { bucket[..bucket.len().min(64)].to_string() } else { format!("keepr-{}", &bucket[..bucket.len().min(57)]) };
+    let user = match mode {
+        Mode::Destination if bucket.starts_with("keepr") => bucket[..bucket.len().min(64)].to_string(),
+        Mode::Destination => format!("keepr-{}", &bucket[..bucket.len().min(57)]),
+        Mode::Source => format!("keepr-read-{}", &bucket[..bucket.len().min(52)]),
+    };
+    let bucket_part = match mode {
+        Mode::Destination => r#"if aws s3api head-bucket --bucket "${B}" --region "${R}" >/dev/null 2>&1; then
+  echo "The bucket ${B} is already there; using it."
+else
+  echo "Making the bucket ${B} in ${R}..."
+  if [ "${R}" = us-east-1 ]; then aws s3api create-bucket --bucket "${B}" --region "${R}" >/dev/null
+  else aws s3api create-bucket --bucket "${B}" --region "${R}" --create-bucket-configuration LocationConstraint="${R}" >/dev/null; fi
+fi
+aws s3api put-public-access-block --bucket "${B}" --region "${R}" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+A='"s3:GetObject","s3:PutObject","s3:DeleteObject"'
+WHAT="allowed only into that bucket""#,
+        // The bucket is wherever it is; its region is asked rather than assumed.
+        Mode::Source => r#"L=$(aws s3api get-bucket-location --bucket "${B}" --query LocationConstraint --output text)
+case "${L}" in None|null|"") R=us-east-1 ;; EU) R=eu-west-1 ;; *) R="${L}" ;; esac
+echo "The bucket ${B} is in ${R}."
+A='"s3:GetObject"'
+WHAT="allowed only to list and read that bucket""#,
+    };
     Ok(format!(
         r#"(
 set -euo pipefail
 export AWS_PAGER=""
 R='{region}'; B='{bucket}'; U='{user}'
 # ${{R}} not $R throughout: macOS's bash 3.2 reads a following non-ASCII byte as part of the name.
-if aws s3api head-bucket --bucket "${{B}}" --region "${{R}}" >/dev/null 2>&1; then
-  echo "The bucket ${{B}} is already there; using it."
-else
-  echo "Making the bucket ${{B}} in ${{R}}..."
-  if [ "${{R}}" = us-east-1 ]; then aws s3api create-bucket --bucket "${{B}}" --region "${{R}}" >/dev/null
-  else aws s3api create-bucket --bucket "${{B}}" --region "${{R}}" --create-bucket-configuration LocationConstraint="${{R}}" >/dev/null; fi
-fi
-aws s3api put-public-access-block --bucket "${{B}}" --region "${{R}}" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+{bucket_part}
 if aws iam get-user --user-name "${{U}}" >/dev/null 2>&1; then
   echo "The user ${{U}} is already there; giving it a new key."
 else
-  echo "Making the user ${{U}}, allowed only into that bucket..."
+  echo "Making the user ${{U}}, ${{WHAT}}..."
   aws iam create-user --user-name "${{U}}" --tags Key=created-by,Value=Keepr >/dev/null
 fi
-aws iam put-user-policy --user-name "${{U}}" --policy-name keepr-bucket-only --policy-document '{{"Version":"2012-10-17","Statement":[{{"Effect":"Allow","Action":"s3:ListBucket","Resource":"arn:aws:s3:::'"${{B}}"'"}},{{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":"arn:aws:s3:::'"${{B}}"'/*"}}]}}'
+aws iam put-user-policy --user-name "${{U}}" --policy-name keepr-bucket-only --policy-document '{{"Version":"2012-10-17","Statement":[{{"Effect":"Allow","Action":"s3:ListBucket","Resource":"arn:aws:s3:::'"${{B}}"'"}},{{"Effect":"Allow","Action":['"${{A}}"'],"Resource":"arn:aws:s3:::'"${{B}}"'/*"}}]}}'
 # A user may have two keys: make room by removing the oldest Keepr made before.
 OLD=$(aws iam list-access-keys --user-name "${{U}}" --query 'AccessKeyMetadata[].AccessKeyId' --output text)
 set -- $OLD
@@ -123,50 +147,111 @@ pub fn endpoint(region: &str) -> String {
     format!("https://s3.{region}.amazonaws.com")
 }
 
-/// Signs in through the browser and runs the setup. Blocks until it's done or has failed.
-pub fn with_cli(region: &str, bucket: &str) -> Result<Made, String> {
-    let aws = cli().ok_or("The AWS CLI (version 2.32 or later) isn't installed. Use CloudShell instead.")?;
-    let script = script(region, bucket)?;
-    let dir = config::data_dir().join(format!("aws-setup-{}", config::new_id()));
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let run = || -> Result<Made, String> {
-        let env = |c: &mut Command| {
-            c.env("AWS_CONFIG_FILE", dir.join("config"))
-                .env("AWS_SHARED_CREDENTIALS_FILE", dir.join("credentials"))
-                .env("AWS_LOGIN_CACHE_DIRECTORY", dir.join("login"))
-                .env("AWS_PROFILE", "keepr-setup")
-                .env("AWS_REGION", region)
-                .env("AWS_PAGER", "")
-                .env_remove("AWS_ACCESS_KEY_ID")
-                .env_remove("AWS_SECRET_ACCESS_KEY")
-                .env_remove("AWS_SESSION_TOKEN")
-                .stdin(Stdio::null());
-        };
+/// A browser sign-in, kept for a few minutes so choosing a bucket doesn't mean signing in twice.
+struct Session {
+    aws: String,
+    dir: std::path::PathBuf,
+    region: String,
+    at: Instant,
+}
+
+static SESSION: std::sync::Mutex<Option<Session>> = std::sync::Mutex::new(None);
+
+impl Session {
+    fn command(&self, program: &str) -> Command {
+        let mut c = Command::new(program);
+        c.env("AWS_CONFIG_FILE", self.dir.join("config"))
+            .env("AWS_SHARED_CREDENTIALS_FILE", self.dir.join("credentials"))
+            .env("AWS_LOGIN_CACHE_DIRECTORY", self.dir.join("login"))
+            .env("AWS_PROFILE", "keepr-setup")
+            .env("AWS_REGION", &self.region)
+            .env("AWS_PAGER", "")
+            // The script calls `aws` by name.
+            .env("PATH", format!("{}:/usr/bin:/bin", std::path::Path::new(&self.aws).parent().unwrap().display()))
+            .env_remove("AWS_ACCESS_KEY_ID")
+            .env_remove("AWS_SECRET_ACCESS_KEY")
+            .env_remove("AWS_SESSION_TOKEN")
+            .stdin(Stdio::null());
+        c
+    }
+
+    fn start(region: &str) -> Result<Session, String> {
+        let aws = cli().ok_or("The AWS CLI (version 2.32 or later) isn't installed. Use CloudShell instead.")?;
+        let dir = config::data_dir().join(format!("aws-setup-{}", config::new_id()));
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         std::fs::write(dir.join("config"), format!("[profile keepr-setup]\nregion = {region}\n")).map_err(|e| e.to_string())?;
-        let mut login = Command::new(&aws);
+        let s = Session { aws: aws.clone(), dir, region: region.to_string(), at: Instant::now() };
+        let mut login = s.command(&aws);
         login.args(["login", "--profile", "keepr-setup", "--region", region]);
-        env(&mut login);
-        let out = run_for(login, Duration::from_secs(600))?;
-        if !out.0 {
-            return Err(format!("Signing in to AWS didn't finish. {}", last_line(&out.1)));
+        match run_for(login, Duration::from_secs(600)) {
+            Ok((true, _)) => Ok(s),
+            Ok((false, out)) => {
+                s.end();
+                Err(format!("Signing in to AWS didn't finish. {}", last_line(&out)))
+            }
+            Err(e) => {
+                s.end();
+                Err(e)
+            }
         }
-        let mut sh = Command::new("/bin/bash");
-        sh.arg("-c").arg(&script);
-        // The script calls `aws` by name.
-        let path = format!("{}:/usr/bin:/bin", std::path::Path::new(&aws).parent().unwrap().display());
-        sh.env("PATH", path);
-        env(&mut sh);
-        let out = run_for(sh, Duration::from_secs(300))?;
-        if !out.0 {
-            return Err(explain(&out.1));
+    }
+
+    fn end(self) {
+        let mut logout = self.command(&self.aws);
+        logout.args(["logout", "--profile", "keepr-setup"]).stdout(Stdio::null()).stderr(Stdio::null());
+        let _ = logout.status();
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// The sign-in from a moment ago, else a new one.
+fn session(region: &str) -> Result<Session, String> {
+    if let Some(s) = SESSION.lock().unwrap().take() {
+        if s.at.elapsed() < Duration::from_secs(15 * 60) {
+            return Ok(s);
         }
-        parse(&out.1)
+        s.end();
+    }
+    Session::start(region)
+}
+
+/// Forgets the sign-in, if one is kept.
+pub fn end_session() {
+    if let Some(s) = SESSION.lock().unwrap().take() {
+        s.end();
+    }
+}
+
+/// Signs in through the browser and lists the account's buckets. The sign-in is kept for the
+/// setup that follows.
+pub fn buckets(region: &str) -> Result<Vec<String>, String> {
+    check(region, "keepr")?;
+    let s = session(region)?;
+    let mut c = s.command("/bin/bash");
+    c.arg("-c").arg("aws s3api list-buckets --query 'Buckets[].Name' --output text");
+    let out = run_for(c, Duration::from_secs(60));
+    let res = match out {
+        Ok((true, text)) => Ok(text.split_whitespace().map(str::to_string).collect()),
+        Ok((false, text)) => Err(explain(&text)),
+        Err(e) => Err(e),
     };
-    let res = run();
-    let mut logout = Command::new(&aws);
-    logout.args(["logout", "--profile", "keepr-setup"]).env("AWS_CONFIG_FILE", dir.join("config")).env("AWS_LOGIN_CACHE_DIRECTORY", dir.join("login")).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    let _ = logout.status();
-    let _ = std::fs::remove_dir_all(&dir);
+    *SESSION.lock().unwrap() = Some(s);
+    res
+}
+
+/// Signs in through the browser (or uses the sign-in from a moment ago) and runs the setup.
+/// Blocks until it's done or has failed.
+pub fn with_cli(region: &str, bucket: &str, mode: Mode) -> Result<Made, String> {
+    let script = script(region, bucket, mode)?;
+    let s = session(region)?;
+    let mut sh = s.command("/bin/bash");
+    sh.arg("-c").arg(&script);
+    let res = match run_for(sh, Duration::from_secs(300)) {
+        Ok((true, out)) => parse(&out),
+        Ok((false, out)) => Err(explain(&out)),
+        Err(e) => Err(e),
+    };
+    s.end();
     finish(res?)
 }
 
@@ -223,11 +308,13 @@ mod tests {
 
     #[test]
     fn script_and_its_answer() {
-        let s = script("eu-west-1", "keepr-backup-1a2b3c4d").unwrap();
+        let s = script("eu-west-1", "keepr-backup-1a2b3c4d", Mode::Destination).unwrap();
         assert!(s.contains("R='eu-west-1'; B='keepr-backup-1a2b3c4d'; U='keepr-backup-1a2b3c4d'"));
         assert!(s.contains(r#""Resource":"arn:aws:s3:::'"${B}"'/*""#));
-        assert!(script("eu-west-1", "Bad_Name").is_err());
-        assert!(script("eu-west-1; rm", "keepr").is_err());
+        let r = script("eu-west-1", "photos", Mode::Source).unwrap();
+        assert!(r.contains("U='keepr-read-photos'") && r.contains(r#"A='"s3:GetObject"'"#) && !r.contains("create-bucket"));
+        assert!(script("eu-west-1", "Bad_Name", Mode::Destination).is_err());
+        assert!(script("eu-west-1; rm", "keepr", Mode::Source).is_err());
         let m = parse("Done.\nkeepr-setup {\"region\":\"eu-west-1\",\"bucket\":\"keepr-x1\",\"accessKey\":\"AKIA1\",\"secret\":\"s/+x\"}\n$ ").unwrap();
         assert_eq!((m.bucket.as_str(), m.access_key.as_str(), m.secret.as_str()), ("keepr-x1", "AKIA1", "s/+x"));
         assert!(serde_json::to_string(&m).unwrap().find("s/+x").is_none());

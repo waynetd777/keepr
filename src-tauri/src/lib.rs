@@ -509,14 +509,45 @@ async fn aws_setup_info() -> AwsSetupInfo {
 
 /// Signs in through the browser and makes the bucket and its user.
 #[tauri::command]
-async fn aws_setup_run(region: String, bucket: String) -> Result<aws_setup::Made, String> {
-    tauri::async_runtime::spawn_blocking(move || aws_setup::with_cli(region.trim(), bucket.trim())).await.map_err(|e| e.to_string())?
+async fn aws_setup_run(region: String, bucket: String, mode: aws_setup::Mode) -> Result<aws_setup::Made, String> {
+    tauri::async_runtime::spawn_blocking(move || aws_setup::with_cli(region.trim(), bucket.trim(), mode)).await.map_err(|e| e.to_string())?
+}
+
+/// Signs in to AWS through the browser and lists the buckets there.
+#[tauri::command]
+async fn aws_buckets(region: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || aws_setup::buckets(region.trim())).await.map_err(|e| e.to_string())?
+}
+
+/// Forgets a sign-in kept for choosing a bucket (the sheet was closed).
+#[tauri::command]
+async fn aws_setup_end() {
+    let _ = tauri::async_runtime::spawn_blocking(aws_setup::end_session).await;
+}
+
+/// Checks a bucket as a source: that the key may list it, and how much is in it. Saves the
+/// secret once it works.
+#[tauri::command]
+async fn check_s3_source(place: Place, secret: Option<String>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Place::S3(s) = &place else { return Err("That isn't a bucket.".to_string()) };
+        let b = places::s3_backend(s, secret.clone(), "")?;
+        b.check_bucket().map_err(|e| e.to_string())?;
+        let objects = keepr_engine::backup::Remote::objects(&b).map_err(|e| e.to_string())?;
+        if let Some(pw) = secret.filter(|p| !p.is_empty()) {
+            keychain::set(&keychain::s3_account(&s.access_key), &pw)?;
+        }
+        let bytes: u64 = objects.iter().map(|o| o.size).sum();
+        Ok(format!("{} files, {}", objects.len(), core::human_bytes(bytes)))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// The same setup as a script to paste into AWS CloudShell.
 #[tauri::command]
-fn aws_setup_script(region: String, bucket: String) -> Result<String, String> {
-    aws_setup::script(region.trim(), bucket.trim())
+fn aws_setup_script(region: String, bucket: String, mode: aws_setup::Mode) -> Result<String, String> {
+    aws_setup::script(region.trim(), bucket.trim(), mode)
 }
 
 /// The line CloudShell printed at the end.
@@ -988,6 +1019,9 @@ pub fn run() {
             aws_setup_run,
             aws_setup_script,
             aws_setup_paste,
+            aws_buckets,
+            aws_setup_end,
+            check_s3_source,
             get_config,
             history,
             run_log,

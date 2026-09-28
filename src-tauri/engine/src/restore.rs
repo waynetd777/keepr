@@ -46,6 +46,8 @@ pub struct Restored {
 
 pub fn destination(snap: &Snapshot, path: &str, target: &Target) -> Result<PathBuf> {
     match target {
+        // A bucket was only read from: Keepr has no leave to write there.
+        Target::Original if path.contains("://") => Err(Error::new("Files from a bucket can only be restored into a folder. Choose one.")),
         Target::Original => Ok(PathBuf::from(path)),
         Target::Folder(dir) => {
             let src = snap

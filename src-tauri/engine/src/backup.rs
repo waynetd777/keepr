@@ -10,13 +10,14 @@
 //! 3. **Commit**: write the trees bottom-up, flush the last pack and the index, and write the
 //!    snapshot last. Nothing half-done ever counts as a snapshot.
 //!
-//! Sources are only ever opened for reading.
+//! Sources are only ever opened for reading. A source can also be a `Remote` (an S3 bucket):
+//! its listing stands in for the walk, and its objects are streamed in to be chunked.
 
 use crate::repo::{Kind, Repo, Snapshot, Stats};
 use crate::tree::{Node, NodeKind, Tree};
 use crate::{cancelled, Error, Id, Result};
 use rayon::prelude::*;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -47,6 +48,67 @@ pub struct Options {
     /// Folders macOS says changed since the previous snapshot. Any other folder is taken from the
     /// previous snapshot without being looked at. None: look at everything.
     pub changes: Option<Changes>,
+    /// Sources that aren't folders on this Mac, by their place in `sources`; that source's path
+    /// is then just its name ("s3://bucket/prefix").
+    pub remote: Vec<Option<RemoteSource>>,
+}
+
+/// A source read over the network rather than from a disk.
+pub trait Remote: Send + Sync {
+    /// Everything in it, with keys relative to its top ("Photos/2024/a.jpg").
+    fn objects(&self) -> std::io::Result<Vec<RemoteObject>>;
+    fn open(&self, key: &str) -> std::io::Result<Box<dyn std::io::Read + Send>>;
+}
+
+#[derive(Clone, Debug)]
+pub struct RemoteObject {
+    pub key: String,
+    pub size: u64,
+    /// Modified time, nanoseconds since 1970.
+    pub mtime: i64,
+    /// Changes whenever the contents do (S3's ETag).
+    pub tag: String,
+}
+
+#[derive(Clone)]
+pub struct RemoteSource(pub Arc<dyn Remote>);
+
+impl std::fmt::Debug for RemoteSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RemoteSource")
+    }
+}
+
+/// A remote object's tag as a node's inode: the snapshot format has no field for it, and the
+/// inode is what already says "the same file" alongside size and modified time.
+fn tag_inode(tag: &str) -> u64 {
+    u64::from_le_bytes(blake3::hash(tag.as_bytes()).as_bytes()[..8].try_into().unwrap())
+}
+
+/// A bucket's listing as folders.
+#[derive(Default)]
+struct RDir {
+    dirs: BTreeMap<String, RDir>,
+    files: BTreeMap<String, RemoteObject>,
+}
+
+impl RDir {
+    fn from(objects: Vec<RemoteObject>) -> RDir {
+        let mut top = RDir::default();
+        for o in objects {
+            // "folder/" objects are only markers; empty names ("a//b") aren't folders anyone made.
+            let parts: Vec<String> = o.key.split('/').filter(|p| !p.is_empty()).map(str::to_string).collect();
+            if o.key.ends_with('/') || parts.is_empty() {
+                continue;
+            }
+            let mut d = &mut top;
+            for p in &parts[..parts.len() - 1] {
+                d = d.dirs.entry(p.clone()).or_default();
+            }
+            d.files.insert(parts[parts.len() - 1].clone(), o);
+        }
+        top
+    }
 }
 
 /// What changed since the previous snapshot, from macOS's record of file-system events.
@@ -178,6 +240,8 @@ struct Job {
     size: u64,
     /// The previous snapshot's version, kept if this one can't be read.
     previous: Option<Node>,
+    /// A remote source's object: which source, and its key there.
+    remote: Option<(usize, String)>,
 }
 
 struct Walk<'a> {
@@ -254,7 +318,13 @@ impl Walk<'_> {
         if self.opts.max_file_size.is_some_and(|max| m.size() > max) {
             return None;
         }
-        let mut node = node_from(name, NodeKind::File, m);
+        let node = node_from(name, NodeKind::File, m);
+        let shown = self.logical(path);
+        Some(self.consider(node, prev, Job { path: path.to_path_buf(), shown, size: m.size(), previous: prev.cloned(), remote: None }))
+    }
+
+    /// A file found: kept as it was when it looks unchanged, else queued to be read.
+    fn consider(&mut self, mut node: Node, prev: Option<&Node>, job: Job) -> Entry {
         self.stats.files += 1;
         self.stats.bytes += node.size;
         let unchanged = !self.opts.full
@@ -262,7 +332,7 @@ impl Walk<'_> {
             && prev.is_some_and(|p| p.content.iter().all(|c| self.repo.has(c)));
         if unchanged {
             node.content = prev.unwrap().content.clone();
-            return Some(Entry::File(node, None));
+            return Entry::File(node, None);
         }
         if prev.is_none() {
             self.stats.new_files += 1;
@@ -271,9 +341,66 @@ impl Walk<'_> {
         }
         self.ctl.progress.files_to_read.fetch_add(1, Relaxed);
         self.ctl.progress.bytes_to_read.fetch_add(node.size, Relaxed);
-        let shown = self.logical(path);
-        self.jobs.push(Job { path: path.to_path_buf(), shown, size: node.size, previous: prev.cloned() });
-        Some(Entry::File(node, Some(self.jobs.len() - 1)))
+        self.jobs.push(job);
+        Entry::File(node, Some(self.jobs.len() - 1))
+    }
+
+    /// A folder of a remote source, from its listing.
+    fn remote_dir(&mut self, name: String, shown: &Path, d: RDir, prev: Option<Arc<Tree>>, src: usize) -> Result<ScanDir> {
+        self.ctl.checkpoint()?;
+        self.stats.dirs += 1;
+        let node = Node { name, kind: NodeKind::Dir, size: 0, files: 0, mtime: 0, ctime: 0, inode: 0, mode: 0o755, content: vec![], subtree: None, target: None };
+        let mut entries = Vec::new();
+        let RDir { dirs, files } = d;
+        for (n, o) in files {
+            let p = shown.join(&n);
+            if dirs.contains_key(&n) {
+                self.note(format!("{}: a folder has the same name, so this file is left out", p.display()));
+                continue;
+            }
+            if self.ex.excluded(&p, &n, false) || self.opts.max_file_size.is_some_and(|max| o.size > max) {
+                continue;
+            }
+            self.ctl.progress.files_seen.fetch_add(1, Relaxed);
+            let prev_node = prev.as_ref().and_then(|t| t.get(&n)).cloned();
+            let node = Node { name: n, kind: NodeKind::File, size: o.size, files: 0, mtime: o.mtime, ctime: o.mtime, inode: tag_inode(&o.tag), mode: 0o644, content: vec![], subtree: None, target: None };
+            let job = Job { path: p.clone(), shown: p, size: o.size, previous: prev_node.clone(), remote: Some((src, o.key)) };
+            let e = self.consider(node, prev_node.as_ref(), job);
+            entries.push(e);
+        }
+        for (n, sub) in dirs {
+            let p = shown.join(&n);
+            if self.ex.excluded(&p, &n, true) {
+                continue;
+            }
+            self.ctl.progress.files_seen.fetch_add(1, Relaxed);
+            let prev_tree = match prev.as_ref().and_then(|t| t.get(&n)).and_then(|n| n.subtree) {
+                Some(id) => self.repo.load_tree(&id).ok(),
+                None => None,
+            };
+            entries.push(Entry::Dir(self.remote_dir(n, &p, sub, prev_tree, src)?));
+        }
+        self.count_removed(&entries, &prev);
+        Ok(ScanDir { node, entries })
+    }
+
+    /// Counts what the previous snapshot had here and this one doesn't.
+    fn count_removed(&mut self, entries: &[Entry], prev: &Option<Arc<Tree>>) {
+        let Some(t) = prev else { return };
+        let here: HashSet<&str> = entries
+            .iter()
+            .map(|e| match e {
+                Entry::Dir(d) => d.node.name.as_str(),
+                Entry::File(n, _) | Entry::Link(n) | Entry::Kept(n) => n.name.as_str(),
+            })
+            .collect();
+        for n in t.nodes.iter().filter(|n| !here.contains(n.name.as_str())) {
+            self.stats.removed_files += match n.kind {
+                NodeKind::File => 1,
+                NodeKind::Dir => n.files,
+                NodeKind::Symlink => 0,
+            };
+        }
     }
 
     fn dir(&mut self, name: String, path: &Path, m: &fs::Metadata, prev: Option<Arc<Tree>>) -> Result<ScanDir> {
@@ -345,37 +472,31 @@ impl Walk<'_> {
         if pushed {
             self.ignores.pop();
         }
-        // What the previous snapshot had here and this one doesn't.
-        if let Some(t) = &prev {
-            let here: HashSet<&str> = entries
-                .iter()
-                .map(|e| match e {
-                    Entry::Dir(d) => d.node.name.as_str(),
-                    Entry::File(n, _) | Entry::Link(n) | Entry::Kept(n) => n.name.as_str(),
-                })
-                .collect();
-            for n in t.nodes.iter().filter(|n| !here.contains(n.name.as_str())) {
-                self.stats.removed_files += match n.kind {
-                    NodeKind::File => 1,
-                    NodeKind::Dir => n.files,
-                    NodeKind::Symlink => 0,
-                };
-            }
-        }
+        self.count_removed(&entries, &prev);
         Ok(ScanDir { node, entries })
     }
 }
 
 /// Reads a file and stores its chunks.
-fn read_file(repo: &Repo, ctl: &Control, job: &Job) -> Result<Vec<Id>> {
-    let f = fs::File::open(&job.path)?;
+fn read_file(repo: &Repo, ctl: &Control, job: &Job, remote: &[Option<RemoteSource>]) -> Result<Vec<Id>> {
+    let f: Box<dyn std::io::Read + Send> = match &job.remote {
+        Some((i, key)) => remote.get(*i).cloned().flatten().ok_or_else(|| Error::new("no remote source"))?.0.open(key)?,
+        None => Box::new(fs::File::open(&job.path)?),
+    };
     let c = &repo.config.chunker;
     let mut ids = Vec::new();
+    let mut got = 0u64;
     for chunk in fastcdc::v2020::StreamCDC::new(f, c.min, c.avg, c.max) {
         ctl.checkpoint()?;
         let chunk = chunk.map_err(|e| Error::new(e.to_string()))?;
         ctl.progress.bytes_read.fetch_add(chunk.length as u64, Relaxed);
+        got += chunk.length as u64;
         ids.push(repo.add(Kind::Data, &chunk.data)?.0);
+    }
+    // A download cut off early would otherwise look like a shorter file. (A local file may
+    // really change size while it's read, when there's no still copy.)
+    if job.remote.is_some() && got != job.size {
+        return Err(Error::new(format!("only {got} of {} bytes arrived", job.size)));
     }
     Ok(ids)
 }
@@ -395,12 +516,22 @@ pub fn run(repo: &Arc<Repo>, opts: &Options, parent: Option<&Snapshot>, ctl: &Co
     let mut roots = Vec::new();
     for (i, src) in opts.sources.iter().enumerate() {
         let key = src.to_string_lossy().to_string();
+        let prev = prev_root.as_ref().and_then(|t| t.get(&key)).cloned();
+        if let Some(r) = opts.remote.get(i).cloned().flatten() {
+            *ctl.progress.current.lock().unwrap() = format!("Listing {key}");
+            let objects = r.0.objects().map_err(|e| Error::new(format!("{key} can't be listed: {e}")))?;
+            let prev_tree = match prev.and_then(|n| n.subtree) {
+                Some(id) => Some(repo.load_tree(&id)?),
+                None => None,
+            };
+            roots.push(Entry::Dir(w.remote_dir(key, src, RDir::from(objects), prev_tree, i)?));
+            continue;
+        }
         let read = opts.read_from.get(i).cloned().flatten().unwrap_or_else(|| src.clone());
         w.map = (read != *src).then(|| (read.clone(), src.clone()));
         // A source that isn't there fails the backup: a snapshot without it would look like
         // everything in it had been deleted.
         let m = fs::metadata(&read).map_err(|e| Error::new(format!("{key} can't be read ({e}). Is its drive or share connected?")))?;
-        let prev = prev_root.as_ref().and_then(|t| t.get(&key)).cloned();
         if m.is_dir() {
             if let Some(kept) = w.keep(src, prev.as_ref()) {
                 let Entry::Kept(mut n) = kept else { unreachable!() };
@@ -428,7 +559,7 @@ pub fn run(repo: &Arc<Repo>, opts: &Options, parent: Option<&Snapshot>, ctl: &Co
                 return Err(cancelled());
             }
             *ctl.progress.current.lock().unwrap() = job.shown.to_string_lossy().to_string();
-            let r = read_file(repo, ctl, job);
+            let r = read_file(repo, ctl, job, &opts.remote);
             ctl.progress.files_read.fetch_add(1, Relaxed);
             r
         })
@@ -548,6 +679,48 @@ pub(crate) mod tests {
     fn write(p: &Path, s: &[u8]) {
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(p, s).unwrap();
+    }
+
+    /// A bucket in memory: key → (contents, ETag).
+    struct Fake(Mutex<BTreeMap<String, (Vec<u8>, String)>>);
+
+    impl Remote for Fake {
+        fn objects(&self) -> std::io::Result<Vec<RemoteObject>> {
+            Ok(self.0.lock().unwrap().iter().map(|(k, (d, t))| RemoteObject { key: k.clone(), size: d.len() as u64, mtime: 1, tag: t.clone() }).collect())
+        }
+        fn open(&self, key: &str) -> std::io::Result<Box<dyn std::io::Read + Send>> {
+            let d = self.0.lock().unwrap().get(key).map(|x| x.0.clone()).ok_or(std::io::ErrorKind::NotFound)?;
+            Ok(Box::new(std::io::Cursor::new(d)))
+        }
+    }
+
+    #[test]
+    fn backs_up_a_bucket() {
+        let (_src, _dst, repo) = setup(None);
+        let fake = Arc::new(Fake(Mutex::new(BTreeMap::new())));
+        let put = |k: &str, d: &[u8], t: &str| fake.0.lock().unwrap().insert(k.into(), (d.to_vec(), t.into()));
+        put("docs/a.txt", b"alpha", "e1");
+        put("docs/", b"", "marker");
+        put("b.txt", b"beta", "e2");
+        let o = Options { plan: "p".into(), sources: vec![PathBuf::from("s3://bucket/top")], remote: vec![Some(RemoteSource(fake.clone()))], ..Default::default() };
+        let s1 = run(&repo, &o, None, &Control::default()).unwrap();
+        assert_eq!((s1.stats.files, s1.stats.new_files, s1.stats.read_bytes), (2, 2, 9));
+        let n = crate::browse::node_at(&repo, &s1, "s3://bucket/top/docs/a.txt").unwrap().unwrap();
+        assert_eq!(n.size, 5);
+
+        // Same tags: nothing read. A new tag: read again. Gone: counted as removed.
+        put("docs/a.txt", b"alpha2", "e3");
+        fake.0.lock().unwrap().remove("b.txt");
+        let s2 = run(&repo, &o, Some(&s1), &Control::default()).unwrap();
+        assert_eq!((s2.stats.changed_files, s2.stats.removed_files, s2.stats.read_bytes), (1, 1, 6));
+        let s3 = run(&repo, &o, Some(&s2), &Control::default()).unwrap();
+        assert_eq!(s3.stats.read_bytes, 0);
+
+        let out = tempfile::tempdir().unwrap();
+        let t = crate::restore::Target::Folder(out.path().into());
+        crate::restore::run(&repo, &s3, &["s3://bucket/top/docs".into()], &t, crate::restore::Conflict::Replace, &Control::default()).unwrap();
+        assert_eq!(fs::read(out.path().join("top/docs/a.txt")).unwrap(), b"alpha2");
+        assert!(crate::restore::destination(&s3, "s3://bucket/top/docs", &crate::restore::Target::Original).is_err());
     }
 
     #[test]
