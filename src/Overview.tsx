@@ -5,18 +5,33 @@ import { useEffect, useState } from "react";
 import { api, type PlanSummary, type Run } from "./api";
 import { useApp } from "./App";
 import { Icon } from "./icons";
-import { ago, bytes, longDate, next, when } from "./format";
+import { ago, bytes, count, longDate, next, when } from "./format";
 import { RecoverySheet } from "./Plans";
 import { PlanProgress } from "./ui";
+
+/** What a day's bar means, for its tooltip: "Thursday 24 September: 12 backups, 88 MB stored". */
+function dayTip(d: PlanSummary["days"][number], daysAgo: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() - daysAgo);
+  const label = daysAgo === 0 ? "Today" : daysAgo === 1 ? "Yesterday" : date.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+  if (!d.ran) return `${label}: no backup`;
+  const parts = [d.count ? count(d.count, "backup") : "no backup completed", d.count ? `${bytes(d.added)} stored` : ""].filter(Boolean);
+  return `${label}: ${parts.join(", ")}${d.failed ? " · one didn't finish" : ""}`;
+}
 
 function Strata({ p, compact }: { p: PlanSummary; compact?: boolean }) {
   const max = Math.max(1, ...p.days.map((d) => d.added));
   return (
-    <div className="strata" style={compact ? { height: 26, gap: 2, width: 220, flexShrink: 0 } : undefined} aria-hidden="true">
+    <div className="strata" style={compact ? { height: 26, gap: 2, width: 220, flexShrink: 0 } : undefined}>
       {p.days.map((d, i) => {
         const h = d.failed ? 100 : d.ran ? 12 + 88 * Math.sqrt(d.added / max) : 5;
         const cls = d.failed ? "bad" : !d.ran ? "none" : i === p.days.length - 1 ? "hi" : "";
-        return <div key={i} className={cls} style={{ height: `${h}%` }} />;
+        // The bar's hover area is its full column, so thin days are easy to point at.
+        return (
+          <div key={i} title={dayTip(d, p.days.length - 1 - i)} style={{ flex: 1, height: "100%", display: "flex", alignItems: "flex-end", background: "transparent", minHeight: 0 }}>
+            <div className={cls} style={{ height: `${h}%`, width: "100%", flex: "none" }} />
+          </div>
+        );
       })}
     </div>
   );

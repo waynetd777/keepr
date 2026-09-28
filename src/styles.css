@@ -173,7 +173,8 @@ input[type="checkbox"] { accent-color: var(--accent); }
 /* ---- overview ---- */
 .plan-card { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
 .strata { height: 38px; display: flex; align-items: flex-end; gap: 3px; }
-.strata div { flex: 1; border-radius: 2px; background: var(--bar); min-height: 2px; }
+.strata > div > div { border-radius: 2px; background: var(--bar); min-height: 2px; }
+.strata > div:hover > div { filter: brightness(0.9); }
 .strata div.hi { background: var(--bar-hi); }
 .strata div.bad { background: var(--red); }
 .strata div.none { background: var(--line); }

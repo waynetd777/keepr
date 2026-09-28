@@ -35,7 +35,7 @@ export type Plan = {
 export type Settings = { notifyFailures: boolean; notifySuccess: boolean; staleDays: number };
 export type Config = { destinations: Destination[]; plans: Plan[]; settings: Settings };
 
-export type Day = { added: number; failed: boolean; ran: boolean };
+export type Day = { added: number; failed: boolean; ran: boolean; count: number };
 export type PlanSummary = {
   id: string;
   name: string;

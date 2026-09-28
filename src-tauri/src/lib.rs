@@ -39,6 +39,8 @@ struct Day {
     added: u64,
     failed: bool,
     ran: bool,
+    /// Backups that completed that day.
+    count: u32,
 }
 
 #[derive(Serialize)]
@@ -152,7 +154,7 @@ fn overview_of(core: &Core) -> Overview {
         } else {
             ("ok", last_backup.map(|r| r.message.clone()).unwrap_or_default())
         };
-        let mut days: Vec<Day> = (0..30).map(|_| Day { added: 0, failed: false, ran: false }).collect();
+        let mut days: Vec<Day> = (0..30).map(|_| Day { added: 0, failed: false, ran: false, count: 0 }).collect();
         for r in &runs {
             if r.kind != "backup" && r.kind != "full" {
                 continue;
@@ -166,6 +168,9 @@ fn overview_of(core: &Core) -> Overview {
             d.ran = true;
             d.added += r.stored_bytes;
             d.failed |= r.result == "failed";
+            if r.result == "ok" || r.result == "warning" {
+                d.count += 1;
+            }
         }
         let dest = cfg.destination(&p.destination);
         plans.push(PlanSummary {
