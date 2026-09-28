@@ -69,6 +69,12 @@ fn volume_of(p: &Path) -> Option<String> {
 /// signed out or its sync root breaks, macOS renames the root and leaves its contents looking
 /// intact; only the file-provider domain attribute tells a live root from an orphan. Backing up
 /// into an orphan would quietly go to local disk and never reach the cloud.
+/// In a cloud service's sync folder (OneDrive, Google Drive, iCloud Drive…).
+pub fn in_cloud(p: &Path) -> bool {
+    let home = std::env::var("HOME").unwrap_or_default();
+    cloud_root(p).is_some() || p.starts_with(Path::new(&home).join("Library/Mobile Documents"))
+}
+
 pub fn cloud_root(p: &Path) -> Option<(PathBuf, bool)> {
     let home = std::env::var("HOME").ok()?;
     let cs = Path::new(&home).join("Library/CloudStorage");

@@ -67,3 +67,40 @@ mod tests {
         assert_eq!(parse_pmset("Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1)\t18%; discharging; 1:02 remaining present: true"), Some(18));
     }
 }
+
+extern "C" {
+    fn setiopolicy_np(iotype: libc::c_int, scope: libc::c_int, policy: libc::c_int) -> libc::c_int;
+    fn getiopolicy_np(iotype: libc::c_int, scope: libc::c_int) -> libc::c_int;
+}
+
+const IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES: libc::c_int = 3;
+const IOPOL_SCOPE_PROCESS: libc::c_int = 0;
+const IOPOL_MATERIALIZE_DATALESS_FILES_ON: libc::c_int = 2;
+
+/// Lets this process download files that are only in the cloud (OneDrive, iCloud Drive and
+/// other File Provider folders) when it reads them. Apps started by launchd, as Keepr is at
+/// login, begin with this off: reading such a file, or even listing a folder whose contents
+/// are in the cloud, then fails with "Resource deadlock avoided", while the same backup run by
+/// hand in Terminal works. (From backup-manager's with-materialise, which hid a broken backup
+/// for months until it was found.) Whether cloud-only files are backed up at all is still the
+/// plan's choice ("Skip files that are only in the cloud").
+pub fn allow_cloud_downloads() {
+    unsafe {
+        if setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_PROCESS, IOPOL_MATERIALIZE_DATALESS_FILES_ON) != 0 {
+            eprintln!("Keepr: couldn't allow cloud downloads: {}", std::io::Error::last_os_error());
+        }
+    }
+}
+
+pub fn cloud_downloads_allowed() -> bool {
+    unsafe { getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_PROCESS) == IOPOL_MATERIALIZE_DATALESS_FILES_ON }
+}
+
+#[cfg(test)]
+mod cloud_tests {
+    #[test]
+    fn cloud_downloads_switch_on() {
+        super::allow_cloud_downloads();
+        assert!(super::cloud_downloads_allowed());
+    }
+}

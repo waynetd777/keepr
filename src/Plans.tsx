@@ -36,11 +36,16 @@ function blankPlan(dest: string, excludes: string[]): Plan {
   };
 }
 
+/** In a cloud service's sync folder on this Mac. */
+function isCloud(path: string): boolean {
+  return /\/Library\/(CloudStorage|Mobile Documents)\//.test(path + "/");
+}
+
 function placeLabel(p: Place, home: string): { title: string; sub: string } {
   if (p.kind === "folder") {
     const name = p.path.split("/").filter(Boolean).pop() ?? p.path;
     const vol = p.path.startsWith("/Volumes/") ? p.path.split("/")[2] : null;
-    return { title: p.name?.trim() || name, sub: `${tilde(p.path, home)} · ${vol ? `on ${vol}` : "folder on this Mac"}` };
+    return { title: p.name?.trim() || name, sub: `${tilde(p.path, home)} · ${vol ? `on ${vol}` : isCloud(p.path) ? "cloud folder" : "folder on this Mac"}` };
   }
   if (p.kind === "s3") return { title: p.name?.trim() || (p.prefix ? p.prefix.split("/").pop()! : p.bucket), sub: `s3://${p.bucket}${p.prefix ? `/${p.prefix}` : ""} · S3 bucket` };
   const folder = p.folder.replace(/^\/+|\/+$/g, "");
@@ -449,8 +454,12 @@ export default function Plans() {
     }
   };
 
-  const addFolders = async () => {
-    const paths = await api.chooseFolders("Choose folders to back up", true);
+  const [clouds, setClouds] = useState<Awaited<ReturnType<typeof api.cloudFolders>>>([]);
+  useEffect(() => {
+    api.cloudFolders().then((c) => setClouds(c.filter((x) => x.live)));
+  }, []);
+  const addFolders = async (from?: string) => {
+    const paths = await api.chooseFolders(from ? "Choose folders in the cloud folder to back up" : "Choose folders to back up", true, from);
     if (paths.length) update((p) => ({ ...p, sources: [...p.sources, ...paths.filter((x) => !p.sources.some((s) => s.kind === "folder" && s.path === x)).map((path) => ({ kind: "folder" as const, path }))], name: p.name || (paths[0].split("/").pop() ?? "") }));
   };
 
@@ -563,7 +572,7 @@ export default function Plans() {
               const fallback = defaultNames(plan.sources, home)[i];
               return (
                 <div key={i} className="source-row">
-                  <Icon name={s.kind === "smb" ? "server" : s.kind === "s3" ? "bucket" : "folder"} size={20} style={{ color: "var(--accent)" }} />
+                  <Icon name={s.kind === "smb" ? "server" : s.kind === "s3" ? "bucket" : isCloud(s.path) ? "cloud" : "folder"} size={20} style={{ color: "var(--accent)" }} />
                   <div className="grow col" style={{ gap: 1 }}>
                     <input
                       aria-label="Source name"
@@ -590,7 +599,7 @@ export default function Plans() {
               <span className="small faint">Keepr only reads your sources. It never changes or moves them.</span>
             </div>
             <addMenu.Menu width={290}>
-              <button onClick={addFolders}>
+              <button onClick={() => addFolders()}>
                 <Icon name="folder" />
                 <span className="grow">Folder or drive…</span>
               </button>
@@ -598,6 +607,12 @@ export default function Plans() {
                 <Icon name="server" />
                 <span className="grow">SMB share on the network…</span>
               </button>
+              {clouds.map((c) => (
+                <button key={c.root} onClick={() => addFolders(c.root)}>
+                  <Icon name="cloud" />
+                  <span className="grow">In {c.name}…</span>
+                </button>
+              ))}
               <button onClick={() => setSheet("s3")}>
                 <Icon name="bucket" />
                 <span className="grow">S3 bucket…</span>
@@ -635,6 +650,11 @@ export default function Plans() {
               <input type="checkbox" checked={plan.skipCloudOnly} onChange={(e) => update((p) => ({ ...p, skipCloudOnly: e.target.checked }))} />
               Skip files that are only in the cloud (they aren't downloaded)
             </label>
+            {plan.skipCloudOnly && plan.sources.some((s) => s.kind === "folder" && isCloud(s.path)) && (
+              <span className="small muted" style={{ marginTop: -4, paddingLeft: 24, lineHeight: 1.5 }}>
+                This plan backs up a cloud folder: files that are only online there won't be backed up. Untick this to download and back them up too (they stay downloaded afterwards).
+              </span>
+            )}
             <label className="check">
               <input type="checkbox" checked={plan.maxFileSize > 0} onChange={(e) => update((p) => ({ ...p, maxFileSize: e.target.checked ? 4 * 1024 ** 3 : 0 }))} />
               Skip files larger than

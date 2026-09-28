@@ -953,6 +953,8 @@ fn toggle_tray_window(app: &AppHandle, rect: tauri::Rect) {
 /// `Keepr --back-up <plan id>…`: runs those backups without a window and exits, for scripts
 /// (tools/screenshots.py makes its demo backups this way). Exit status 1 if any didn't complete.
 pub fn cli(args: &[String]) -> Option<i32> {
+    // Before anything reads a file: both the app and these commands may meet cloud-only files.
+    system::allow_cloud_downloads();
     match args.first().map(String::as_str) {
         // Copies one plan's backup password to another, so a new plan can share it.
         Some("--copy-plan-password") if args.len() == 3 => {

@@ -610,7 +610,9 @@ impl Core {
             None
         };
         Self::set_stage(cur, "");
-        let read_from = sources.iter().zip(&remote).map(|(s, r)| if r.is_some() { None } else { still.as_ref().map(|st| crate::still::inside(st, s)) }).collect();
+        // A cloud folder is read live: a still copy can't download a file that's only in the
+        // cloud, since it's read-only.
+        let read_from = sources.iter().zip(&remote).map(|(s, r)| if r.is_some() || places::in_cloud(s) { None } else { still.as_ref().map(|st| crate::still::inside(st, s)) }).collect();
         let opts = Options {
             plan: plan_id.to_string(),
             sources,
