@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { api, type Place } from "./api";
 import { serviceOf, type Service } from "./Destinations";
 import { B2Setup } from "./B2Setup";
+import { R2Setup } from "./R2Setup";
 import { Icon } from "./icons";
 import { Seg, Sheet } from "./ui";
 
@@ -168,7 +169,16 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
           </div>
         )}
         {service === "b2" && !secretSaved && <B2Setup mode="source" onMade={made} />}
-        {secretSaved && (service === "aws" || service === "b2") && (
+        {service === "r2" && !secretSaved && (
+          <R2Setup
+            mode="source"
+            onMade={(m) => {
+              setR2Account(serviceOf(m.endpoint).r2Account);
+              made(m);
+            }}
+          />
+        )}
+        {secretSaved && service !== "other" && (
           <div role="status" className="banner good">
             <Icon name="check" size={18} stroke={2.4} />
             <span className="text">Keepr may now list and read {bucket}, and nothing more. Its key is in your Keychain.</span>

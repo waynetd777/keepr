@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api, type AwsMade, type Destination, type Place, type Tested } from "./api";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { B2Setup } from "./B2Setup";
+import { R2Setup } from "./R2Setup";
 import { useApp } from "./context";
 import { Icon } from "./icons";
 import { DestIcon, SAVED_PASSWORD, Seg, Sheet, useAct, useSavedLogin } from "./ui";
@@ -313,13 +314,22 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
                   setSecretSaved(true);
                 }} />
               )}
+              {service === "r2" && !s3 && !secretSaved && (
+                <R2Setup mode="destination" onMade={(m) => {
+                  setR2Account(serviceOf(m.endpoint).r2Account);
+                  setBucket(m.bucket);
+                  setAccessKey(m.accessKey);
+                  setSecret("");
+                  setSecretSaved(true);
+                }} />
+              )}
               {secretSaved && (
                 <div role="status" className="banner good">
                   <Icon name="check" size={18} stroke={2.4} />
-                  <span className="text">Made {bucket}, and {service === "b2" ? "a key" : "a user"} that can only use it. Its key is in your Keychain. Add the destination to finish.</span>
+                  <span className="text">Made {bucket}, and {service === "aws" ? "a user" : service === "r2" ? "a token" : "a key"} that can only use it. Its key is in your Keychain. Add the destination to finish.</span>
                 </div>
               )}
-              {(service === "aws" || service === "b2") && !s3 && !secretSaved && <span className="small muted">Or use a bucket and key you already have:</span>}
+              {service !== "other" && !s3 && !secretSaved && <span className="small muted">Or use a bucket and key you already have:</span>}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px 14px" }}>
                 {service === "r2" ? (
                   <label className="field" style={{ gridColumn: "span 2" }}>

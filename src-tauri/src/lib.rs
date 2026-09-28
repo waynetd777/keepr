@@ -3,6 +3,7 @@
 
 mod aws_setup;
 mod b2_setup;
+mod r2_setup;
 mod verify;
 mod browse;
 mod config;
@@ -526,6 +527,18 @@ async fn b2_buckets(key_id: String, key: String) -> Result<Vec<String>, String> 
 #[tauri::command]
 async fn b2_setup_run(key_id: String, key: String, bucket: String, mode: aws_setup::Mode) -> Result<aws_setup::Made, String> {
     tauri::async_runtime::spawn_blocking(move || b2_setup::setup(&key_id, &key, &bucket, mode)).await.map_err(|e| e.to_string())?
+}
+
+/// Cloudflare R2: the buckets a setup token's account has.
+#[tauri::command]
+async fn r2_buckets(token: String, account: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || r2_setup::list(&token, &account)).await.map_err(|e| e.to_string())?
+}
+
+/// Cloudflare R2: makes (or finds) the bucket and S3 keys for it alone, then deletes the setup token.
+#[tauri::command]
+async fn r2_setup_run(token: String, account: String, bucket: String, mode: aws_setup::Mode) -> Result<aws_setup::Made, String> {
+    tauri::async_runtime::spawn_blocking(move || r2_setup::setup(&token, &account, &bucket, mode)).await.map_err(|e| e.to_string())?
 }
 
 /// Signs in to AWS through the browser and lists the buckets there.
@@ -1072,6 +1085,8 @@ pub fn run() {
             aws_buckets,
             b2_buckets,
             b2_setup_run,
+            r2_buckets,
+            r2_setup_run,
             aws_setup_end,
             check_s3_source,
             get_config,

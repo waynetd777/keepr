@@ -137,6 +137,8 @@ export const api = {
   awsSetupScript: (region: string, bucket: string, mode: "destination" | "source" = "destination") => invoke<string>("aws_setup_script", { region, bucket, mode }),
   b2Buckets: (keyId: string, key: string) => invoke<string[]>("b2_buckets", { keyId, key }),
   b2SetupRun: (keyId: string, key: string, bucket: string, mode: "destination" | "source") => invoke<AwsMade>("b2_setup_run", { keyId, key, bucket, mode }),
+  r2Buckets: (token: string, account: string) => invoke<string[]>("r2_buckets", { token, account }),
+  r2SetupRun: (token: string, account: string, bucket: string, mode: "destination" | "source") => invoke<AwsMade>("r2_setup_run", { token, account, bucket, mode }),
   awsBuckets: (region: string) => invoke<string[]>("aws_buckets", { region }),
   awsSetupEnd: () => invoke<void>("aws_setup_end"),
   checkS3Source: (place: Place, secret?: string) => invoke<string>("check_s3_source", { place, secret: secret ?? null }),
