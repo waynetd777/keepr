@@ -8,6 +8,23 @@ use std::fs;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+/// Makes sure a file's data has reached its disk or server. On macOS `sync_all` asks for a full
+/// flush (F_FULLFSYNC), which SMB shares and some other file systems refuse with ENOTSUP
+/// ("Operation not supported"); those get a plain fsync instead.
+pub fn sync(f: &fs::File) -> io::Result<()> {
+    match f.sync_all() {
+        Err(e) if matches!(e.raw_os_error(), Some(libc::ENOTSUP) | Some(libc::EINVAL) | Some(libc::ENOTTY)) => {
+            use std::os::fd::AsRawFd;
+            if unsafe { libc::fsync(f.as_raw_fd()) } == 0 {
+                Ok(())
+            } else {
+                Err(io::Error::last_os_error())
+            }
+        }
+        r => r,
+    }
+}
+
 pub trait Backend: Send + Sync {
     fn read(&self, path: &str) -> io::Result<Vec<u8>>;
     fn read_at(&self, path: &str, offset: u64, len: u64) -> io::Result<Vec<u8>>;
@@ -66,7 +83,7 @@ impl Backend for Folder {
             let mut f = fs::File::create(&tmp)?;
             f.write_all(data)?;
             // On a share, a rename can reach the server before the data does; sync first.
-            f.sync_all()?;
+            sync(&f)?;
             drop(f);
             fs::rename(&tmp, &p)
         })();

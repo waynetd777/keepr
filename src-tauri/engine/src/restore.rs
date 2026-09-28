@@ -168,7 +168,7 @@ impl Job<'_> {
                 f.write_all(&data)?;
                 self.ctl.progress.bytes_read.fetch_add(data.len() as u64, Relaxed);
             }
-            f.sync_all()?;
+            crate::backend::sync(&f)?;
             drop(f);
             fs::set_permissions(&tmp, fs::Permissions::from_mode(n.mode))?;
             set_times(&tmp, n);

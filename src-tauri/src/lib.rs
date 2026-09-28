@@ -417,7 +417,7 @@ async fn test_place(core: State<'_, Core_>, place: Place, password: Option<Strin
         let probe = base.join(format!(".keepr-test-{}", config::new_id()));
         let data = vec![0x5au8; 8 << 20];
         let t = std::time::Instant::now();
-        let res = std::fs::write(&probe, &data).and_then(|_| std::fs::File::open(&probe)?.sync_all());
+        let res = std::fs::write(&probe, &data).and_then(|_| keepr_engine::backend::sync(&std::fs::OpenOptions::new().write(true).open(&probe)?));
         let secs = t.elapsed().as_secs_f64();
         let _ = std::fs::remove_file(&probe);
         if let Err(e) = res {
