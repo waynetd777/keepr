@@ -577,6 +577,11 @@ impl Core {
         *cur.repo.lock().unwrap() = Some(repo.clone());
         Self::set_stage(cur, "");
 
+        match keepr_engine::prune::remove_leftovers(&repo) {
+            Ok((0, _)) => {}
+            Ok((n, bytes)) => run.note(format!("Removed {n} leftover pack{} ({}) from a backup that didn't finish", if n == 1 { "" } else { "s" }, human_bytes(bytes))),
+            Err(e) => run.note(format!("Couldn't clear leftovers from an unfinished backup: {}", e.0)),
+        }
         let snaps = repo.snapshots().map_err(|e| e.0)?;
         let parent = snaps.last();
         let st = self.state.lock().unwrap().plans.get(plan_id).cloned().unwrap_or_default();

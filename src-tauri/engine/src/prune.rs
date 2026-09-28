@@ -337,6 +337,26 @@ pub fn reclaim(repo: &Arc<Repo>, ctl: &Control, out: &mut Pruned) -> Result<()> 
 
 }
 
+/// Deletes packs no index names: what a backup leaves when it's stopped hard (Keepr quit, the
+/// Mac slept for good, the app crashed) before it wrote its index. Returns how many packs and
+/// bytes. Only when nobody else is using the repository: another Mac's backup still running
+/// has packs no index names *yet*. The index is read afresh first for the same reason.
+pub fn remove_leftovers(repo: &Arc<Repo>) -> Result<(u64, u64)> {
+    let Ok(_lock) = repo.lock(true) else { return Ok((0, 0)) };
+    reload_index(repo)?;
+    let known: HashSet<String> = repo.index.read().unwrap().packs.iter().map(pack_path).collect();
+    let (mut n, mut bytes) = (0, 0);
+    for f in repo.backend.list("packs")? {
+        let p = format!("packs/{f}");
+        if f.ends_with(".pack") && !known.contains(&p) {
+            bytes += repo.backend.size(&p).unwrap_or(0);
+            repo.backend.remove(&p)?;
+            n += 1;
+        }
+    }
+    Ok((n, bytes))
+}
+
 fn reload_index(repo: &Repo) -> Result<()> {
     let mut fresh = crate::repo::Index::default();
     for f in repo.backend.list("index")? {
@@ -361,6 +381,19 @@ mod tests {
     use super::*;
     use crate::backup::{self, tests::*};
     use std::fs;
+
+    #[test]
+    fn leftovers_from_a_stopped_backup_go() {
+        let (src, _d, repo) = crate::backup::tests::setup(None);
+        std::fs::write(src.path().join("a.txt"), b"alpha").unwrap();
+        let s1 = crate::backup::run(&repo, &crate::backup::tests::opts(src.path()), None, &Control::default()).unwrap();
+        repo.backend.write("packs/ff/ff00.pack", &[0u8; 1000]).unwrap();
+        assert_eq!(remove_leftovers(&repo).unwrap(), (1, 1000));
+        assert!(!repo.backend.exists("packs/ff/ff00.pack"));
+        assert_eq!(remove_leftovers(&repo).unwrap(), (0, 0));
+        let _ = s1;
+        assert!(crate::check::run(&repo, 1.0, &Control::default()).unwrap().problems.is_empty());
+    }
 
     #[test]
     fn removes_a_source_from_every_snapshot() {
