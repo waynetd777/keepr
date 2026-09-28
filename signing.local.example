@@ -1,0 +1,7 @@
+# Copy to signing.local (untracked) and set the name of the self-signed certificate in your
+# login keychain that `make app` should sign the bundle with. Creating one: Keychain Access →
+# Certificate Assistant → Create a Certificate, type "Code Signing", self-signed.
+#
+# A stable signature keeps macOS's permissions (Full Disk Access, Keychain items, Login Items)
+# across rebuilds. Keepr has its own certificate; don't share one between apps.
+APPLE_SIGNING_IDENTITY = Keepr Dev

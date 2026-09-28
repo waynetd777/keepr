@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Keepr backs up the folders you choose, including ones in Documents.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Keepr backs up the folders you choose, including ones on the Desktop.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Keepr backs up the folders you choose, including ones in Downloads.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Keepr reads and writes backups on external drives you choose.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Keepr reads and writes backups on network shares you choose.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Keepr finds and connects to network shares for your backups.</string>
+</dict>
+</plist>

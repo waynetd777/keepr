@@ -1,0 +1,16 @@
+node_modules
+dist
+*.local
+signing.local
+src-tauri/target
+src-tauri/engine/target
+src-tauri/gen/schemas
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+
+# sift: derived state and private notes
+_sift/.cache/
+_sift/local/
+
+__pycache__/
