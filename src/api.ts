@@ -30,6 +30,8 @@ export type Plan = {
   fullEvery: Often;
   checkEvery: Often;
   conditions: { catchUp: boolean; minBattery: number; noHotspot: boolean; limitMbps: number };
+  before?: string;
+  beforeMustSucceed?: boolean;
 };
 
 export type Settings = { notifyFailures: boolean; notifySuccess: boolean; staleDays: number };

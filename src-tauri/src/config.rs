@@ -149,6 +149,13 @@ pub struct Plan {
     pub check_every: Often,
     #[serde(default)]
     pub conditions: Conditions,
+    /// A command run before each backup (for example, one that downloads a device's own backups
+    /// into a folder this plan backs up). Run with /bin/zsh -lc, so ~ and the usual PATH work.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub before: String,
+    /// If the command fails: carry on and mark the backup with a warning (false), or don't back up (true).
+    #[serde(default)]
+    pub before_must_succeed: bool,
 }
 
 fn weekly() -> Often {

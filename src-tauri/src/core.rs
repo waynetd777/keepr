@@ -537,6 +537,7 @@ impl Core {
     fn backup(self: &Arc<Self>, cur: &Arc<Current>, plan_id: &str, full: bool, run: &mut Run) -> Result<(), String> {
         let (plan, dest) = self.plan_and_dest(plan_id)?;
         run.note(format!("{} backup of {} to {}", if full { "Full" } else { "Incremental" }, plan.name, dest.name));
+        let before_failed = if plan.before.trim().is_empty() { None } else { self.run_before(cur, &plan, run)? };
         let repo = self.repo(plan_id, true)?;
         run.note(format!("Backup opened at {}{}", repo.backend.describe(), if repo.encrypted() { " (encrypted)" } else { "" }));
         let mut sources = Vec::new();
@@ -624,6 +625,10 @@ impl Core {
             parts.push(format!("{} removed", st.removed_files));
         }
         run.message = if parts.is_empty() { "Nothing changed".into() } else { format!("{} · {} sent", parts.join(" · "), human_bytes(st.stored_bytes)) };
+        if let Some(why) = &before_failed {
+            run.result = "warning".into();
+            run.message = format!("{} · the command before it failed ({why})", run.message);
+        }
         if st.error_count > 0 {
             run.result = "warning".into();
             run.message = format!("{} · {} couldn't be read", run.message, if st.error_count == 1 { "1 file".to_string() } else { format!("{} files", st.error_count) });
@@ -664,6 +669,72 @@ impl Core {
             }
         }
         Ok(())
+    }
+
+    /// Runs the plan's before-backup command, with its output in the run's log. Returns why it
+    /// failed (None if it didn't); an Err stops the backup (when it must succeed, or on Stop).
+    fn run_before(&self, cur: &Arc<Current>, plan: &Plan, run: &mut Run) -> Result<Option<String>, String> {
+        use std::io::{BufRead, BufReader};
+        Self::set_stage(cur, "Running the command before the backup");
+        run.note(format!("Running: {}", plan.before.trim()));
+        let mut child = std::process::Command::new("/bin/zsh")
+            .args(["-lc", &format!("{} 2>&1", plan.before.trim())])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Couldn't run the command before the backup: {e}"))?;
+        let out = child.stdout.take().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(out).lines().map_while(Result::ok) {
+                if tx.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        let started = Instant::now();
+        let limit = Duration::from_secs(15 * 60);
+        let status = loop {
+            while let Ok(l) = rx.try_recv() {
+                run.note(format!("  {l}"));
+            }
+            if cur.ctl.cancel.load(Relaxed) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("cancelled".into());
+            }
+            if started.elapsed() > limit {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            match child.try_wait() {
+                Ok(Some(s)) => break Some(s),
+                Ok(None) => std::thread::sleep(Duration::from_millis(200)),
+                Err(e) => return Err(e.to_string()),
+            }
+        };
+        std::thread::sleep(Duration::from_millis(100));
+        while let Ok(l) = rx.try_recv() {
+            run.note(format!("  {l}"));
+        }
+        Self::set_stage(cur, "");
+        let failed = match status {
+            Some(s) if s.success() => None,
+            Some(s) => Some(match s.code() {
+                Some(c) => format!("exit status {c}"),
+                None => "stopped by a signal".into(),
+            }),
+            None => Some("took longer than 15 minutes".into()),
+        };
+        match &failed {
+            None => run.note("The command finished"),
+            Some(why) => run.note(format!("The command failed: {why}")),
+        }
+        if let (Some(why), true) = (&failed, plan.before_must_succeed) {
+            return Err(format!("The command before the backup failed ({why}), so {} didn't back up.", plan.name));
+        }
+        Ok(failed)
     }
 
     fn refresh_stats(&self, plan_id: &str, repo: &Repo) {
@@ -863,6 +934,8 @@ mod tests {
             full_every: Often::Weekly,
             check_every: Often::Weekly,
             conditions: Default::default(),
+            before: String::new(),
+            before_must_succeed: false,
         }
     }
 
@@ -912,6 +985,38 @@ mod tests {
         let last = c.state.lock().unwrap().history.last().cloned().unwrap();
         assert_eq!(last.result, "failed");
         assert!(last.message.contains("won't start a new one"), "{}", last.message);
+    }
+
+    #[test]
+    fn runs_the_command_before_and_logs_it() {
+        let data = tempfile::tempdir().unwrap();
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        let c = core(data.path());
+        let mut p = plan(src.path());
+        // The command writes the file the backup then picks up, and fails.
+        p.before = format!("echo fetched > '{}/fetched.txt'; echo hello from before; exit 3", src.path().display());
+        {
+            let mut cfg = c.config.lock().unwrap();
+            cfg.destinations.push(Destination { id: "d1".into(), name: "Disk".into(), place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None }, disconnect_after: true });
+            cfg.plans.push(p.clone());
+        }
+        c.start();
+        c.enqueue(Job::Backup { plan: "p1".into(), full: false });
+        wait(&c);
+        let run = c.state.lock().unwrap().history[0].clone();
+        assert_eq!(run.result, "warning", "{}", run.message);
+        assert!(run.message.contains("exit status 3"), "{}", run.message);
+        assert_eq!(run.files, 1, "the file the command wrote was backed up");
+        let log = std::fs::read_to_string(data.path().join("logs").join(format!("{}.log", run.id))).unwrap();
+        assert!(log.contains("hello from before"), "{log}");
+
+        // When it must succeed, a failure stops the backup.
+        c.config.lock().unwrap().plans[0].before_must_succeed = true;
+        c.enqueue(Job::Backup { plan: "p1".into(), full: false });
+        wait(&c);
+        let run = c.state.lock().unwrap().history.last().cloned().unwrap();
+        assert_eq!(run.result, "failed");
     }
 
     #[test]

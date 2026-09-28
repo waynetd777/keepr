@@ -30,6 +30,8 @@ function blankPlan(dest: string, excludes: string[]): Plan {
     fullEvery: "weekly",
     checkEvery: "weekly",
     conditions: { catchUp: true, minBattery: 20, noHotspot: true, limitMbps: 0 },
+    before: "",
+    beforeMustSucceed: false,
   };
 }
 
@@ -777,6 +779,29 @@ export default function Plans() {
                 </select>
               </label>
             </div>
+          </section>
+
+          <section className="card section" style={{ gap: 10 }}>
+            <h2>Before each backup</h2>
+            <p className="muted" style={{ lineHeight: 1.5 }}>
+              A command to run first, for example one that downloads a device's own backups into a folder this plan backs up. Its output goes into the backup's log.
+            </p>
+            <input
+              className="input mono"
+              aria-label="Command to run before each backup"
+              placeholder="e.g. python3 ~/scripts/fetch.py ~/Backups/device"
+              value={plan.before ?? ""}
+              onChange={(e) => update((p) => ({ ...p, before: e.target.value }))}
+            />
+            {(plan.before ?? "").trim() !== "" && (
+              <label className="field">
+                <span className="tiny faint">If it fails</span>
+                <select className="input" value={plan.beforeMustSucceed ? "stop" : "carry"} onChange={(e) => update((p) => ({ ...p, beforeMustSucceed: e.target.value === "stop" }))}>
+                  <option value="carry">Back up anyway, and mark the backup with a warning</option>
+                  <option value="stop">Don't back up</option>
+                </select>
+              </label>
+            )}
           </section>
 
           <section className="card section" style={{ gap: 10 }}>
