@@ -1,11 +1,62 @@
 [
-  { "name": "overview", "screen": { "name": "overview" } },
-  { "name": "restore", "screen": { "name": "restore", "plan": "docs00000001" } },
-  { "name": "plan", "screen": { "name": "plans", "plan": "docs00000001" } },
-  { "name": "activity", "screen": { "name": "activity" } },
-  { "name": "destinations", "screen": { "name": "destinations" } },
-  { "name": "add-destination", "screen": { "name": "destinations", "add": true } },
-  { "name": "settings", "screen": { "name": "settings" } },
-  { "name": "menu-bar", "tray": true },
-  { "name": "splash", "splash": true }
+  {
+    "name": "overview",
+    "screen": {
+      "name": "overview"
+    }
+  },
+  {
+    "name": "restore",
+    "screen": {
+      "name": "restore",
+      "plan": "docs00000001"
+    }
+  },
+  {
+    "name": "plan",
+    "screen": {
+      "name": "plans",
+      "plan": "docs00000001"
+    }
+  },
+  {
+    "name": "activity",
+    "screen": {
+      "name": "activity"
+    }
+  },
+  {
+    "name": "destinations",
+    "screen": {
+      "name": "destinations"
+    }
+  },
+  {
+    "name": "add-destination",
+    "screen": {
+      "name": "destinations",
+      "add": true
+    }
+  },
+  {
+    "name": "settings",
+    "screen": {
+      "name": "settings"
+    }
+  },
+  {
+    "name": "menu-bar",
+    "tray": true
+  },
+  {
+    "name": "splash",
+    "splash": true
+  },
+  {
+    "name": "search",
+    "screen": {
+      "name": "search",
+      "query": "notes"
+    }
+  }
 ]

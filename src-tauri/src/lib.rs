@@ -612,6 +612,25 @@ async fn compare(core: State<'_, Core_>, plan: String, snapshot: String, path: S
     tauri::async_runtime::spawn_blocking(move || browse::compare(&core, &plan, &snapshot, &path)).await.map_err(|e| e.to_string())?
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Everywhere {
+    found: Vec<browse::Found>,
+    /// Plans that couldn't be searched (their destination isn't reachable).
+    missed: Vec<String>,
+}
+
+#[tauri::command]
+async fn search_everywhere(core: State<'_, Core_>, query: String) -> Result<Everywhere, String> {
+    let core = core.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (found, missed) = browse::search_everywhere(&core, &query);
+        Everywhere { found, missed }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn quick_look(core: State<'_, Core_>, plan: String, snapshot: String, path: String) -> Result<(), String> {
     let core = core.inner().clone();
@@ -857,6 +876,7 @@ pub fn run() {
             list_dir,
             file_versions,
             search_snapshot,
+            search_everywhere,
             quick_look,
             compare,
             app_version,

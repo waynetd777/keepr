@@ -11,12 +11,14 @@ import Restore from "./Restore";
 import Activity from "./Activity";
 import Destinations from "./Destinations";
 import Settings from "./Settings";
+import Search from "./Search";
 import { hideSplash } from "./splash";
 
 export type Screen =
   | { name: "overview" }
   | { name: "plans"; plan?: string; isNew?: boolean }
-  | { name: "restore"; plan?: string; query?: string }
+  | { name: "restore"; plan?: string; query?: string; focus?: { snapshot: string; path: string } }
+  | { name: "search"; query: string }
   | { name: "activity" }
   | { name: "destinations"; add?: boolean }
   | { name: "settings" };
@@ -159,7 +161,7 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
           style={{ marginLeft: 8 }}
           onSubmit={(e) => {
             e.preventDefault();
-            if (q.trim()) go({ name: "restore", query: q.trim() });
+            if (q.trim()) go({ name: "search", query: q.trim() });
           }}
         >
           <Icon name="search" size={15} stroke={2} />
@@ -302,9 +304,11 @@ export default function App() {
             ) : screen.name === "plans" ? (
               <Plans key={`${screen.plan ?? ""}-${screen.isNew ?? ""}`} />
             ) : screen.name === "restore" ? (
-              <Restore key={`${screen.plan ?? ""}-${screen.query ?? ""}`} />
+              <Restore key={`${screen.plan ?? ""}-${screen.query ?? ""}-${screen.focus?.path ?? ""}`} />
             ) : screen.name === "activity" ? (
               <Activity />
+            ) : screen.name === "search" ? (
+              <Search key={screen.query} />
             ) : screen.name === "destinations" ? (
               <Destinations />
             ) : (

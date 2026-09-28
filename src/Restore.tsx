@@ -135,7 +135,9 @@ export default function Restore() {
   const [dest, setDest] = useState<"original" | "folder">("original");
   const [folder, setFolder] = useState("");
   const [conflict, setConflict] = useState<Conflict>("keepBoth");
-  const [query, setQuery] = useState(screen.name === "restore" ? (screen.query ?? "") : "");
+  // Opened from Search: that snapshot, and that file found and picked.
+  const focus = screen.name === "restore" ? screen.focus : undefined;
+  const [query, setQuery] = useState(screen.name === "restore" ? (screen.query ?? focus?.path.split("/").pop() ?? "") : "");
   const [hits, setHits] = useState<Entry[] | null>(null);
   const [comparing, setComparing] = useState<{ snapshot: string; path: string } | null>(null);
 
@@ -146,7 +148,8 @@ export default function Restore() {
     api.snapshots(planId).then(
       (s) => {
         setSnaps(s);
-        setSel(s.length - 1);
+        const at = focus ? s.findIndex((x) => x.id === focus.snapshot) : -1;
+        setSel(at >= 0 ? at : s.length - 1);
       },
       (e) => setErr(String(e)),
     );
@@ -190,7 +193,15 @@ export default function Restore() {
       setHits(null);
       return;
     }
-    const t = window.setTimeout(() => api.search(planId, snap.id, query.trim()).then(setHits, (e) => setErr(String(e))), 250);
+    const t = window.setTimeout(
+      () =>
+        api.search(planId, snap.id, query.trim()).then((h) => {
+          setHits(h);
+          const f = focus && h.find((e) => e.path === focus.path);
+          if (f) setPicked(f);
+        }, (e) => setErr(String(e))),
+      250,
+    );
     return () => window.clearTimeout(t);
   }, [query, planId, snap?.id]);
 

@@ -102,6 +102,7 @@ export type Run = {
 export type SnapInfo = { id: string; time: string; kind: string; files: number; bytes: number; changed: number; addedBytes: number };
 export type Entry = { name: string; path: string; kind: "file" | "dir" | "link"; size: number; mtime: number; tag: "" | "new" | "changed" | "deleted"; versions: number; items: number };
 export type Version = { snapshot: string; time: string; size: number; mtime: number; keptIn: number };
+export type Found = { plan: string; planName: string; snapshot: string; time: string; gone: boolean; entry: Entry };
 export type Target = { kind: "original" } | { kind: "folder"; path: string };
 export type Conflict = "keepBoth" | "replace" | "skip";
 export type Tested = { ok: boolean; message: string; free: number | null; total: number | null; mbps: number | null };
@@ -140,6 +141,7 @@ export const api = {
   listDir: (plan: string, snapshot: string, path: string, showDeleted: boolean) => invoke<Entry[]>("list_dir", { plan, snapshot, path, showDeleted }),
   versions: (plan: string, path: string) => invoke<Version[]>("file_versions", { plan, path }),
   search: (plan: string, snapshot: string, query: string) => invoke<Entry[]>("search_snapshot", { plan, snapshot, query }),
+  searchEverywhere: (query: string) => invoke<{ found: Found[]; missed: string[] }>("search_everywhere", { query }),
   quickLook: (plan: string, snapshot: string, path: string) => invoke<void>("quick_look", { plan, snapshot, path }),
   compare: (plan: string, snapshot: string, path: string) => invoke<Comparison>("compare", { plan, snapshot, path }),
   /** macOS's folder panel, one kept and reused (a new one takes ~26 s on macOS 27). */

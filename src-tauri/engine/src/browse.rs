@@ -138,6 +138,57 @@ pub fn search(repo: &Repo, snap: &Snapshot, query: &str, limit: usize) -> Result
     Ok(out)
 }
 
+#[derive(Serialize, Clone, Debug)]
+pub struct FoundAnywhere {
+    pub path: String,
+    pub node: Node,
+    /// The newest snapshot that has it.
+    pub snapshot: Id,
+    pub time: String,
+    /// Not in the newest snapshot: deleted, renamed or moved since.
+    pub gone: bool,
+}
+
+/// Names containing `query` (any case) in any snapshot, each path once, from the newest snapshot
+/// that has it. A folder tree shared by many snapshots is read once.
+pub fn search_all(repo: &Repo, snaps: &[Snapshot], query: &str, limit: usize) -> Result<Vec<FoundAnywhere>> {
+    let q = query.to_lowercase();
+    let mut ordered: Vec<&Snapshot> = snaps.iter().collect();
+    ordered.sort_by(|a, b| b.time.cmp(&a.time));
+    let mut seen_trees = std::collections::HashSet::new();
+    let mut found: std::collections::HashMap<String, FoundAnywhere> = std::collections::HashMap::new();
+    let newest = ordered.first().map(|s| s.id);
+    for s in ordered {
+        let mut stack: Vec<(Id, String)> = vec![(s.tree, String::new())];
+        while let Some((t, base)) = stack.pop() {
+            if !seen_trees.insert(t) {
+                continue;
+            }
+            for n in &repo.load_tree(&t)?.nodes {
+                let path = if base.is_empty() { n.name.clone() } else { format!("{base}/{}", n.name) };
+                if !base.is_empty() && n.name.to_lowercase().contains(&q) && !found.contains_key(&path) && found.len() < limit {
+                    found.insert(path.clone(), FoundAnywhere { path: path.clone(), node: n.clone(), snapshot: s.id, time: s.time.clone(), gone: Some(s.id) != newest });
+                }
+                if let Some(sub) = n.subtree {
+                    stack.push((sub, path));
+                }
+            }
+        }
+    }
+    // A path found first in an older snapshot's tree may still be in the newest one under a
+    // folder that was read earlier; check before calling it gone.
+    if let Some(n) = snaps.iter().max_by(|a, b| a.time.cmp(&b.time)) {
+        for f in found.values_mut().filter(|f| f.gone) {
+            if node_at(repo, n, &f.path)?.is_some() {
+                f.gone = false;
+            }
+        }
+    }
+    let mut out: Vec<FoundAnywhere> = found.into_values().collect();
+    out.sort_by(|a, b| a.gone.cmp(&b.gone).then_with(|| a.path.to_lowercase().cmp(&b.path.to_lowercase())));
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,6 +219,15 @@ mod tests {
         assert_eq!(v[0].size, 9);
         assert_eq!(v[1].kept_in, 1);
 
+        fs::write(src.path().join("docs/old-notes.txt"), b"x").unwrap();
+        let s4 = run(&repo, &opts(src.path()), Some(&s3), &Control::default()).unwrap();
+        fs::remove_file(src.path().join("docs/old-notes.txt")).unwrap();
+        run(&repo, &opts(src.path()), Some(&s4), &Control::default()).unwrap();
+        let all = search_all(&repo, &repo.snapshots().unwrap(), "notes", 10).unwrap();
+        assert_eq!(all.len(), 1);
+        assert!(all[0].gone && all[0].snapshot == s4.id);
+        let all = search_all(&repo, &repo.snapshots().unwrap(), "budget", 10).unwrap();
+        assert!(!all[0].gone);
         let hits = search(&repo, &s3, "BUDGET", 10).unwrap();
         assert_eq!(hits.len(), 1);
         assert!(hits[0].path.ends_with("docs/budget.txt"));

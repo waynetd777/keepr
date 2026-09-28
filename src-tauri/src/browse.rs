@@ -172,6 +172,43 @@ pub fn quick_look(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result
     Ok(())
 }
 
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Found {
+    pub plan: String,
+    pub plan_name: String,
+    pub snapshot: String,
+    pub time: String,
+    pub gone: bool,
+    pub entry: Entry,
+}
+
+/// Every plan's backups, every snapshot, by name. Plans whose destination can't be reached are
+/// left out, and named in the second list.
+pub fn search_everywhere(core: &Core, query: &str) -> (Vec<Found>, Vec<String>) {
+    let plans: Vec<(String, String)> = core.config.lock().unwrap().plans.iter().map(|p| (p.id.clone(), p.name.clone())).collect();
+    let (mut out, mut missed) = (Vec::new(), Vec::new());
+    for (id, name) in plans {
+        let res = core.repo(&id, false).and_then(|r| {
+            let snaps = r.snapshots().map_err(|e| e.0)?;
+            keepr_engine::browse::search_all(&r, &snaps, query, 300).map_err(|e| e.0)
+        });
+        match res {
+            Ok(hits) => out.extend(hits.into_iter().map(|h| Found {
+                plan: id.clone(),
+                plan_name: name.clone(),
+                snapshot: h.snapshot.hex(),
+                time: h.time,
+                gone: h.gone,
+                entry: Entry { name: h.node.name.clone(), path: h.path, kind: kind(h.node.kind).into(), size: h.node.size, mtime: h.node.mtime / 1_000_000, tag: if h.gone { "deleted".into() } else { String::new() }, versions: 0, items: 0 },
+            })),
+            Err(e) if e.contains("hasn't backed up yet") => {}
+            Err(_) => missed.push(name),
+        }
+    }
+    (out, missed)
+}
+
 pub fn search(core: &Core, plan: &str, snapshot: &str, query: &str) -> Result<Vec<Entry>, String> {
     let repo = core.repo(plan, false)?;
     let snap = repo.snapshots().map_err(|e| e.0)?.into_iter().find(|s| s.id.hex() == snapshot).ok_or("That snapshot is no longer in the backup.")?;
