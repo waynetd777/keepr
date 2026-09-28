@@ -23,6 +23,3 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
-
-[profile.dev.package."*"]
-opt-level = 2

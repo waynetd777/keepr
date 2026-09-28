@@ -15,8 +15,7 @@ export APPLE_SIGNING_IDENTITY := $(if $(SIGN_ID),$(SIGN_ID),-)
 
 ## cargo test (the engine and the app) + TypeScript type-check.
 check:
-	cd src-tauri/engine && cargo test
-	cd src-tauri && cargo test --lib
+	cd src-tauri && cargo test -p keepr-engine && cargo test --lib -p keepr
 	npx tsc --noEmit -p tsconfig.json
 
 test: check
