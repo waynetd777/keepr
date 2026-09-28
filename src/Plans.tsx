@@ -477,14 +477,15 @@ export default function Plans() {
     <div className="content col" style={{ gap: 18 }}>
       <div className="row" style={{ gap: 12 }}>
         <div className="grow col" style={{ gap: 4 }}>
-          <input
-            aria-label="Plan name"
-            className="input"
-            placeholder="Name this plan"
-            value={plan.name}
-            onChange={(e) => update((p) => ({ ...p, name: e.target.value }))}
-            style={{ border: 0, padding: 0, height: 40, fontFamily: "var(--display)", fontWeight: 650, letterSpacing: "-0.02em", fontSize: 30, background: "transparent" }}
-          />
+          <label className="editable-title" title="Rename this plan">
+            <input
+              aria-label="Plan name"
+              placeholder="Name this plan"
+              value={plan.name}
+              onChange={(e) => update((p) => ({ ...p, name: e.target.value }))}
+            />
+            <Icon name="pencil" size={16} />
+          </label>
           <span className="small muted">
             {!plan.id ? "A new plan. It's saved when you create it." : summary?.lastSuccess ? `Last backup ${ago(summary.lastSuccess)}. ${plan.enabled && summary.nextRun ? `Next ${next(summary.nextRun)}.` : ""} Changes are saved as you make them.` : "Changes are saved as you make them."}
           </span>

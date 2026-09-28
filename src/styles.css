@@ -260,3 +260,14 @@ html.tray body { background: transparent; }
 /* The x in a search box. */
 .clear-btn { width: 22px; height: 22px; flex-shrink: 0; border: 0; border-radius: 11px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: var(--line2); color: var(--ink); margin-right: -4px; }
 .clear-btn:hover { background: var(--ink3); color: var(--ground); }
+
+/* A name that is edited in place: looks like a heading, but a pencil and a hover outline say it
+   can be typed into. The input sizes to its text so the pencil sits right after the name. */
+.editable-title { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; max-width: 100%; margin-left: -8px; padding: 0 10px 0 8px; border-radius: 8px; border: 1px solid transparent; cursor: text; color: var(--ink3); transition: background 0.12s, border-color 0.12s; }
+.editable-title input { field-sizing: content; min-width: 6ch; max-width: 100%; border: 0; padding: 0; height: 44px; font-family: var(--display); font-weight: 650; letter-spacing: -0.02em; font-size: 30px; background: transparent; color: var(--ink); outline: none; }
+.editable-title input::placeholder { color: var(--ink3); }
+.editable-title:hover { background: var(--sunk); color: var(--ink2); }
+.editable-title:focus-within { background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); color: var(--accent-text); }
+.source-name { border-radius: 5px !important; margin-left: -4px !important; padding: 0 4px !important; }
+.source-name:hover { background: var(--sunk) !important; }
+.source-name:focus { background: var(--surface) !important; box-shadow: 0 0 0 1.5px var(--accent); }

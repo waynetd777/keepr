@@ -35,6 +35,7 @@ const paths: Record<string, JSX.Element> = {
   more: (<><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></>),
   trash: (<><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" /></>),
   stop: <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" />,
+  pencil: <path d="M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4" />,
   compare: (<><path d="M8 3v18M16 3v18" /><path d="m4 8 4-4 4 4M12 16l4 4 4-4" /></>),
 };
 
