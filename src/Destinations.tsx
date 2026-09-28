@@ -9,7 +9,6 @@ import { SAVED_PASSWORD, Sheet, useAct, useSavedLogin } from "./ui";
 import { bytes, tilde } from "./format";
 
 const LATER: [string, string][] = [
-  ["SFTP server", "terminal"],
   ["Amazon S3 or compatible", "bucket"],
   ["Google Drive", "cloud"],
   ["OneDrive", "cloud"],
