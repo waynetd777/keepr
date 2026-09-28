@@ -134,6 +134,12 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
           {running ? (ov?.job?.stopping ? `Stopping ${ov?.job?.planName}…` : `Backing up ${ov?.job?.planName}`) : `Watching ${watching} plan${watching === 1 ? "" : "s"}`}
         </span>
       )}
+      {screen.name === "destinations" && (
+        <button className="btn" onClick={() => window.dispatchEvent(new Event("keepr:add-destination"))} title="Add somewhere to keep backups">
+          <Icon name="plus" size={13} stroke={2.4} />
+          Add destination
+        </button>
+      )}
       {(screen.name === "overview" || screen.name === "plans") && (ov?.plans.length ?? 0) > 0 && (
         <button className="btn" onClick={() => go({ name: "plans", isNew: true })} title="Make a new backup plan ⌘N">
           <Icon name="plus" size={13} stroke={2.4} />

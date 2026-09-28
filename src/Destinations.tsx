@@ -264,6 +264,12 @@ export default function Destinations() {
   const act = useAct();
   const [adding, setAdding] = useState(screen.name === "destinations" && !!screen.add);
   const [editing, setEditing] = useState<Destination | null>(null);
+  // The toolbar's Add destination button.
+  useEffect(() => {
+    const open = () => setAdding(true);
+    window.addEventListener("keepr:add-destination", open);
+    return () => window.removeEventListener("keepr:add-destination", open);
+  }, []);
   return (
     <div className="content col" style={{ gap: 16 }}>
       <h1>Destinations</h1>
