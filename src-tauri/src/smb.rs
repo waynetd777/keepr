@@ -52,13 +52,25 @@ fn decode(s: &str) -> String {
     String::from_utf8_lossy(&out).to_string()
 }
 
+/// Every mounted volume, in a buffer of our own. (getmntinfo hands out one static buffer that a
+/// call on another thread can free mid-read; two threads asking at once crashed Keepr.)
+fn mounted() -> Vec<libc::statfs> {
+    let n = unsafe { libc::getfsstat(std::ptr::null_mut(), 0, libc::MNT_NOWAIT) };
+    if n <= 0 {
+        return vec![];
+    }
+    // Room for a few more, in case something mounts in between.
+    let cap = n as usize + 8;
+    let mut v: Vec<libc::statfs> = vec![unsafe { std::mem::zeroed() }; cap];
+    let got = unsafe { libc::getfsstat(v.as_mut_ptr(), (cap * std::mem::size_of::<libc::statfs>()) as libc::c_int, libc::MNT_NOWAIT) };
+    v.truncate(got.max(0) as usize);
+    v
+}
+
 /// Servers of SMB shares mounted now ("192.168.1.20", "keep-nas").
 pub fn mounted_servers() -> Vec<String> {
     let mut out = Vec::new();
-    let mut buf: *mut libc::statfs = std::ptr::null_mut();
-    let n = unsafe { libc::getmntinfo(&mut buf, libc::MNT_NOWAIT) };
-    for i in 0..n.max(0) as usize {
-        let m = unsafe { &*buf.add(i) };
+    for m in &mounted() {
         if unsafe { CStr::from_ptr(m.f_fstypename.as_ptr()) }.to_string_lossy() != "smbfs" {
             continue;
         }
@@ -75,10 +87,7 @@ pub fn mounted_servers() -> Vec<String> {
 /// Where `server`'s `share` is mounted already, if it is.
 pub fn find_mount(server: &str, share: &str) -> Option<PathBuf> {
     let (want_host, want_share) = (norm_host(server), share.trim_matches('/').to_lowercase());
-    let mut buf: *mut libc::statfs = std::ptr::null_mut();
-    let n = unsafe { libc::getmntinfo(&mut buf, libc::MNT_NOWAIT) };
-    for i in 0..n.max(0) as usize {
-        let m = unsafe { &*buf.add(i) };
+    for m in &mounted() {
         let fstype = unsafe { CStr::from_ptr(m.f_fstypename.as_ptr()) }.to_string_lossy();
         if fstype != "smbfs" {
             continue;
