@@ -186,11 +186,73 @@ function Welcome() {
   );
 }
 
+/** Dragging plans into a new order by their grip. The list reorders as the pointer passes each
+ *  card's middle; the order is saved on release. Pointer events rather than HTML drag and drop,
+ *  which the window's file-drop handling gets in the way of. */
+function useReorder(ids: string[], save: (ids: string[]) => Promise<void>) {
+  const [order, setOrder] = useState<string[] | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const refs = useRef(new Map<string, HTMLElement>());
+  const shown = order ?? ids;
+  // A saved order stays until the plans come back in it.
+  useEffect(() => {
+    if (!dragging && order && order.join() === ids.join()) setOrder(null);
+  }, [ids, order, dragging]);
+  const grip = (id: string) => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      setOrder(shown);
+      setDragging(id);
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      if (dragging !== id) return;
+      const scroller = (e.currentTarget as HTMLElement).closest(".content");
+      if (scroller) {
+        const r = scroller.getBoundingClientRect();
+        if (e.clientY < r.top + 40) scroller.scrollBy(0, -12);
+        else if (e.clientY > r.bottom - 40) scroller.scrollBy(0, 12);
+      }
+      setOrder((cur) => {
+        const list = (cur ?? shown).filter((x) => x !== id);
+        let at = list.length;
+        for (let i = 0; i < list.length; i++) {
+          const el = refs.current.get(list[i]);
+          if (!el) continue;
+          const r = el.getBoundingClientRect();
+          if (e.clientY < r.top + r.height / 2) {
+            at = i;
+            break;
+          }
+        }
+        list.splice(at, 0, id);
+        return cur && list.join() === cur.join() ? cur : list;
+      });
+    },
+    onPointerUp: () => {
+      if (dragging !== id) return;
+      setDragging(null);
+      if (order && order.join() !== ids.join()) save(order).catch(() => setOrder(null));
+      else setOrder(null);
+    },
+    onPointerCancel: () => {
+      setDragging(null);
+      setOrder(null);
+    },
+  });
+  const ref = (id: string) => (el: HTMLElement | null) => {
+    if (el) refs.current.set(id, el);
+    else refs.current.delete(id);
+  };
+  return { shown, dragging, grip, ref };
+}
+
 const ROW_HEIGHT = 18;
 const ROW_GAP = 10;
 
 export default function Overview() {
-  const { ov, go } = useApp();
+  const { ov, go, refresh } = useApp();
   const [recent, setRecent] = useState<Run[]>([]);
   const [recovery, setRecovery] = useState<PlanSummary | null>(null);
   // As many recent runs as fit in the space left under Destinations: the list takes no height of
@@ -207,6 +269,10 @@ export default function Overview() {
   useEffect(() => {
     api.history(Math.min(fits, 100)).then(setRecent);
   }, [ov, fits]);
+  const reorder = useReorder(ov?.plans.map((p) => p.id) ?? [], async (ids) => {
+    await api.reorderPlans(ids);
+    await refresh();
+  });
   if (!ov) return null;
   if (ov.plans.length === 0) return <Welcome />;
 
@@ -261,9 +327,20 @@ export default function Overview() {
           </div>
         ))}
 
-        {ov.plans.map((p) => (
-          <PlanCard key={p.id} p={p} />
-        ))}
+        {reorder.shown.map((id) => {
+          const p = ov.plans.find((x) => x.id === id);
+          if (!p) return null;
+          return (
+            <div key={id} ref={reorder.ref(id)} className={`plan-slot${reorder.dragging === id ? " lifted" : ""}`}>
+              {ov.plans.length > 1 && (
+                <button className="plan-grip" aria-label={`Move ${p.name}`} title="Drag to change the order of your plans" {...reorder.grip(id)}>
+                  <Icon name="grip" size={16} />
+                </button>
+              )}
+              <PlanCard p={p} />
+            </div>
+          );
+        })}
         <button className="card" onClick={() => go({ name: "plans", isNew: true })} title="Make another plan ⌘N" style={{ height: 56, border: "1.5px dashed var(--line2)", background: "transparent", color: "var(--accent-text)", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexShrink: 0 }}>
           <Icon name="plus" size={14} stroke={2.4} />
           Add a plan

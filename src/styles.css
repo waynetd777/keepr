@@ -278,3 +278,12 @@ html.tray body { background: transparent; }
 .keep-box { cursor: pointer; transition: border-color 0.12s, background 0.12s; }
 .keep-box:hover { border: 1px dashed var(--ink3); background: var(--hover); }
 .keep-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* Plans in the order people drag them into: a grip in the margin, shown on hover. */
+.plan-slot { position: relative; }
+.plan-grip { position: absolute; left: -26px; top: 18px; width: 22px; height: 32px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: var(--ink3); cursor: grab; opacity: 0; transition: opacity 0.12s; touch-action: none; }
+.plan-slot:hover .plan-grip, .plan-slot.lifted .plan-grip { opacity: 1; }
+.plan-grip:hover { background: var(--hover); }
+.plan-slot.lifted { z-index: 2; cursor: grabbing; }
+.plan-slot.lifted .plan-grip { cursor: grabbing; }
+.plan-slot.lifted > .card { box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18); border-color: var(--accent); transform: scale(1.01); }

@@ -325,6 +325,20 @@ fn save_plan(core: State<Core_>, mut plan: Plan, password: Option<String>) -> Re
     Ok(plan)
 }
 
+/// Puts the plans in this order (dragged on Backup Plans); the order is used wherever plans are listed.
+#[tauri::command]
+fn reorder_plans(core: State<Core_>, ids: Vec<String>) -> Result<(), String> {
+    {
+        let mut c = core.config.lock().unwrap();
+        let rank = |id: &str| ids.iter().position(|x| x == id).unwrap_or(usize::MAX);
+        // Stable: a plan the list doesn't name keeps its place after the named ones.
+        c.plans.sort_by_key(|p| rank(&p.id));
+    }
+    core.save_config()?;
+    core.changed();
+    Ok(())
+}
+
 #[tauri::command]
 fn delete_plan(core: State<Core_>, id: String) -> Result<(), String> {
     if core.busy_with(&id) {
@@ -1079,6 +1093,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             overview,
             aws_setup_info,
+            reorder_plans,
             aws_setup_run,
             aws_setup_script,
             aws_setup_paste,
