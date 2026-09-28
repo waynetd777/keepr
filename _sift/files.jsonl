@@ -1,0 +1,1 @@
+{"desc": "S3-compatible bucket backend: SigV4-signed blocking HTTPS, retries, friendly errors", "hash": "42e8e6709222a6e9", "path": "src-tauri/engine/src/s3.rs", "ts": "2026-09-28T20:59:01Z", "who": "114321799+waynetd777@users.noreply.github.com"}
