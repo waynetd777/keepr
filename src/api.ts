@@ -4,7 +4,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export type Smb = { server: string; share: string; folder: string; user: string; name?: string | null };
-export type Place = { kind: "folder"; path: string; name?: string | null } | ({ kind: "smb" } & Smb);
+export type S3 = { endpoint: string; region: string; bucket: string; prefix: string; accessKey: string; name?: string | null };
+export type Place = { kind: "folder"; path: string; name?: string | null } | ({ kind: "smb" } & Smb) | ({ kind: "s3" } & S3);
+
+export type DestKind = "folder" | "drive" | "cloud" | "smb" | "s3";
 
 export type Destination = { id: string; name: string; place: Place; disconnectAfter: boolean };
 
@@ -61,7 +64,7 @@ export type PlanSummary = {
   lastChanged: number;
   icon: "folder" | "photos" | "notes";
 };
-export type DestSummary = { id: string; name: string; kind: "folder" | "smb"; place: string; connection: "connected" | "on demand" | "missing"; free: number | null; total: number | null; keeprBytes: number; plans: string[] };
+export type DestSummary = { id: string; name: string; kind: DestKind; kindLabel: string; place: string; connection: "connected" | "on demand" | "missing"; free: number | null; total: number | null; keeprBytes: number; plans: string[] };
 export type JobStatus = {
   id: string;
   kind: "backup" | "full" | "restore" | "check" | "prune" | "remove";

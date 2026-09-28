@@ -1,14 +1,22 @@
 // Destinations: where backups are kept, and the sheet for adding one (a folder or drive, or an
-// SMB share, with the cloud services shown as coming later).
+// SMB share, a cloud service's folder on this Mac, or an S3 bucket).
 
 import { useEffect, useState } from "react";
 import { api, type Destination, type Place, type Tested } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
-import { SAVED_PASSWORD, Sheet, useAct, useSavedLogin } from "./ui";
+import { DestIcon, SAVED_PASSWORD, Seg, Sheet, useAct, useSavedLogin } from "./ui";
 import { bytes, tilde } from "./format";
 
-const LATER: [string, string][] = [["Amazon S3 or compatible", "bucket"]];
+type Service = "aws" | "r2" | "other";
+
+/** The S3 service an endpoint belongs to, and what the form needs to rebuild it. */
+function serviceOf(endpoint: string): { service: Service; r2Account: string } {
+  const host = endpoint.replace(/^[a-z]+:\/\//, "").split(/[/:]/)[0];
+  if (!endpoint || host.endsWith(".amazonaws.com")) return { service: "aws", r2Account: "" };
+  if (host.endsWith(".r2.cloudflarestorage.com")) return { service: "r2", r2Account: host.split(".")[0] };
+  return { service: "other", r2Account: "" };
+}
 
 type Cloud = Awaited<ReturnType<typeof api.cloudFolders>>[number];
 
@@ -20,7 +28,7 @@ function cloudOf(path: string, clouds: Cloud[]): Cloud | undefined {
 export function AddDestination({ onClose, editing }: { onClose: () => void; editing?: Destination }) {
   const { refresh, home } = useApp();
   const act = useAct();
-  const [kind, setKind] = useState<"folder" | "smb" | "cloud">(editing?.place.kind ?? "folder");
+  const [kind, setKind] = useState<"folder" | "smb" | "cloud" | "s3">(editing?.place.kind ?? "folder");
   const [clouds, setClouds] = useState<Cloud[]>([]);
   const [cloud, setCloud] = useState<Cloud | null>(null);
   const [inCloud, setInCloud] = useState("Keepr");
@@ -34,6 +42,15 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   const [folder, setFolder] = useState(smb?.folder ?? "/");
   const [path, setPath] = useState(editing?.place.kind === "folder" ? editing.place.path : "");
   const [keychain, setKeychain] = useState(true);
+  const s3 = editing?.place.kind === "s3" ? editing.place : null;
+  const [service, setService] = useState<Service>(serviceOf(s3?.endpoint ?? "").service);
+  const [r2Account, setR2Account] = useState(serviceOf(s3?.endpoint ?? "").r2Account);
+  const [endpoint, setEndpoint] = useState(s3?.endpoint ?? "");
+  const [region, setRegion] = useState(s3?.region ?? "eu-west-1");
+  const [bucket, setBucket] = useState(s3?.bucket ?? "");
+  const [prefix, setPrefix] = useState(s3?.prefix ?? "");
+  const [accessKey, setAccessKey] = useState(s3?.accessKey ?? "");
+  const [secret, setSecret] = useState("");
   // The name: suggested from the place until someone types one.
   const [name, setName] = useState(editing?.name ?? "");
   const [named, setNamed] = useState(!!editing);
@@ -44,7 +61,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
     if (!share && s.length) setShare(s.includes("Backups") ? "Backups" : s[0]);
   }, setBusy);
   // The saved password is used where the field still shows it.
-  const pw = password === SAVED_PASSWORD ? undefined : password;
+  const pw = kind === "s3" ? secret || undefined : password === SAVED_PASSWORD ? undefined : password;
 
   useEffect(() => {
     api.cloudFolders().then((c) => {
@@ -64,17 +81,18 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  useEffect(() => setTested(null), [kind, server, share, user, password, folder, path, cloud, inCloud]);
+  useEffect(() => setTested(null), [kind, server, share, user, password, folder, path, cloud, inCloud, service, r2Account, endpoint, region, bucket, prefix, accessKey, secret]);
 
   const cloudPath = cloud ? `${cloud.root}/${inCloud.trim().replace(/^\/+|\/+$/g, "")}`.replace(/\/$/, "") : "";
-  const place: Place = kind === "smb" ? { kind: "smb", server: server.trim(), share: share.trim(), folder: folder.trim() || "/", user: user.trim() } : { kind: "folder", path: kind === "cloud" ? cloudPath : path };
-  const ready = kind === "smb" ? !!(server && share) : kind === "cloud" ? !!cloud : !!path;
+  const s3Endpoint = service === "aws" ? `https://s3.${region.trim()}.amazonaws.com` : service === "r2" ? `https://${r2Account.trim()}.r2.cloudflarestorage.com` : endpoint.trim();
+  const place: Place = kind === "s3" ? { kind: "s3", endpoint: s3Endpoint, region: service === "r2" ? "auto" : region.trim(), bucket: bucket.trim(), prefix: prefix.trim().replace(/^\/+|\/+$/g, ""), accessKey: accessKey.trim() } : kind === "smb" ? { kind: "smb", server: server.trim(), share: share.trim(), folder: folder.trim() || "/", user: user.trim() } : { kind: "folder", path: kind === "cloud" ? cloudPath : path };
+  const ready = kind === "s3" ? !!(bucket.trim() && accessKey.trim() && (secret || s3) && (service === "r2" ? r2Account.trim() : service === "other" ? endpoint.trim() : region.trim())) : kind === "smb" ? !!(server && share) : kind === "cloud" ? !!cloud : !!path;
   useEffect(() => {
     if (named || !ready) return;
     const t = window.setTimeout(() => api.suggestName(place, editing?.id).then(setName), 200);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [named, ready, kind, server, share, folder, path, cloud, inCloud]);
+  }, [named, ready, kind, server, share, folder, path, cloud, inCloud, service, r2Account, endpoint, bucket]);
 
   const test = async () => {
     setBusy("Connecting…");
@@ -97,7 +115,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   const add = async () => {
     const t = tested?.ok ? tested : await test();
     if (!t.ok) return;
-    const saved = await act(() => api.saveDestination({ id: editing?.id ?? "", name: name.trim(), place, disconnectAfter: true }, keychain ? pw : undefined));
+    const saved = await act(() => api.saveDestination({ id: editing?.id ?? "", name: name.trim(), place, disconnectAfter: true }, kind === "s3" || keychain ? pw : undefined));
     if (saved) {
       await refresh();
       onClose();
@@ -131,6 +149,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
             [
               ["folder", "Folder or drive", "This Mac, USB, Thunderbolt", "drive"],
               ["smb", "SMB share", "A NAS or another computer", "server"],
+              ["s3", "S3 bucket", "Amazon S3, R2, Wasabi, MinIO", "bucket"],
             ] as const
           ).map(([k, title, sub, icon]) => (
             <button
@@ -174,19 +193,69 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
               </button>
             );
           })}
-          <div className="caps" style={{ margin: "16px 10px 6px" }}>
-            Coming later
-          </div>
-          {LATER.map(([name, icon]) => (
-            <button key={name} disabled style={{ display: "flex", alignItems: "center", gap: 10, height: 32, padding: "0 10px", border: 0, borderRadius: 8, background: "transparent", color: "var(--ink3)", textAlign: "left" }}>
-              <Icon name={icon} />
-              {name}
-            </button>
-          ))}
         </div>
 
         <div className="grow" style={{ padding: "20px 26px", display: "flex", flexDirection: "column", gap: 14 }}>
-          {kind === "cloud" && cloud ? (
+          {kind === "s3" ? (
+            <>
+              <span className="muted" style={{ lineHeight: 1.5 }}>
+                A bucket on Amazon S3 or a service that works like it. Make the bucket and an access key in the service's console first; the key needs to read, write, list and delete in that bucket.
+              </span>
+              <Seg
+                label="Service"
+                value={service}
+                onChange={setService}
+                options={[
+                  ["aws", "Amazon S3"],
+                  ["r2", "Cloudflare R2"],
+                  ["other", "Other (Wasabi, MinIO, a NAS…)"],
+                ]}
+              />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px 14px" }}>
+                {service === "r2" ? (
+                  <label className="field" style={{ gridColumn: "span 2" }}>
+                    <span>Account ID</span>
+                    <input className="input mono" placeholder="From the R2 page in Cloudflare's dashboard" value={r2Account} onChange={(e) => setR2Account(e.target.value)} />
+                  </label>
+                ) : service === "other" ? (
+                  <>
+                    <label className="field">
+                      <span>Endpoint</span>
+                      <input className="input mono" placeholder="https://s3.eu-central-1.wasabisys.com" value={endpoint} onChange={(e) => setEndpoint(e.target.value)} />
+                    </label>
+                    <label className="field">
+                      <span>Region</span>
+                      <input className="input mono" placeholder="us-east-1" value={region} onChange={(e) => setRegion(e.target.value)} />
+                    </label>
+                  </>
+                ) : (
+                  <label className="field" style={{ gridColumn: "span 2" }}>
+                    <span>Region</span>
+                    <input className="input mono" placeholder="eu-west-1" value={region} onChange={(e) => setRegion(e.target.value)} />
+                  </label>
+                )}
+                <label className="field">
+                  <span>Bucket</span>
+                  <input className="input mono" value={bucket} onChange={(e) => setBucket(e.target.value)} />
+                </label>
+                <label className="field">
+                  <span>Folder in the bucket</span>
+                  <input className="input mono" placeholder="Its top" value={prefix} onChange={(e) => setPrefix(e.target.value)} />
+                </label>
+                <label className="field">
+                  <span>Access key ID</span>
+                  <input className="input mono" value={accessKey} onChange={(e) => setAccessKey(e.target.value)} />
+                </label>
+                <label className="field">
+                  <span>Secret access key</span>
+                  <input className="input" type="password" placeholder={s3 ? "Unchanged" : ""} value={secret} onChange={(e) => setSecret(e.target.value)} />
+                </label>
+              </div>
+              <span className="small faint">
+                The secret key is kept in your Keychain. {service === "aws" ? "Test says so if the bucket is in another region." : ""}
+              </span>
+            </>
+          ) : kind === "cloud" && cloud ? (
             <>
               <span className="muted" style={{ lineHeight: 1.5 }}>
                 Keepr writes the backup into {cloud.name}'s folder on this Mac, and {cloud.provider === "icloud" ? "iCloud" : cloud.name.split(" ")[0]} uploads it. The Mac keeps a copy until the service offloads it (turn on {cloud.provider === "icloud" ? "Optimise Mac Storage" : "Files On-Demand"} for that).
@@ -341,7 +410,7 @@ export default function Destinations() {
           return (
             <div key={d.id} className="card" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 8, minHeight: 150 }}>
               <div className="row">
-                <Icon name={d.kind === "smb" ? "server" : "drive"} size={20} />
+                <DestIcon kind={d.kind} label={d.kindLabel} />
                 <span className="grow" style={{ fontWeight: 600, fontSize: 15 }}>
                   {d.name}
                 </span>

@@ -75,7 +75,9 @@ struct PlanSummary {
 struct DestSummary {
     id: String,
     name: String,
+    /// "folder", "drive", "cloud", "smb" or "s3", for the icon; `kind_label` says it in words.
     kind: String,
+    kind_label: String,
     place: String,
     /// "connected", "on demand" (a share Keepr connects when needed) or "missing".
     connection: String,
@@ -200,21 +202,24 @@ fn overview_of(core: &Core) -> Overview {
     let mut destinations = Vec::new();
     for d in &cfg.destinations {
         let users: Vec<&Plan> = cfg.plans.iter().filter(|p| p.destination == d.id).collect();
-        let (kind, connection, path) = match &d.place {
+        let (kind, kind_label) = places::kind_of(&d.place);
+        let (connection, path) = match &d.place {
             Place::Folder { .. } => match places::resolve(&d.place, &core.mounts, false, true) {
-                Ok(p) => ("folder", "connected", Some(p)),
-                Err(_) => ("folder", "missing", None),
+                Ok(p) => ("connected", Some(p)),
+                Err(_) => ("missing", None),
             },
             Place::Smb(s) => match smb::find_mount(&s.server, &s.share) {
-                Some(m) => ("smb", "connected", Some(m)),
-                None => ("smb", "on demand", None),
+                Some(m) => ("connected", Some(m)),
+                None => ("on demand", None),
             },
+            Place::S3(_) => ("on demand", None),
         };
         let space = path.as_deref().and_then(places::space).or_else(|| st.destinations.get(&d.id).map(|s| (s.free, s.total)));
         destinations.push(DestSummary {
             id: d.id.clone(),
             name: d.name.clone(),
             kind: kind.into(),
+            kind_label,
             place: places::describe(&d.place),
             connection: connection.into(),
             free: space.map(|s| s.0),
@@ -368,8 +373,11 @@ fn save_destination(core: State<Core_>, mut dest: Destination, password: Option<
             return Err(format!("Another destination is already called {}. Give this one a different name.", other.name));
         }
     }
-    if let (Place::Smb(s), Some(pw)) = (&dest.place, password.filter(|p| !p.is_empty())) {
-        keychain::set(&keychain::smb_account(&s.user, &s.server), &pw)?;
+    match (&dest.place, password.filter(|p| !p.is_empty())) {
+        (Place::Smb(s), Some(pw)) => keychain::set(&keychain::smb_account(&s.user, &s.server), &pw)?,
+        (Place::S3(s), Some(pw)) => keychain::set(&keychain::s3_account(&s.access_key), &pw)?,
+        (Place::S3(s), None) if keychain::get(&keychain::s3_account(&s.access_key)).is_none() => return Err("Enter the bucket's secret key.".into()),
+        _ => {}
     }
     if dest.id.is_empty() {
         dest.id = config::new_id();
@@ -427,6 +435,12 @@ async fn test_place(core: State<'_, Core_>, place: Place, password: Option<Strin
     let core = core.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let fail = |m: String| Tested { ok: false, message: m, free: None, total: None, mbps: None };
+        if let Place::S3(s) = &place {
+            return match test_bucket(s, password) {
+                Ok(mbps) => Tested { ok: true, message: "Connected, and Keepr can write to this bucket.".into(), free: None, total: None, mbps: Some(mbps) },
+                Err(e) => fail(e),
+            };
+        }
         let base = match &place {
             Place::Smb(s) => {
                 let pw = password.filter(|p| !p.is_empty()).or_else(|| places::smb_password(s)).unwrap_or_default();
@@ -460,6 +474,22 @@ async fn test_place(core: State<'_, Core_>, place: Place, password: Option<Strin
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// Checks a bucket and writes, reads back and removes a test object. Returns the upload speed.
+fn test_bucket(s: &config::S3, secret: Option<String>) -> Result<f64, String> {
+    use keepr_engine::backend::Backend;
+    let b = places::s3_backend(s, secret, "")?;
+    b.check_bucket().map_err(|e| e.to_string())?;
+    let name = format!(".keepr-test-{}", config::new_id());
+    let data = vec![0x5au8; 4 << 20];
+    let t = std::time::Instant::now();
+    b.write(&name, &data).map_err(|e| format!("Keepr can't write to the bucket: {e}"))?;
+    let secs = t.elapsed().as_secs_f64();
+    let back = b.read_at(&name, 0, 16).map_err(|e| format!("Keepr can't read from the bucket: {e}"));
+    let _ = b.remove(&name);
+    back?;
+    Ok(4.0 * 1.048_576 / secs.max(0.001))
 }
 
 /// SMB servers to offer: ones Keepr already uses, ones mounted now, and ones on Bonjour.

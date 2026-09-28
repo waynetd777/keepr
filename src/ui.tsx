@@ -236,6 +236,17 @@ export function StopButton({ job, small, iconOnly, label = "Stop" }: { job: JobS
   );
 }
 
+const DEST_ICONS: Record<string, string> = { folder: "folder", drive: "drive", cloud: "cloud", smb: "server", s3: "bucket" };
+
+/** A destination's icon, with a tooltip saying what it is ("OneDrive Personal", "SMB share"). */
+export function DestIcon({ kind, label, size = 20 }: { kind?: string; label?: string; size?: number }) {
+  return (
+    <span title={label} style={{ display: "inline-flex", flexShrink: 0 }}>
+      <Icon name={DEST_ICONS[kind ?? ""] ?? "drive"} size={size} />
+    </span>
+  );
+}
+
 /** The x that empties a search box: a 22px round button, easy to hit. */
 export function ClearButton({ onClick }: { onClick: () => void }) {
   return (

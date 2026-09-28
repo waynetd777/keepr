@@ -137,7 +137,52 @@ pub fn default_name(p: &Place) -> String {
             }
         }
         Place::Smb(s) => format!("{}: {}", s.server.trim_end_matches(".local"), s.share.trim_matches('/')),
+        Place::S3(s) => format!("{}: {}", s3_service(&s.endpoint), s.bucket.trim()),
     }
+}
+
+/// "Amazon S3", "Cloudflare R2", "Wasabi", or the endpoint's host.
+pub fn s3_service(endpoint: &str) -> String {
+    let host = endpoint.split("://").last().unwrap_or_default().split(['/', ':']).next().unwrap_or_default().to_lowercase();
+    if host.ends_with(".amazonaws.com") {
+        "Amazon S3".into()
+    } else if host.ends_with(".r2.cloudflarestorage.com") {
+        "Cloudflare R2".into()
+    } else if host.ends_with(".wasabisys.com") {
+        "Wasabi".into()
+    } else {
+        host
+    }
+}
+
+/// What sort of place a destination is, for its icon ("folder", "drive", "cloud", "smb", "s3")
+/// and its tooltip ("OneDrive Personal", "External drive").
+pub fn kind_of(p: &Place) -> (&'static str, String) {
+    match p {
+        Place::Folder { path, .. } => {
+            let pb = Path::new(path);
+            if let Some((root, _)) = cloud_root(pb) {
+                return ("cloud", cloud_name(&root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()));
+            }
+            let home = std::env::var("HOME").unwrap_or_default();
+            if pb.starts_with(Path::new(&home).join("Library/Mobile Documents/com~apple~CloudDocs")) {
+                return ("cloud", "iCloud Drive".into());
+            }
+            match volume_of(pb) {
+                Some(_) => ("drive", "External drive".into()),
+                None => ("folder", "Folder on this Mac".into()),
+            }
+        }
+        Place::Smb(_) => ("smb", "SMB share".into()),
+        Place::S3(s) => ("s3", s3_service(&s.endpoint)),
+    }
+}
+
+/// A bucket's storage, `within` a plan's folder in it.
+pub fn s3_backend(s: &crate::config::S3, secret: Option<String>, within: &str) -> Result<keepr_engine::s3::S3, String> {
+    let secret = secret.filter(|x| !x.is_empty()).or_else(|| keychain::get(&keychain::s3_account(&s.access_key))).ok_or("The secret key for this bucket isn't in the Keychain. Enter it in the destination.")?;
+    let b = keepr_engine::s3::S3::new(keepr_engine::s3::Config { endpoint: s.endpoint.clone(), region: s.region.clone(), bucket: s.bucket.clone(), prefix: s.prefix.clone(), access_key: s.access_key.trim().to_string(), secret_key: secret }).map_err(|e| e.to_string())?;
+    Ok(b.within(within))
 }
 
 /// A place's own name if it has one, else its default.
@@ -145,6 +190,7 @@ pub fn name_of(p: &Place) -> String {
     let own = match p {
         Place::Folder { name, .. } => name.as_deref(),
         Place::Smb(s) => s.name.as_deref(),
+        Place::S3(s) => s.name.as_deref(),
     };
     own.map(str::trim).filter(|n| !n.is_empty()).map(str::to_string).unwrap_or_else(|| default_name(p))
 }
@@ -223,6 +269,7 @@ pub fn describe(p: &Place) -> String {
     match p {
         Place::Folder { path, .. } => tilde(path),
         Place::Smb(s) => format!("smb://{}/{}{}", s.server, s.share, if s.folder.trim_matches('/').is_empty() { String::new() } else { format!("/{}", s.folder.trim_matches('/')) }),
+        Place::S3(s) => format!("s3://{}{}", s.bucket.trim(), if s.prefix.trim_matches('/').is_empty() { String::new() } else { format!("/{}", s.prefix.trim_matches('/')) }),
     }
 }
 
@@ -277,6 +324,7 @@ pub fn resolve(place: &Place, mounts: &Mounts, connect: bool, disconnect_after: 
             let folder = s.folder.trim_matches('/');
             Ok(if folder.is_empty() { base } else { base.join(folder) })
         }
+        Place::S3(s) => Err(format!("{} is a bucket, not a folder.", describe(&Place::S3(s.clone())))),
     }
 }
 

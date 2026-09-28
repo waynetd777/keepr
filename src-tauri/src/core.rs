@@ -122,7 +122,7 @@ pub fn human_bytes(b: u64) -> String {
 
 /// A backend that keeps writes under a speed limit.
 struct Throttle {
-    inner: Folder,
+    inner: Arc<dyn Backend>,
     per_sec: u64,
     sent: Mutex<(Instant, u64)>,
 }
@@ -396,21 +396,31 @@ impl Core {
     /// plan has never backed up; a plan that has must find its repository where it left it.
     pub fn repo(&self, plan: &str, create: bool) -> Result<Arc<Repo>, String> {
         let (p, d) = self.plan_and_dest(plan)?;
-        let root = places::resolve(&d.place, &self.mounts, true, d.disconnect_after)?;
-        if let Some((free, total)) = places::space(&root) {
-            self.state.lock().unwrap().destinations.insert(d.id.clone(), config::DestState { free, total, checked: now() });
-        }
-        let path = root.join(&p.folder);
+        // A bucket has no folder on this Mac: its "path" is its s3:// address, which matches no
+        // file a backup reads.
+        let (path, inner): (PathBuf, Arc<dyn Backend>) = match &d.place {
+            Place::S3(s) => {
+                let b = places::s3_backend(s, None, &p.folder)?;
+                (PathBuf::from(b.describe()), Arc::new(b))
+            }
+            place => {
+                let root = places::resolve(place, &self.mounts, true, d.disconnect_after)?;
+                if let Some((free, total)) = places::space(&root) {
+                    self.state.lock().unwrap().destinations.insert(d.id.clone(), config::DestState { free, total, checked: now() });
+                }
+                let path = root.join(&p.folder);
+                (path.clone(), Arc::new(Folder::new(&path)))
+            }
+        };
         if let Some((at, r)) = self.repos.lock().unwrap().get(plan) {
             if *at == path && r.backend.exists(CONFIG) {
                 return Ok(r.clone());
             }
         }
-        let folder = Folder::new(&path);
         let backend: Arc<dyn Backend> = if p.conditions.limit_mbps > 0 {
-            Arc::new(Throttle { inner: folder, per_sec: p.conditions.limit_mbps as u64 * 1_000_000, sent: Mutex::new((Instant::now(), 0)) })
+            Arc::new(Throttle { inner, per_sec: p.conditions.limit_mbps as u64 * 1_000_000, sent: Mutex::new((Instant::now(), 0)) })
         } else {
-            Arc::new(folder)
+            inner
         };
         let st = self.state.lock().unwrap().plans.get(plan).cloned().unwrap_or_default();
         let password = if p.encrypted { keychain::get(&keychain::plan_account(plan)) } else { None };
@@ -434,7 +444,9 @@ impl Core {
             if p.encrypted && password.is_none() {
                 return Err(format!("{} is set to be encrypted but has no password. Set one in the plan.", p.name));
             }
-            std::fs::create_dir_all(&path).map_err(|e| format!("Couldn't make {}: {e}", path.display()))?;
+            if !matches!(d.place, Place::S3(_)) {
+                std::fs::create_dir_all(&path).map_err(|e| format!("Couldn't make {}: {e}", path.display()))?;
+            }
             let made = Repo::init(backend, password.as_deref()).map_err(|e| e.0)?;
             let mut s = self.state.lock().unwrap();
             let ps = s.plan(plan);
@@ -835,7 +847,7 @@ impl Core {
         // The snapshots name a source by the path it was read from.
         let key = match source {
             Place::Folder { path, .. } => path.clone(),
-            Place::Smb(_) => places::resolve(source, &self.mounts, true, true)?.to_string_lossy().to_string(),
+            _ => places::resolve(source, &self.mounts, true, true)?.to_string_lossy().to_string(),
         };
         run.note(format!("Taking {} out of every snapshot", places::tilde(&key)));
         let _ = repo;
@@ -913,7 +925,7 @@ pub fn source_names(plan: &Plan) -> Vec<String> {
         .iter()
         .map(|s| match s {
             Place::Folder { path, name } => name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.clone())),
-            Place::Smb(_) => places::name_of(s),
+            _ => places::name_of(s),
         })
         .collect()
 }

@@ -1,5 +1,5 @@
 //! Where a repository's files live. Today that's a folder: on this Mac, an external drive or a
-//! mounted SMB share, which all look the same once mounted. Cloud stores (S3, Google Drive,
+//! mounted SMB share, which all look the same once mounted; or an S3 bucket (s3.rs). Other cloud stores (Google Drive,
 //! OneDrive) will be other implementations of `Backend`.
 //!
 //! Paths are relative, '/'-separated, and never start with '/' or hold "..".

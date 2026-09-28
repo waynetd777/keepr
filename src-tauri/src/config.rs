@@ -28,6 +28,22 @@ pub struct Smb {
     pub name: Option<String>,
 }
 
+/// A bucket on Amazon S3 or a service that speaks its API. The secret key is in the Keychain.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct S3 {
+    /// "https://s3.eu-west-1.amazonaws.com", or another service's address.
+    pub endpoint: String,
+    pub region: String,
+    pub bucket: String,
+    /// A folder inside the bucket; empty for its top.
+    #[serde(default)]
+    pub prefix: String,
+    pub access_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum Place {
@@ -38,6 +54,8 @@ pub enum Place {
         name: Option<String>,
     },
     Smb(Smb),
+    /// Only a destination: nothing is backed up from a bucket.
+    S3(S3),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

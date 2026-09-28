@@ -7,7 +7,7 @@ import { useApp } from "./context";
 import { Icon } from "./icons";
 import { ago, bytes, count, longDate, next, when } from "./format";
 import { RecoverySheet } from "./Plans";
-import { PlanProgress, StopButton } from "./ui";
+import { DestIcon, PlanProgress, StopButton } from "./ui";
 
 /** What a day's bar means, for its tooltip: "Thursday 24 September: 12 backups, 88 MB stored". */
 function dayTip(d: PlanSummary["days"][number], daysAgo: number): string {
@@ -289,13 +289,12 @@ export default function Overview() {
           </div>
           {ov.destinations.map((d) => (
             <div key={d.id} className="row" style={{ gap: 12 }}>
-              <Icon name={d.kind === "smb" ? "server" : "drive"} size={20} />
+              <DestIcon kind={d.kind} label={d.kindLabel} />
               <div className="grow col" style={{ gap: 5 }}>
                 <div className="row" style={{ justifyContent: "space-between" }}>
                   <span style={{ fontWeight: 600 }}>{d.name}</span>
                   <span className="small" style={{ color: d.connection === "missing" ? "var(--amber)" : "var(--ink2)" }}>
-                    {d.kind === "smb" ? "SMB · " : ""}
-                    {d.connection === "missing" ? "Not connected" : d.connection === "on demand" ? "connects when needed" : "connected"}
+                                        {d.connection === "missing" ? "Not connected" : d.connection === "on demand" ? "connects when needed" : "connected"}
                   </span>
                 </div>
                 {d.total != null && (

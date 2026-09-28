@@ -105,6 +105,10 @@ pub fn smb_account(user: &str, server: &str) -> String {
     format!("smb:{}@{}", user, server.to_lowercase())
 }
 
+pub fn s3_account(access_key: &str) -> String {
+    format!("s3:{}", access_key.trim())
+}
+
 pub fn plan_account(id: &str) -> String {
     format!("plan:{id}")
 }

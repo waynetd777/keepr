@@ -27,6 +27,7 @@ pub mod prune;
 pub mod repo;
 pub mod restore;
 pub mod retention;
+pub mod s3;
 pub mod tree;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

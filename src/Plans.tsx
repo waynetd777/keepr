@@ -7,7 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { api, type Every, type Often, type Place, type Plan, type Retention } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
-import { PlanProgress, SAVED_PASSWORD, Seg, Sheet, Switch, useAct, useMenu, useSavedLogin, useToast } from "./ui";
+import { DestIcon, PlanProgress, SAVED_PASSWORD, Seg, Sheet, Switch, useAct, useMenu, useSavedLogin, useToast } from "./ui";
 import { ago, bytes, next, tilde } from "./format";
 
 const DEFAULT_RETENTION: Retention = { allHours: 24, dailyDays: 30, weeklyWeeks: 52, monthlyMonths: 0, keepDeletedDays: 90 };
@@ -41,6 +41,7 @@ function placeLabel(p: Place, home: string): { title: string; sub: string } {
     const vol = p.path.startsWith("/Volumes/") ? p.path.split("/")[2] : null;
     return { title: p.name?.trim() || name, sub: `${tilde(p.path, home)} · ${vol ? `on ${vol}` : "folder on this Mac"}` };
   }
+  if (p.kind === "s3") return { title: p.name?.trim() || p.bucket, sub: `s3://${p.bucket} · S3 bucket` };
   const folder = p.folder.replace(/^\/+|\/+$/g, "");
   return { title: p.name?.trim() || (folder ? folder.split("/").pop()! : p.share), sub: `smb://${p.server}/${p.share}${folder ? `/${folder}` : ""} · SMB share` };
 }
@@ -50,7 +51,7 @@ function defaultNames(sources: Place[], home: string): string[] {
   const base = sources.map((s) => placeLabel({ ...s, name: null }, home).title);
   return sources.map((s, i) => {
     if (base.filter((b) => b.toLowerCase() === base[i].toLowerCase()).length < 2) return base[i];
-    const parts = (s.kind === "folder" ? s.path : `${s.server}/${s.share}/${s.folder}`).split("/").filter(Boolean);
+    const parts = (s.kind === "folder" ? s.path : s.kind === "smb" ? `${s.server}/${s.share}/${s.folder}` : `${s.bucket}/${s.prefix}`).split("/").filter(Boolean);
     return `${base[i]} (${parts[parts.length - 2] ?? (s.kind === "smb" ? s.server : "")})`;
   });
 }
@@ -689,7 +690,7 @@ export default function Plans() {
             ) : (
               <div className="row" style={{ gap: 12 }}>
                 <div className="tile" style={{ width: 38, height: 38 }}>
-                  <Icon name={dest?.place.kind === "smb" ? "server" : "drive"} size={20} />
+                  <DestIcon kind={ov?.destinations.find((d) => d.id === plan.destination)?.kind} label={ov?.destinations.find((d) => d.id === plan.destination)?.kindLabel} />
                 </div>
                 <div className="grow col" style={{ gap: 2 }}>
                   <select className="input" value={plan.destination} disabled={created} title={created ? "A backup stays where it was made. Make a new plan to keep one elsewhere." : undefined} onChange={(e) => update((p) => ({ ...p, destination: e.target.value }))} style={{ fontWeight: 600 }}>
@@ -700,7 +701,7 @@ export default function Plans() {
                     ))}
                   </select>
                   <span className="small muted ellipsis">
-                    {dest?.place.kind === "smb" ? `smb://${dest.place.server}/${dest.place.share}${dest.place.folder && dest.place.folder !== "/" ? dest.place.folder : ""}` : dest?.place.kind === "folder" ? tilde(dest.place.path, home) : ""}
+                    {dest?.place.kind === "smb" ? `smb://${dest.place.server}/${dest.place.share}${dest.place.folder && dest.place.folder !== "/" ? dest.place.folder : ""}` : dest?.place.kind === "folder" ? tilde(dest.place.path, home) : dest?.place.kind === "s3" ? `s3://${dest.place.bucket}${dest.place.prefix ? `/${dest.place.prefix}` : ""}` : ""}
                     {plan.folder ? ` / ${plan.folder}` : ""}
                   </span>
                 </div>
