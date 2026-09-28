@@ -19,7 +19,7 @@ const LATER: [string, string][] = [
 export function AddDestination({ onClose, editing }: { onClose: () => void; editing?: Destination }) {
   const { refresh, home } = useApp();
   const act = useAct();
-  const [kind, setKind] = useState<"folder" | "smb">(editing?.place.kind ?? "smb");
+  const [kind, setKind] = useState<"folder" | "smb">(editing?.place.kind ?? "folder");
   const [servers, setServers] = useState<string[]>([]);
   const smb = editing?.place.kind === "smb" ? editing.place : null;
   const [server, setServer] = useState(smb?.server ?? "");
