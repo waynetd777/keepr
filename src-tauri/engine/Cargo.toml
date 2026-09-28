@@ -1,6 +1,7 @@
 [package]
 name = "keepr-engine"
 version = "0.1.0"
+license = "GPL-3.0-or-later"
 description = "Keepr's backup repository: chunking, de-duplication, compression, encryption, snapshots, restore and pruning"
 edition = "2021"
 

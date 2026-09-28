@@ -41,7 +41,7 @@ A check that finds a problem with the stored data always tells you.
 - The [notifications](#notifications) above.
 - **Appearance**: **Match the Mac**, **Light** or **Dark**.
 
-The foot of Settings shows Keepr's version and build.
+The foot of Settings shows Keepr's version and build, and its licence.
 
 ## In the background
 

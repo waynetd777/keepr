@@ -50,3 +50,14 @@ On the right are **Space used**, across every plan, each destination with its fr
 ## Requirements
 
 A Mac with Apple silicon (M1 or later) and macOS 13 or later.
+
+## Licence and credits
+
+Keepr is free software under the GNU General Public License, version 3 or later.
+
+- You may use it, share it and change it.
+- Anything you pass on, changed or not, must stay free under the same licence, with its source.
+- It comes with no warranty.
+- The licence is in `LICENSE` in the source, and at [gnu.org](https://www.gnu.org/licenses/gpl-3.0.html).
+
+Keepr is built with Tauri and React, and its backups with FastCDC, zstd, BLAKE3, XChaCha20-Poly1305 and Argon2 (the Rust crates `fastcdc`, `zstd`, `blake3`, `chacha20poly1305` and `argon2`), all under the MIT, Apache 2.0 or BSD licences. Its numbers are set in JetBrains Mono, under the SIL Open Font License.

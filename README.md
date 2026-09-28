@@ -30,6 +30,10 @@ It opens normally after that. The first time you use some features, macOS asks f
 
 The same guides are in the app's Help menu (⌘?).
 
+## Licence
+
+Keepr is free software under the [GNU General Public License](LICENSE), version 3 or later: you may use, share and change it, and anything you pass on must stay free under the same licence. See [Licence and credits](docs/features.md#licence-and-credits).
+
 ## Building it
 
 Needs Rust, Node.js, pandoc (`brew install pandoc`) and Xcode's command-line tools.

@@ -93,6 +93,8 @@ export default function Settings() {
       </section>
       <span className="small faint">
         Keepr {ver[0]} (build {ver[1]}). Keepr needs Full Disk Access (System Settings › Privacy &amp; Security) to back up every folder and to read a still copy of the startup disk.
+        <br />
+        Free software under the GNU General Public License, version 3 or later.
       </span>
     </div>
   );
