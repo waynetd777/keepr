@@ -253,6 +253,10 @@ pub struct PlanState {
     /// The day the stale-backup warning was last sent.
     #[serde(default)]
     pub stale_warned: Option<String>,
+    /// macOS's file-system event id noted just before the last backup, and that backup's
+    /// snapshot: the next backup asks what changed since.
+    #[serde(default)]
+    pub fs_event: Option<(u64, String)>,
     /// Set when the recovery key hasn't been saved yet.
     #[serde(default)]
     pub recovery_unsaved: bool,

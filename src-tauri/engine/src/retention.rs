@@ -15,11 +15,19 @@ pub struct Retention {
     pub weekly_weeks: u32,
     /// and the last of each month for this many months (0: forever).
     pub monthly_months: u32,
+    /// Whatever the rules above say, a deleted file's last version is kept this many days after
+    /// it was deleted (0: no such promise).
+    #[serde(default = "ninety")]
+    pub keep_deleted_days: u32,
+}
+
+fn ninety() -> u32 {
+    90
 }
 
 impl Default for Retention {
     fn default() -> Retention {
-        Retention { all_hours: 24, daily_days: 30, weekly_weeks: 52, monthly_months: 0 }
+        Retention { all_hours: 24, daily_days: 30, weekly_weeks: 52, monthly_months: 0, keep_deleted_days: 90 }
     }
 }
 
@@ -82,7 +90,7 @@ mod tests {
         let oldest_month = (times[times.len() - 1].year(), times[times.len() - 1].month());
         assert!(k.iter().any(|&i| (times[i].year(), times[i].month()) == oldest_month));
 
-        let r = Retention { all_hours: 0, daily_days: 0, weekly_weeks: 0, monthly_months: 1 };
+        let r = Retention { all_hours: 0, daily_days: 0, weekly_weeks: 0, monthly_months: 1, keep_deleted_days: 0 };
         let k = keep(&r, &times, now);
         assert_eq!(k.len(), 1, "only this month's newest");
     }

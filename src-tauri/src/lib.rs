@@ -12,6 +12,8 @@ mod login_launch;
 mod places;
 mod scheduler;
 mod smb;
+mod still;
+mod fsevents;
 mod system;
 
 use crate::config::{Destination, Place, Plan, Run};
@@ -421,6 +423,16 @@ async fn discover_servers() -> Vec<String> {
 }
 
 #[tauri::command]
+async fn list_shares(server: String, user: String, password: Option<String>) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let pw = password.filter(|p| !p.is_empty()).or_else(|| keychain::get(&keychain::smb_account(&user, &server))).unwrap_or_default();
+        smb::shares(&server, &user, &pw)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn has_password(account_kind: String, id: String, user: Option<String>) -> bool {
     let acct = match account_kind.as_str() {
         "plan" => keychain::plan_account(&id),
@@ -542,6 +554,12 @@ async fn file_versions(core: State<'_, Core_>, plan: String, path: String) -> Re
 async fn search_snapshot(core: State<'_, Core_>, plan: String, snapshot: String, query: String) -> Result<Vec<browse::Entry>, String> {
     let core = core.inner().clone();
     tauri::async_runtime::spawn_blocking(move || browse::search(&core, &plan, &snapshot, &query)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn compare(core: State<'_, Core_>, plan: String, snapshot: String, path: String) -> Result<browse::Comparison, String> {
+    let core = core.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || browse::compare(&core, &plan, &snapshot, &path)).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -708,6 +726,7 @@ pub fn run() {
             delete_destination,
             test_place,
             discover_servers,
+            list_shares,
             has_password,
             recovery_key,
             recovery_saved,
@@ -725,6 +744,7 @@ pub fn run() {
             file_versions,
             search_snapshot,
             quick_look,
+            compare,
             app_version,
             home_dir,
             login_item,
@@ -773,6 +793,9 @@ pub fn run() {
                 frozen,
             );
             app.manage(core.clone());
+            if !frozen {
+                std::thread::spawn(still::clean_up_left_behind);
+            }
             core.start();
             scheduler::start(core.clone());
             system::watch_network();

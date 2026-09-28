@@ -94,6 +94,8 @@ pub struct Core {
     pub notify: Box<dyn Fn(&str, &str) + Send + Sync>,
     /// Screenshot mode: nothing is saved or run.
     pub frozen: bool,
+    /// Read the startup disk through a still copy (off in tests, which mustn't make snapshots of the Mac).
+    pub still_copies: std::sync::atomic::AtomicBool,
 }
 
 fn now() -> String {
@@ -171,6 +173,7 @@ impl Core {
             emit,
             notify,
             frozen,
+            still_copies: std::sync::atomic::AtomicBool::new(true),
         })
     }
 
@@ -488,6 +491,29 @@ impl Core {
 
         let snaps = repo.snapshots().map_err(|e| e.0)?;
         let parent = snaps.last();
+        let st = self.state.lock().unwrap().plans.get(plan_id).cloned().unwrap_or_default();
+        let local = sources.iter().all(|s| crate::still::on_data_volume(s));
+        // What macOS recorded as changed since the last backup, when that backup is the parent.
+        let changes = match (&st.fs_event, parent) {
+            (Some((id, snap)), Some(p)) if !full && local && *snap == p.id.hex() => crate::fsevents::since(&sources, *id),
+            _ => None,
+        };
+        // Noted before the still copy is taken: anything after it is for the next backup to see.
+        let event_id = if local { crate::fsevents::now_id() } else { 0 };
+        let still = if local && self.still_copies.load(Relaxed) {
+            Self::set_stage(cur, "Taking a still copy");
+            match crate::still::take() {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    eprintln!("still copy: {e}; reading the files as they are");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        Self::set_stage(cur, "");
+        let read_from = sources.iter().map(|s| still.as_ref().map(|st| crate::still::inside(st, s))).collect();
         let opts = Options {
             plan: plan_id.to_string(),
             sources,
@@ -497,8 +523,12 @@ impl Core {
             max_file_size: (plan.max_file_size > 0).then_some(plan.max_file_size),
             full,
             skip_paths: repo_path.into_iter().collect(),
+            read_from,
+            changes,
         };
-        let snap = keepr_engine::backup::run(&repo, &opts, parent, &cur.ctl).map_err(|e| e.0)?;
+        let snap = keepr_engine::backup::run(&repo, &opts, parent, &cur.ctl).map_err(|e| e.0);
+        drop(still);
+        let snap = snap?;
         let st = &snap.stats;
         run.files = st.files;
         run.changed = st.new_files + st.changed_files;
@@ -518,6 +548,7 @@ impl Core {
             let mut s = self.state.lock().unwrap();
             let ps = s.plan(plan_id);
             ps.last_success = Some(snap.time.clone());
+            ps.fs_event = (event_id > 0).then(|| (event_id, snap.id.hex()));
             ps.waiting = None;
             ps.stale_warned = None;
             if full || parent.is_none() {
@@ -666,7 +697,9 @@ mod tests {
     use crate::config::{Destination, Schedule};
 
     fn core(dir: &std::path::Path) -> Arc<Core> {
-        Core::new(dir.to_path_buf(), Box::new(|_, _| {}), Box::new(|_, _| {}), false)
+        let c = Core::new(dir.to_path_buf(), Box::new(|_, _| {}), Box::new(|_, _| {}), false);
+        c.still_copies.store(false, Relaxed);
+        c
     }
 
     fn plan(src: &std::path::Path) -> Plan {

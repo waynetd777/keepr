@@ -2,3 +2,4 @@
 {"commit": "", "detail": "D-20260928-02 - Write order: packs, then index, then snapshot", "id": "j-20260928-152225-a8af", "kind": "decision-ref", "ts": "2026-09-28T15:22:25Z", "who": "114321799+waynetd777@users.noreply.github.com"}
 {"commit": "", "detail": "D-20260928-03 - One repository per plan, inside the destination", "id": "j-20260928-152225-d7fc", "kind": "decision-ref", "ts": "2026-09-28T15:22:25Z", "who": "114321799+waynetd777@users.noreply.github.com"}
 {"commit": "", "detail": "D-20260928-04 - A missing source or backup fails loudly", "id": "j-20260928-152226-f741", "kind": "decision-ref", "ts": "2026-09-28T15:22:26Z", "who": "114321799+waynetd777@users.noreply.github.com"}
+{"commit": "4a886e5c", "detail": "D-20260928-05 - Read the startup disk through an APFS snapshot, and trust FSEvents for unchanged folders", "id": "j-20260928-154044-b957", "kind": "decision-ref", "ts": "2026-09-28T15:40:44Z", "who": "114321799+waynetd777@users.noreply.github.com"}

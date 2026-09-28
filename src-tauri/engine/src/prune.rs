@@ -50,7 +50,10 @@ pub fn run(repo: &Arc<Repo>, r: &Retention, ctl: &Control) -> Result<Pruned> {
     // Which snapshots go.
     let snaps = repo.snapshots()?;
     let times: Vec<_> = snaps.iter().map(|s| parse_time(&s.time).unwrap_or_else(chrono::Local::now)).collect();
-    let kept = keep(r, &times, chrono::Local::now());
+    let mut kept = keep(r, &times, chrono::Local::now());
+    if r.keep_deleted_days > 0 {
+        keep_deleted(repo, &snaps, &times, &mut kept, r.keep_deleted_days, ctl)?;
+    }
     for (i, s) in snaps.iter().enumerate() {
         if !kept.contains(&i) {
             repo.forget(&s.id)?;
@@ -60,6 +63,58 @@ pub fn run(repo: &Arc<Repo>, r: &Retention, ctl: &Control) -> Result<Pruned> {
     out.kept = kept.len() as u64;
     reclaim(repo, ctl, &mut out)?;
     Ok(out)
+}
+
+/// Files in `tree` that no kept snapshot has, at the same path with the same contents.
+fn uncovered(repo: &Repo, tree: Id, others: &[Id], base: &str, out: &mut Vec<String>) -> Result<()> {
+    if others.contains(&tree) || out.len() >= 500 {
+        return Ok(());
+    }
+    let t = repo.load_tree(&tree)?;
+    let theirs: Vec<Arc<crate::tree::Tree>> = others.iter().map(|o| repo.load_tree(o)).collect::<Result<_>>()?;
+    for n in &t.nodes {
+        let path = if base.is_empty() { n.name.clone() } else { format!("{base}/{}", n.name) };
+        let same: Vec<&crate::tree::Node> = theirs.iter().filter_map(|t| t.get(&n.name)).collect();
+        match n.kind {
+            NodeKind::File => {
+                if !same.iter().any(|o| o.content_key() == n.content_key()) {
+                    out.push(path);
+                }
+            }
+            NodeKind::Dir => {
+                if let Some(sub) = n.subtree {
+                    let subs: Vec<Id> = same.iter().filter_map(|o| o.subtree).collect();
+                    uncovered(repo, sub, &subs, &path, out)?;
+                }
+            }
+            NodeKind::Symlink => {}
+        }
+    }
+    Ok(())
+}
+
+/// Keeps, beyond the retention rules, any snapshot holding the last copy of a file that was
+/// deleted less than `days` ago.
+fn keep_deleted(repo: &Repo, snaps: &[crate::repo::Snapshot], times: &[chrono::DateTime<chrono::Local>], kept: &mut HashSet<usize>, days: u32, ctl: &Control) -> Result<()> {
+    let now = chrono::Local::now();
+    // Newest first, so a snapshot kept here covers older ones holding the same file.
+    for i in (0..snaps.len()).rev() {
+        if kept.contains(&i) {
+            continue;
+        }
+        ctl.checkpoint()?;
+        let others: Vec<Id> = kept.iter().map(|&k| snaps[k].tree).collect();
+        let mut files = Vec::new();
+        uncovered(repo, snaps[i].tree, &others, "", &mut files)?;
+        let recent_deletion = files.iter().any(|f| {
+            // When it went: the first later snapshot without it.
+            snaps.iter().enumerate().skip(i + 1).find(|(_, s)| crate::browse::node_at(repo, s, f).ok().flatten().is_none()).is_some_and(|(j, _)| now.signed_duration_since(times[j]).num_days() < days as i64)
+        });
+        if recent_deletion {
+            kept.insert(i);
+        }
+    }
+    Ok(())
 }
 
 /// Rewrites packs that are mostly unused, deletes ones that are wholly unused, and replaces
@@ -195,7 +250,11 @@ mod tests {
         fs::remove_file(src.path().join("gone.bin")).unwrap();
         let _s2 = backup::run(&repo, &opts(src.path()), Some(&s1), &Control::default()).unwrap();
         // Forget the first by making the policy keep only the newest.
-        let r = Retention { all_hours: 0, daily_days: 0, weekly_weeks: 0, monthly_months: 1 };
+        // Keeping deleted files for 90 days keeps the first snapshot, which has gone.bin.
+        let mut r = Retention { all_hours: 0, daily_days: 0, weekly_weeks: 0, monthly_months: 1, keep_deleted_days: 90 };
+        let p = run(&repo, &r, &Control::default()).unwrap();
+        assert_eq!(p.forgotten, 0);
+        r.keep_deleted_days = 0;
         let p = run(&repo, &r, &Control::default()).unwrap();
         assert_eq!(p.forgotten, 1);
         assert!(p.bytes_freed > 2_000_000, "{p:?}");

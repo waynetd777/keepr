@@ -181,3 +181,73 @@ pub fn search(core: &Core, plan: &str, snapshot: &str, query: &str) -> Result<Ve
         .map(|h| Entry { name: h.node.name.clone(), path: h.path, kind: kind(h.node.kind).into(), size: h.node.size, mtime: h.node.mtime / 1_000_000, tag: String::new(), versions: 0, items: 0 })
         .collect())
 }
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Line {
+    /// "same", "added" (only in the file on this Mac) or "removed" (only in the backup).
+    pub kind: String,
+    pub text: String,
+    pub old: Option<usize>,
+    pub new: Option<usize>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Comparison {
+    /// Whether the file is still on this Mac.
+    pub current_exists: bool,
+    pub identical: bool,
+    /// Both are text, so `lines` says what changed.
+    pub text: bool,
+    pub added: usize,
+    pub removed: usize,
+    /// The changes with a few lines around each; long unchanged stretches left out.
+    pub lines: Vec<Line>,
+    pub backup_size: u64,
+    pub current_size: u64,
+}
+
+/// A version from the backup against the file as it is now.
+pub fn compare(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result<Comparison, String> {
+    let repo = core.repo(plan, false)?;
+    let snap = repo.snapshots().map_err(|e| e.0)?.into_iter().find(|s| s.id.hex() == snapshot).ok_or("That snapshot is no longer in the backup.")?;
+    let node = keepr_engine::browse::node_at(&repo, &snap, path).map_err(|e| e.0)?.ok_or("That file isn't in this snapshot.")?;
+    if node.kind != NodeKind::File {
+        return Err("Only files can be compared.".into());
+    }
+    let mut old = Vec::with_capacity(node.size as usize);
+    for c in &node.content {
+        old.extend(repo.load(c).map_err(|e| e.0)?);
+    }
+    let current = std::fs::read(path).ok();
+    let mut out = Comparison { current_exists: current.is_some(), identical: current.as_deref() == Some(&old[..]), text: false, added: 0, removed: 0, lines: vec![], backup_size: old.len() as u64, current_size: current.as_ref().map_or(0, |c| c.len() as u64) };
+    let (Some(new), Ok(a)) = (current.as_ref(), std::str::from_utf8(&old)) else { return Ok(out) };
+    let Ok(b) = std::str::from_utf8(new) else { return Ok(out) };
+    if old.len() > 4 << 20 || new.len() > 4 << 20 {
+        return Ok(out);
+    }
+    out.text = true;
+    let diff = similar::TextDiff::from_lines(a, b);
+    for group in diff.grouped_ops(3) {
+        for op in group {
+            for ch in diff.iter_changes(&op) {
+                let kind = match ch.tag() {
+                    similar::ChangeTag::Equal => "same",
+                    similar::ChangeTag::Insert => {
+                        out.added += 1;
+                        "added"
+                    }
+                    similar::ChangeTag::Delete => {
+                        out.removed += 1;
+                        "removed"
+                    }
+                };
+                out.lines.push(Line { kind: kind.into(), text: ch.value().trim_end_matches('\n').to_string(), old: ch.old_index().map(|i| i + 1), new: ch.new_index().map(|i| i + 1) });
+            }
+        }
+        out.lines.push(Line { kind: "gap".into(), text: String::new(), old: None, new: None });
+    }
+    out.lines.pop();
+    Ok(out)
+}

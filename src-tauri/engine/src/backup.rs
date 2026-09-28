@@ -16,6 +16,7 @@ use crate::repo::{Kind, Repo, Snapshot, Stats};
 use crate::tree::{Node, NodeKind, Tree};
 use crate::{cancelled, Error, Id, Result};
 use rayon::prelude::*;
+use std::collections::HashSet;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -40,6 +41,49 @@ pub struct Options {
     pub full: bool,
     /// Paths never backed up whatever the rules say (the repository itself, when it is inside a source).
     pub skip_paths: Vec<PathBuf>,
+    /// Where to read each source from, when not the source itself: a mounted APFS snapshot of its
+    /// volume, so every file is read as it was at one moment. The snapshot keeps the original paths.
+    pub read_from: Vec<Option<PathBuf>>,
+    /// Folders macOS says changed since the previous snapshot. Any other folder is taken from the
+    /// previous snapshot without being looked at. None: look at everything.
+    pub changes: Option<Changes>,
+}
+
+/// What changed since the previous snapshot, from macOS's record of file-system events.
+#[derive(Clone, Debug, Default)]
+pub struct Changes {
+    /// Folders with changes, and every folder above them.
+    pub touched: HashSet<PathBuf>,
+    /// Folders to look through in full (macOS lost track of the details below them).
+    pub rescan: Vec<PathBuf>,
+}
+
+impl Changes {
+    pub fn from_events(paths: impl IntoIterator<Item = PathBuf>, rescan: Vec<PathBuf>) -> Changes {
+        let mut touched = HashSet::new();
+        for p in paths {
+            let mut cur = Some(p.as_path());
+            while let Some(c) = cur {
+                if !touched.insert(c.to_path_buf()) {
+                    break; // its parents are in already
+                }
+                cur = c.parent();
+            }
+        }
+        for r in &rescan {
+            let mut cur = Some(r.as_path());
+            while let Some(c) = cur {
+                touched.insert(c.to_path_buf());
+                cur = c.parent();
+            }
+        }
+        Changes { touched, rescan }
+    }
+
+    /// Whether a folder can be taken from the previous snapshot as it was.
+    pub fn unchanged(&self, dir: &Path) -> bool {
+        !self.touched.contains(dir) && !self.rescan.iter().any(|r| dir.starts_with(r))
+    }
 }
 
 pub const PHASE_LOOK: u8 = 0;
@@ -118,6 +162,8 @@ enum Entry {
     /// A file, and its place in the read list when it needs reading.
     File(Node, Option<usize>),
     Link(Node),
+    /// A folder taken whole from the previous snapshot.
+    Kept(Node),
 }
 
 struct ScanDir {
@@ -127,6 +173,8 @@ struct ScanDir {
 
 struct Job {
     path: PathBuf,
+    /// The path as people know it (not inside a snapshot's mount).
+    shown: PathBuf,
     size: u64,
     /// The previous snapshot's version, kept if this one can't be read.
     previous: Option<Node>,
@@ -140,6 +188,8 @@ struct Walk<'a> {
     jobs: Vec<Job>,
     stats: Stats,
     ignores: Vec<ignore::gitignore::Gitignore>,
+    /// (read from, shown as): a source read through a snapshot's mount.
+    map: Option<(PathBuf, PathBuf)>,
 }
 
 fn node_from(name: String, kind: NodeKind, m: &fs::Metadata) -> Node {
@@ -150,6 +200,7 @@ fn node_from(name: String, kind: NodeKind, m: &fs::Metadata) -> Node {
         mtime: m.mtime() * 1_000_000_000 + m.mtime_nsec(),
         ctime: m.ctime() * 1_000_000_000 + m.ctime_nsec(),
         inode: m.ino(),
+        files: 0,
         mode: m.mode() & 0o7777,
         content: vec![],
         subtree: None,
@@ -158,6 +209,26 @@ fn node_from(name: String, kind: NodeKind, m: &fs::Metadata) -> Node {
 }
 
 impl Walk<'_> {
+    fn logical(&self, p: &Path) -> PathBuf {
+        match &self.map {
+            Some((from, to)) => p.strip_prefix(from).map(|rest| to.join(rest)).unwrap_or_else(|_| p.to_path_buf()),
+            None => p.to_path_buf(),
+        }
+    }
+
+    /// A folder unchanged since the previous snapshot, by macOS's record.
+    fn keep(&mut self, logical: &Path, prev: Option<&Node>) -> Option<Entry> {
+        let ch = self.opts.changes.as_ref()?;
+        let p = prev?;
+        if self.opts.full || p.kind != NodeKind::Dir || p.subtree.is_none() || !ch.unchanged(logical) {
+            return None;
+        }
+        self.stats.dirs += 1;
+        self.stats.files += p.files;
+        self.stats.bytes += p.size;
+        Some(Entry::Kept(p.clone()))
+    }
+
     fn note(&mut self, msg: String) {
         self.stats.error_count += 1;
         if self.stats.errors.len() < 50 {
@@ -200,7 +271,8 @@ impl Walk<'_> {
         }
         self.ctl.progress.files_to_read.fetch_add(1, Relaxed);
         self.ctl.progress.bytes_to_read.fetch_add(node.size, Relaxed);
-        self.jobs.push(Job { path: path.to_path_buf(), size: node.size, previous: prev.cloned() });
+        let shown = self.logical(path);
+        self.jobs.push(Job { path: path.to_path_buf(), shown, size: node.size, previous: prev.cloned() });
         Some(Entry::File(node, Some(self.jobs.len() - 1)))
     }
 
@@ -224,31 +296,36 @@ impl Walk<'_> {
         let mut names: Vec<(String, PathBuf)> = match fs::read_dir(path) {
             Ok(rd) => rd.filter_map(|e| e.ok()).map(|e| (e.file_name().to_string_lossy().to_string(), e.path())).collect(),
             Err(e) => {
-                self.note(format!("{}: {e}", path.display()));
+                self.note(format!("{}: {e}", self.logical(path).display()));
                 vec![]
             }
         };
         names.sort();
         let mut entries = Vec::with_capacity(names.len());
         for (name, p) in names {
-            if self.opts.skip_paths.iter().any(|s| p.starts_with(s)) {
+            let lp = self.logical(&p);
+            if self.opts.skip_paths.iter().any(|s| lp.starts_with(s)) {
                 continue;
             }
             let m = match fs::symlink_metadata(&p) {
                 Ok(m) => m,
                 Err(e) => {
-                    self.note(format!("{}: {e}", p.display()));
+                    self.note(format!("{}: {e}", lp.display()));
                     continue;
                 }
             };
             let ft = m.file_type();
             let is_dir = ft.is_dir();
-            if self.ex.excluded(&p, &name, is_dir) || (self.opts.gitignore && self.gitignored(&p, is_dir)) {
+            if self.ex.excluded(&lp, &name, is_dir) || (self.opts.gitignore && self.gitignored(&p, is_dir)) {
                 continue;
             }
             self.ctl.progress.files_seen.fetch_add(1, Relaxed);
             let prev_node = prev.as_ref().and_then(|t| t.get(&name)).cloned();
             if is_dir {
+                if let Some(kept) = self.keep(&lp, prev_node.as_ref()) {
+                    entries.push(kept);
+                    continue;
+                }
                 let prev_tree = match prev_node.as_ref().and_then(|n| n.subtree) {
                     Some(id) => self.repo.load_tree(&id).ok(),
                     None => None,
@@ -297,21 +374,29 @@ pub fn run(repo: &Arc<Repo>, opts: &Options, parent: Option<&Snapshot>, ctl: &Co
         Some(p) => Some(repo.load_tree(&p.tree)?),
         None => None,
     };
-    let mut w = Walk { repo, opts, ctl, ex: Excluder::new(&opts.excludes)?, jobs: vec![], stats: Stats::default(), ignores: vec![] };
+    let mut w = Walk { repo, opts, ctl, ex: Excluder::new(&opts.excludes)?, jobs: vec![], stats: Stats::default(), ignores: vec![], map: None };
     let mut roots = Vec::new();
-    for src in &opts.sources {
+    for (i, src) in opts.sources.iter().enumerate() {
         let key = src.to_string_lossy().to_string();
+        let read = opts.read_from.get(i).cloned().flatten().unwrap_or_else(|| src.clone());
+        w.map = (read != *src).then(|| (read.clone(), src.clone()));
         // A source that isn't there fails the backup: a snapshot without it would look like
         // everything in it had been deleted.
-        let m = fs::metadata(src).map_err(|e| Error::new(format!("{key} can't be read ({e}). Is its drive or share connected?")))?;
+        let m = fs::metadata(&read).map_err(|e| Error::new(format!("{key} can't be read ({e}). Is its drive or share connected?")))?;
         let prev = prev_root.as_ref().and_then(|t| t.get(&key)).cloned();
         if m.is_dir() {
+            if let Some(kept) = w.keep(src, prev.as_ref()) {
+                let Entry::Kept(mut n) = kept else { unreachable!() };
+                n.name = key;
+                roots.push(Entry::Kept(n));
+                continue;
+            }
             let prev_tree = match prev.and_then(|n| n.subtree) {
                 Some(id) => Some(repo.load_tree(&id)?),
                 None => None,
             };
-            roots.push(Entry::Dir(w.dir(key, src, &m, prev_tree)?));
-        } else if let Some(e) = w.file(key, src, &m, prev.as_ref()) {
+            roots.push(Entry::Dir(w.dir(key, &read, &m, prev_tree)?));
+        } else if let Some(e) = w.file(key, &read, &m, prev.as_ref()) {
             roots.push(e);
         }
     }
@@ -325,7 +410,7 @@ pub fn run(repo: &Arc<Repo>, opts: &Options, parent: Option<&Snapshot>, ctl: &Co
             if ctl.cancel.load(Relaxed) {
                 return Err(cancelled());
             }
-            *ctl.progress.current.lock().unwrap() = job.path.to_string_lossy().to_string();
+            *ctl.progress.current.lock().unwrap() = job.shown.to_string_lossy().to_string();
             let r = read_file(repo, ctl, job);
             ctl.progress.files_read.fetch_add(1, Relaxed);
             r
@@ -346,7 +431,7 @@ pub fn run(repo: &Arc<Repo>, opts: &Options, parent: Option<&Snapshot>, ctl: &Co
                 let kept = if job.previous.is_some() { "; the previous version is kept" } else { "" };
                 stats.error_count += 1;
                 if stats.errors.len() < 50 {
-                    stats.errors.push(format!("{}: {e}{kept}", job.path.display()));
+                    stats.errors.push(format!("{}: {e}{kept}", job.shown.display()));
                 }
                 contents.push(None);
             }
@@ -362,6 +447,21 @@ pub fn run(repo: &Arc<Repo>, opts: &Options, parent: Option<&Snapshot>, ctl: &Co
                 Entry::Dir(d) => {
                     let sub = build(repo, d.entries, contents, jobs)?;
                     let mut n = d.node;
+                    // A folder's node carries what is below it, so an unchanged one can be kept
+                    // next time without opening it.
+                    for c in &sub.nodes {
+                        match c.kind {
+                            NodeKind::File => {
+                                n.files += 1;
+                                n.size += c.size;
+                            }
+                            NodeKind::Dir => {
+                                n.files += c.files;
+                                n.size += c.size;
+                            }
+                            NodeKind::Symlink => {}
+                        }
+                    }
                     n.subtree = Some(repo.save_tree(&sub)?);
                     t.nodes.push(n);
                 }
@@ -381,7 +481,7 @@ pub fn run(repo: &Arc<Repo>, opts: &Options, parent: Option<&Snapshot>, ctl: &Co
                         }
                     }
                 },
-                Entry::Link(n) => t.nodes.push(n),
+                Entry::Link(n) | Entry::Kept(n) => t.nodes.push(n),
             }
         }
         t.sort();
@@ -489,6 +589,44 @@ pub(crate) mod tests {
         let o = opts(&src.path().join("not-there"));
         let e = run(&repo, &o, None, &Control::default()).unwrap_err();
         assert!(e.0.contains("connected"), "{e}");
+    }
+
+    #[test]
+    fn trusts_macos_about_unchanged_folders() {
+        let (src, _dst, repo) = setup(None);
+        write(&src.path().join("one/a"), b"a");
+        write(&src.path().join("two/b"), b"b");
+        let s1 = run(&repo, &opts(src.path()), None, &Control::default()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        write(&src.path().join("one/a"), b"a, unreported");
+        write(&src.path().join("two/b"), b"b, reported");
+        let mut o = opts(src.path());
+        o.changes = Some(Changes::from_events([src.path().join("two")], vec![]));
+        let ctl = Control::default();
+        let s2 = run(&repo, &o, Some(&s1), &ctl).unwrap();
+        assert_eq!(ctl.progress.files_to_read.load(Relaxed), 1);
+        assert_eq!(s2.stats.files, 2, "the kept folder's files still count");
+        let root = repo.load_tree(&s2.tree).unwrap();
+        let top = repo.load_tree(&root.nodes[0].subtree.unwrap()).unwrap();
+        assert_eq!(top.get("one").unwrap().files, 1);
+        assert_eq!(top.get("one"), repo.load_tree(&repo.load_tree(&s1.tree).unwrap().nodes[0].subtree.unwrap()).unwrap().get("one"));
+    }
+
+    #[test]
+    fn reads_through_a_snapshot_mount_but_records_the_real_paths() {
+        let (src, _dst, repo) = setup(None);
+        let mnt = tempfile::tempdir().unwrap();
+        write(&mnt.path().join("x.txt"), b"as it was");
+        let mut o = opts(src.path());
+        o.read_from = vec![Some(mnt.path().to_path_buf())];
+        o.excludes = vec![format!("{}/skip", src.path().display())];
+        write(&mnt.path().join("skip/y"), b"y");
+        let s = run(&repo, &o, None, &Control::default()).unwrap();
+        let root = repo.load_tree(&s.tree).unwrap();
+        assert_eq!(root.nodes[0].name, src.path().to_string_lossy());
+        let top = repo.load_tree(&root.nodes[0].subtree.unwrap()).unwrap();
+        let names: Vec<_> = top.nodes.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(names, vec!["x.txt"]);
     }
 
     #[test]

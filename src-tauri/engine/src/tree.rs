@@ -24,8 +24,12 @@ pub struct Node {
     pub name: String,
     #[serde(rename = "k")]
     pub kind: NodeKind,
+    /// A file's size; for a folder, the total size of the files below it.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub size: u64,
+    /// For a folder, how many files are below it.
+    #[serde(rename = "n", default, skip_serializing_if = "is_zero")]
+    pub files: u64,
     /// Modified time, nanoseconds since 1970.
     #[serde(rename = "m")]
     pub mtime: i64,

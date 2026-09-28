@@ -153,8 +153,101 @@ pub fn discover() -> Vec<String> {
     names
 }
 
+/// The shares a server offers (not the hidden ones ending "$"), asking with the name and password.
+/// `smbutil view` reads the password from its terminal, so it gets one: a pseudo-terminal Keepr
+/// types the password into. It never appears on a command line.
+pub fn shares(server: &str, user: &str, password: &str) -> Result<Vec<String>, String> {
+    use std::io::{Read, Write};
+    use std::os::fd::FromRawFd;
+    use std::os::unix::process::CommandExt;
+    let (mut master, mut slave) = (0, 0);
+    if unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) } != 0 {
+        return Err("Couldn't ask the server for its shares.".into());
+    }
+    let target = if user.is_empty() { format!("//{server}") } else { format!("//{}@{server}", percent(user)) };
+    let stdio = |fd: i32| std::process::Stdio::from(unsafe { std::fs::File::from_raw_fd(libc::dup(fd)) });
+    let mut cmd = std::process::Command::new("/usr/bin/smbutil");
+    cmd.args(["view", &target]).stdin(stdio(slave)).stdout(stdio(slave)).stderr(stdio(slave));
+    if user.is_empty() {
+        cmd.arg("-N");
+    }
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            libc::ioctl(0, libc::TIOCSCTTY as _, 0);
+            Ok(())
+        });
+    }
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    unsafe { libc::close(slave) };
+    let mut m = unsafe { std::fs::File::from_raw_fd(master) };
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let mut reader = m.try_clone().map_err(|e| e.to_string())?;
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = reader.read(&mut buf) {
+            if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    let mut out = String::new();
+    let mut sent = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while std::time::Instant::now() < deadline {
+        match rx.recv_timeout(std::time::Duration::from_millis(200)) {
+            Ok(b) => out.push_str(&String::from_utf8_lossy(&b)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(_) => break,
+        }
+        if !sent && out.to_lowercase().contains("password") {
+            let _ = m.write_all(format!("{password}\n").as_bytes());
+            sent = true;
+        }
+        if let Ok(Some(_)) = child.try_wait() {
+            // Let the last output arrive.
+            while let Ok(b) = rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                out.push_str(&String::from_utf8_lossy(&b));
+            }
+            break;
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    let names = parse_shares(&out);
+    if names.is_empty() {
+        let low = out.to_lowercase();
+        return Err(if low.contains("authentication") || low.contains("password") && sent {
+            format!("{server} didn't accept the name and password.")
+        } else {
+            format!("{server} didn't list any shares.")
+        });
+    }
+    Ok(names)
+}
+
+fn parse_shares(out: &str) -> Vec<String> {
+    let mut names: Vec<String> = out
+        .lines()
+        .filter_map(|l| {
+            let l = l.trim_end_matches('\r');
+            let i = l.find(" Disk")?;
+            let name = l[..i].trim();
+            (!name.is_empty() && !name.ends_with('$')).then(|| name.to_string())
+        })
+        .collect();
+    names.sort_by_key(|n| n.to_lowercase());
+    names
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn parses_share_lists() {
+        let out = "Password for keep-nas:\r\nShare                                           Type    Comments\n-------------------------------\nBackups                                         Disk    \nMy Photos                                       Disk    family\nIPC$                                            Pipe    IPC Service\nADMIN$                                          Disk    \n\n3 shares listed\n";
+        assert_eq!(super::parse_shares(out), vec!["Backups", "My Photos"]);
+    }
+
     use super::*;
 
     #[test]
