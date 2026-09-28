@@ -23,12 +23,14 @@ pub enum Job {
     Restore { plan: String, snapshot: String, items: Vec<String>, target: Target, conflict: Conflict },
     Check { plan: String, all: bool },
     Prune { plan: String },
+    /// Take a source out of every snapshot and free the space only it used.
+    RemoveSource { plan: String, source: Place },
 }
 
 impl Job {
     pub fn plan(&self) -> &str {
         match self {
-            Job::Backup { plan, .. } | Job::Restore { plan, .. } | Job::Check { plan, .. } | Job::Prune { plan } => plan,
+            Job::Backup { plan, .. } | Job::Restore { plan, .. } | Job::Check { plan, .. } | Job::Prune { plan } | Job::RemoveSource { plan, .. } => plan,
         }
     }
     fn kind(&self) -> &'static str {
@@ -38,6 +40,7 @@ impl Job {
             Job::Restore { .. } => "restore",
             Job::Check { .. } => "check",
             Job::Prune { .. } => "prune",
+            Job::RemoveSource { .. } => "remove",
         }
     }
 }
@@ -455,6 +458,7 @@ impl Core {
             Job::Restore { plan, snapshot, items, target, conflict } => self.restore(&cur, plan, snapshot, items, target, *conflict, &mut run),
             Job::Check { plan, all } => self.check(&cur, plan, *all, &mut run),
             Job::Prune { plan } => self.prune(&cur, plan, &mut run),
+            Job::RemoveSource { plan, source } => self.remove_source(&cur, plan, source, &mut run),
         };
         run.finished = now();
         match outcome {
@@ -673,6 +677,27 @@ impl Core {
         } else {
             format!("{} old snapshot{} removed · {} freed", p.forgotten, if p.forgotten == 1 { "" } else { "s" }, human_bytes(p.bytes_freed))
         };
+        Ok(())
+    }
+
+    fn remove_source(&self, cur: &Arc<Current>, plan_id: &str, source: &Place, run: &mut Run) -> Result<(), String> {
+        let repo = self.repo(plan_id, false)?;
+        Self::set_stage(cur, "Removing");
+        // The snapshots name a source by the path it was read from.
+        let key = match source {
+            Place::Folder { path, .. } => path.clone(),
+            Place::Smb(_) => places::resolve(source, &self.mounts, true, true)?.to_string_lossy().to_string(),
+        };
+        let p = keepr_engine::prune::remove_source(&repo, &key, &cur.ctl).map_err(|e| e.0)?;
+        {
+            let mut s = self.state.lock().unwrap();
+            let ps = s.plan(plan_id);
+            // The snapshots were rewritten, so the next backup looks at everything.
+            ps.fs_event = None;
+            ps.last_prune = Some(now());
+        }
+        self.refresh_stats(plan_id, &repo);
+        run.message = format!("{} removed from {} snapshot{} · {} freed", places::tilde(&key), p.forgotten, if p.forgotten == 1 { "" } else { "s" }, human_bytes(p.bytes_freed));
         Ok(())
     }
 

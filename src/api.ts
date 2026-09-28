@@ -62,7 +62,7 @@ export type PlanSummary = {
 export type DestSummary = { id: string; name: string; kind: "folder" | "smb"; place: string; connection: "connected" | "on demand" | "missing"; free: number | null; total: number | null; keeprBytes: number; plans: string[] };
 export type JobStatus = {
   id: string;
-  kind: "backup" | "full" | "restore" | "check" | "prune";
+  kind: "backup" | "full" | "restore" | "check" | "prune" | "remove";
   plan: string;
   planName: string;
   stage: string;
@@ -86,7 +86,7 @@ export type Overview = { plans: PlanSummary[]; destinations: DestSummary[]; stor
 export type Run = {
   id: string;
   plan: string;
-  kind: "backup" | "full" | "check" | "prune" | "restore";
+  kind: "backup" | "full" | "check" | "prune" | "restore" | "remove";
   started: string;
   finished: string;
   result: "ok" | "warning" | "failed" | "cancelled" | "waiting";
@@ -131,6 +131,7 @@ export const api = {
   backUpAll: () => invoke<void>("back_up_all"),
   restore: (plan: string, snapshot: string, items: string[], target: Target, conflict: Conflict) => invoke<string>("restore", { plan, snapshot, items, target, conflict }),
   checkNow: (plan: string, all: boolean) => invoke<string>("check_now", { plan, all }),
+  removeSourceData: (plan: string, source: Place) => invoke<string>("remove_source_data", { plan, source }),
   jobStatus: () => invoke<JobStatus | null>("job_status"),
   cancel: (id = "") => invoke<void>("job_cancel", { id }),
   pause: (paused: boolean) => invoke<void>("job_pause", { paused }),

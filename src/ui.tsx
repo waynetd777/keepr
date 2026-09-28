@@ -186,7 +186,7 @@ export function PlanProgress({ job, queued, compact }: { job?: JobStatus | null;
   }
   const j = job!;
   const p = pct(j);
-  const what = j.kind === "check" ? "Checking" : j.kind === "prune" ? "Tidying up" : j.kind === "restore" ? "Restoring" : j.stage || "Starting";
+  const what = j.kind === "check" ? "Checking" : j.kind === "prune" ? "Tidying up" : j.kind === "remove" ? "Removing a folder's data" : j.kind === "restore" ? "Restoring" : j.stage || "Starting";
   return (
     <div className="col" style={{ gap: 6 }}>
       <div className="row" style={{ gap: 10 }}>

@@ -158,7 +158,7 @@ export default function Activity() {
   }, [ov]);
   const nameOf = (id: string) => ov?.plans.find((p) => p.id === id)?.name ?? "A deleted plan";
   const shown = runs.filter((r) => (filter === "all" ? true : filter === "problems" ? r.result !== "ok" : r.kind === "restore"));
-  const kindName: Record<string, string> = { backup: "Incremental", full: "Full re-read", check: "Check", prune: "Tidy up", restore: "Restore" };
+  const kindName: Record<string, string> = { backup: "Incremental", full: "Full re-read", check: "Check", prune: "Tidy up", restore: "Restore", remove: "Remove a folder" };
   return (
     <div className="content col" style={{ gap: 18 }}>
       {job ? <Running /> : <h1>Activity</h1>}

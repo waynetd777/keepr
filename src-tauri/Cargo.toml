@@ -1,6 +1,6 @@
 [package]
 name = "keepr"
-version = "0.1.13"
+version = "0.1.14"
 description = "A backup app for macOS"
 authors = ["Wayne Davies"]
 edition = "2021"

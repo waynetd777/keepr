@@ -117,6 +117,35 @@ fn keep_deleted(repo: &Repo, snaps: &[crate::repo::Snapshot], times: &[chrono::D
     Ok(())
 }
 
+/// Removes a source (by its path, as the snapshots name it) from every snapshot, then frees the
+/// space only it used. New snapshots are written before the old ones are removed, so a stop
+/// part-way leaves both, never neither.
+pub fn remove_source(repo: &Arc<Repo>, source: &str, ctl: &Control) -> Result<Pruned> {
+    let _lock = repo.lock(true)?;
+    let mut out = Pruned::default();
+    let key = source.trim_end_matches('/');
+    for s in repo.snapshots()? {
+        ctl.checkpoint()?;
+        let root = repo.load_tree(&s.tree)?;
+        if root.get(key).is_none() && !s.sources.iter().any(|x| x.trim_end_matches('/') == key) {
+            out.kept += 1;
+            continue;
+        }
+        let mut t = (*root).clone();
+        t.nodes.retain(|n| n.name.trim_end_matches('/') != key);
+        let mut ns = s.clone();
+        ns.tree = repo.save_tree(&t)?;
+        ns.sources.retain(|x| x.trim_end_matches('/') != key);
+        repo.flush()?;
+        let old = s.id;
+        repo.save_snapshot(&mut ns)?;
+        repo.forget(&old)?;
+        out.forgotten += 1;
+    }
+    reclaim(repo, ctl, &mut out)?;
+    Ok(out)
+}
+
 /// Rewrites packs that are mostly unused, deletes ones that are wholly unused, and replaces
 /// the index with one naming only what is left.
 pub fn reclaim(repo: &Arc<Repo>, ctl: &Control, out: &mut Pruned) -> Result<()> {
@@ -235,6 +264,32 @@ mod tests {
     use super::*;
     use crate::backup::{self, tests::*};
     use std::fs;
+
+    #[test]
+    fn removes_a_source_from_every_snapshot() {
+        let (a, dst, repo) = setup(None);
+        let b = tempfile::tempdir().unwrap();
+        fs::write(a.path().join("keep.txt"), b"keep").unwrap();
+        let big: Vec<u8> = { let mut x = 7u64; (0..2_000_000).map(|_| { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x as u8 }).collect() };
+        fs::write(b.path().join("gone.bin"), &big).unwrap();
+        let mut o = opts(a.path());
+        o.sources.push(b.path().to_path_buf());
+        let s1 = backup::run(&repo, &o, None, &Control::default()).unwrap();
+        backup::run(&repo, &o, Some(&s1), &Control::default()).unwrap();
+        let before: u64 = repo.backend.list("packs").unwrap().iter().map(|f| repo.backend.size(&format!("packs/{f}")).unwrap()).sum();
+        let p = remove_source(&repo, &b.path().to_string_lossy(), &Control::default()).unwrap();
+        assert_eq!(p.forgotten, 2, "both snapshots rewritten");
+        let after: u64 = repo.backend.list("packs").unwrap().iter().map(|f| repo.backend.size(&format!("packs/{f}")).unwrap()).sum();
+        assert!(before - after > 1_900_000, "{before} -> {after}");
+        let r2 = Arc::new(crate::repo::Repo::open(Arc::new(crate::backend::Folder::new(dst.path())), crate::repo::Secret::None).unwrap());
+        let snaps = r2.snapshots().unwrap();
+        assert_eq!(snaps.len(), 2);
+        for s in &snaps {
+            assert_eq!(s.sources, vec![a.path().to_string_lossy().to_string()]);
+            assert!(crate::browse::node_at(&r2, s, &format!("{}/keep.txt", a.path().display())).unwrap().is_some());
+        }
+        assert!(crate::check::run(&r2, 1.0, &Control::default()).unwrap().problems.is_empty());
+    }
 
     #[test]
     fn forgets_and_frees_space_but_keeps_what_is_needed() {

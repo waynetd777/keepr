@@ -313,6 +313,51 @@ export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; 
   );
 }
 
+/** Removing a source that has been backed up: keep its versions, or delete them (confirmed twice). */
+function RemoveSourceSheet({ name, where, dest, onClose, onKeep, onDelete }: { name: string; where: string; dest: string; onClose: () => void; onKeep: () => void; onDelete: () => void }) {
+  return (
+    <Sheet
+      title={`Remove ${name} from this plan?`}
+      subtitle={`Keepr stops backing up ${where}. It already has versions of it at ${dest}.`}
+      width={560}
+      onClose={onClose}
+      foot={
+        <>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <span className="grow" />
+          <button
+            className="btn danger"
+            onClick={async () => {
+              const { ask } = await import("@tauri-apps/plugin-dialog");
+              const sure = await ask(`Delete every backed-up version of ${where} from ${dest}? This can't be undone: those files can no longer be restored.`, { title: `Delete ${name}'s backed-up data`, kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" });
+              if (sure) onDelete();
+            }}
+          >
+            <Icon name="trash" size={14} />
+            Delete its backed-up data…
+          </button>
+          <button className="btn primary" onClick={onKeep}>
+            Keep its versions
+          </button>
+        </>
+      }
+    >
+      <div className="sheet-body">
+        <div className="col" style={{ gap: 8, lineHeight: 1.5 }}>
+          <span>
+            <b>Keep its versions:</b> they stay restorable, and your version rules thin them out over time.
+          </span>
+          <span>
+            <b>Delete its backed-up data:</b> every version of it is taken out of every snapshot, and the space it used is freed.
+          </span>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
 // ---- the editor ----
 
 export default function Plans() {
@@ -327,6 +372,7 @@ export default function Plans() {
   const [newPassword2, setNewPassword2] = useState("");
   const [ruleText, setRuleText] = useState("");
   const [sheet, setSheet] = useState<"" | "smb" | "password" | "recovery">("");
+  const [removing, setRemoving] = useState<number | null>(null);
   const addMenu = useMenu();
   const moreMenu = useMenu();
   const saveTimer = useRef<number>(undefined);
@@ -513,7 +559,7 @@ export default function Plans() {
                     />
                     <span className="small muted ellipsis">{l.sub}</span>
                   </div>
-                  <button className="iconbtn" aria-label={`Remove ${l.title}`} title="Remove source" onClick={() => update((p) => ({ ...p, sources: p.sources.filter((_, j) => j !== i) }))}>
+                  <button className="iconbtn" aria-label={`Remove ${l.title}`} title="Remove source" onClick={() => (created ? setRemoving(i) : update((p) => ({ ...p, sources: p.sources.filter((_, j) => j !== i) })))}>
                     <Icon name="close" size={14} stroke={2} />
                   </button>
                 </div>
@@ -769,6 +815,27 @@ export default function Plans() {
         </div>
       </div>
 
+      {removing !== null && plan.sources[removing] && (
+        <RemoveSourceSheet
+          name={plan.sources[removing].name?.trim() || defaultNames(plan.sources, home)[removing]}
+          where={placeLabel(plan.sources[removing], home).sub.split(" · ")[0]}
+          dest={dest?.name ?? "the destination"}
+          onClose={() => setRemoving(null)}
+          onKeep={() => {
+            const i = removing;
+            setRemoving(null);
+            update((p) => ({ ...p, sources: p.sources.filter((_, j) => j !== i) }));
+          }}
+          onDelete={async () => {
+            const i = removing;
+            const src = plan.sources[i];
+            setRemoving(null);
+            update((p) => ({ ...p, sources: p.sources.filter((_, j) => j !== i) }));
+            await act(() => api.removeSourceData(plan.id, src));
+            toast("Removing its backed-up data. Activity shows how it's going.");
+          }}
+        />
+      )}
       {sheet === "smb" && <SmbSourceSheet onClose={() => setSheet("")} onAdd={(s) => update((p) => ({ ...p, sources: [...p.sources, s], name: p.name || (s.kind === "smb" ? s.share : "") }))} />}
       {sheet === "password" && <PasswordSheet plan={plan} onClose={() => setSheet("")} />}
       {sheet === "recovery" && <RecoverySheet plan={plan.id} name={plan.name} onClose={() => setSheet("")} />}

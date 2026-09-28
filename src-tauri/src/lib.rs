@@ -534,6 +534,12 @@ fn restore(core: State<Core_>, plan: String, snapshot: String, items: Vec<String
     core.enqueue(Job::Restore { plan, snapshot, items, target, conflict })
 }
 
+/// Takes a source's data out of every snapshot of the plan (after the user has confirmed).
+#[tauri::command]
+fn remove_source_data(core: State<Core_>, plan: String, source: Place) -> String {
+    core.enqueue(Job::RemoveSource { plan, source })
+}
+
 #[tauri::command]
 fn check_now(core: State<Core_>, plan: String, all: bool) -> String {
     core.enqueue(Job::Check { plan, all })
@@ -837,6 +843,7 @@ pub fn run() {
             back_up_all,
             restore,
             check_now,
+            remove_source_data,
             job_status,
             job_cancel,
             job_pause,
