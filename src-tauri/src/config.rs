@@ -23,13 +23,20 @@ pub struct Smb {
     #[serde(default)]
     pub folder: String,
     pub user: String,
+    /// What people call it; empty or missing for the default (see places::default_name).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum Place {
     /// A folder on this Mac or on a drive.
-    Folder { path: String },
+    Folder {
+        path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
     Smb(Smb),
 }
 
@@ -337,7 +344,7 @@ mod tests {
     fn reads_what_it_writes_and_survives_junk() {
         let t = tempfile::tempdir().unwrap();
         let mut c = Config::default();
-        c.destinations.push(Destination { id: "d".into(), name: "keep-nas".into(), place: Place::Smb(Smb { server: "keep-nas.local".into(), share: "Backups".into(), folder: "/Keepr".into(), user: "wayne".into() }), disconnect_after: true });
+        c.destinations.push(Destination { id: "d".into(), name: "keep-nas".into(), place: Place::Smb(Smb { server: "keep-nas.local".into(), share: "Backups".into(), folder: "/Keepr".into(), user: "wayne".into(), name: None }), disconnect_after: true });
         write(t.path(), "config.json", &c).unwrap();
         let back: Config = read(t.path(), "config.json");
         assert_eq!(back.destinations[0].place, c.destinations[0].place);

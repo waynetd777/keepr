@@ -3,8 +3,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-export type Smb = { server: string; share: string; folder: string; user: string };
-export type Place = { kind: "folder"; path: string } | ({ kind: "smb" } & Smb);
+export type Smb = { server: string; share: string; folder: string; user: string; name?: string | null };
+export type Place = { kind: "folder"; path: string; name?: string | null } | ({ kind: "smb" } & Smb);
 
 export type Destination = { id: string; name: string; place: Place; disconnectAfter: boolean };
 
@@ -118,6 +118,7 @@ export const api = {
   startNewBackup: (id: string) => invoke<void>("start_new_backup", { id }),
   saveDestination: (dest: Destination, password?: string) => invoke<Destination>("save_destination", { dest, password: password ?? null }),
   deleteDestination: (id: string) => invoke<void>("delete_destination", { id }),
+  suggestName: (place: Place, except?: string) => invoke<string>("suggest_name", { place, except: except ?? null }),
   testPlace: (place: Place, password?: string) => invoke<Tested>("test_place", { place, password: password ?? null }),
   discoverServers: () => invoke<string[]>("discover_servers"),
   listShares: (server: string, user: string, password?: string) => invoke<string[]>("list_shares", { server, user, password: password ?? null }),

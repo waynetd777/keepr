@@ -162,7 +162,7 @@ fn overview_of(core: &Core) -> Overview {
             id: p.id.clone(),
             name: p.name.clone(),
             enabled: p.enabled,
-            sources: core::describe_sources(p),
+            sources: core::source_names(p).join(", "),
             destination: dest.map(|d| d.name.clone()).unwrap_or_default(),
             destination_id: p.destination.clone(),
             schedule: schedule_label(p),
@@ -326,11 +326,15 @@ fn start_new_backup(core: State<Core_>, id: String) -> Result<(), String> {
 
 #[tauri::command]
 fn save_destination(core: State<Core_>, mut dest: Destination, password: Option<String>) -> Result<Destination, String> {
-    if dest.name.trim().is_empty() {
-        dest.name = match &dest.place {
-            Place::Folder { path } => std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Folder".into()),
-            Place::Smb(s) => s.server.trim_end_matches(".local").to_string(),
-        };
+    dest.name = dest.name.trim().to_string();
+    if dest.name.is_empty() {
+        dest.name = places::default_name(&dest.place);
+    }
+    {
+        let c = core.config.lock().unwrap();
+        if let Some(other) = c.destinations.iter().find(|d| d.id != dest.id && d.name.eq_ignore_ascii_case(&dest.name)) {
+            return Err(format!("Another destination is already called {}. Give this one a different name.", other.name));
+        }
     }
     if let (Place::Smb(s), Some(pw)) = (&dest.place, password.filter(|p| !p.is_empty())) {
         keychain::set(&keychain::smb_account(&s.user, &s.server), &pw)?;
@@ -353,6 +357,13 @@ fn save_destination(core: State<Core_>, mut dest: Destination, password: Option<
     core.save_config()?;
     core.changed();
     Ok(dest)
+}
+
+/// A name for a new destination that says where it is and isn't taken.
+#[tauri::command]
+fn suggest_name(core: State<Core_>, place: Place, except: Option<String>) -> String {
+    let taken: Vec<String> = core.config.lock().unwrap().destinations.iter().filter(|d| Some(&d.id) != except.as_ref()).map(|d| d.name.clone()).collect();
+    places::unique_name(&places::default_name(&place), &taken)
 }
 
 #[tauri::command]
@@ -792,6 +803,7 @@ pub fn run() {
             start_new_backup,
             save_destination,
             delete_destination,
+            suggest_name,
             test_place,
             discover_servers,
             list_shares,

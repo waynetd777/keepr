@@ -30,6 +30,9 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   const [folder, setFolder] = useState(smb?.folder ?? "/Keepr");
   const [path, setPath] = useState(editing?.place.kind === "folder" ? editing.place.path : "");
   const [keychain, setKeychain] = useState(true);
+  // The name: suggested from the place until someone types one.
+  const [name, setName] = useState(editing?.name ?? "");
+  const [named, setNamed] = useState(!!editing);
   const [tested, setTested] = useState<Tested | null>(null);
   const [busy, setBusy] = useState("");
 
@@ -44,6 +47,12 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
 
   const place: Place = kind === "smb" ? { kind: "smb", server: server.trim(), share: share.trim(), folder: folder.trim() || "/", user: user.trim() } : { kind: "folder", path };
   const ready = kind === "smb" ? !!(server && share) : !!path;
+  useEffect(() => {
+    if (named || !ready) return;
+    const t = window.setTimeout(() => api.suggestName(place, editing?.id).then(setName), 200);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [named, ready, kind, server, share, folder, path]);
 
   const test = async () => {
     setBusy("Connecting…");
@@ -66,8 +75,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   const add = async () => {
     const t = tested?.ok ? tested : await test();
     if (!t.ok) return;
-    const name = kind === "smb" ? server.replace(/\.local$/, "") : path.split("/").filter(Boolean).pop() ?? "Folder";
-    const saved = await act(() => api.saveDestination({ id: editing?.id ?? "", name: editing?.name ?? name, place, disconnectAfter: true }, keychain ? password : undefined));
+    const saved = await act(() => api.saveDestination({ id: editing?.id ?? "", name: name.trim(), place, disconnectAfter: true }, keychain ? password : undefined));
     if (saved) {
       await refresh();
       onClose();
@@ -213,6 +221,18 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
               </label>
             </>
           )}
+          <label className="field">
+            <span>Name</span>
+            <input
+              className="input"
+              placeholder="Say which it is, e.g. OneDrive Personal"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setNamed(e.target.value.trim() !== "");
+              }}
+            />
+          </label>
           {tested && (
             <div role="status" className={`banner ${tested.ok ? "good" : "bad"}`} style={{ alignItems: "flex-start" }}>
               <Icon name={tested.ok ? "check" : "warning"} size={18} stroke={2.4} style={{ flexShrink: 0 }} />

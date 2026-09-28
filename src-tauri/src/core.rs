@@ -2,7 +2,7 @@
 //! queue, on its own thread. The scheduler (scheduler.rs) and the window both add jobs; progress
 //! and changes go to the window and the menu bar as events.
 
-use crate::config::{self, Config, Every, Often, Plan, Run, State};
+use crate::config::{self, Config, Every, Often, Place, Plan, Run, State};
 use crate::places::{self, Mounts};
 use crate::keychain;
 use keepr_engine::backend::{Backend, Folder};
@@ -159,7 +159,21 @@ impl Backend for Throttle {
 
 impl Core {
     pub fn new(dir: PathBuf, emit: Box<dyn Fn(&str, serde_json::Value) + Send + Sync>, notify: Box<dyn Fn(&str, &str) + Send + Sync>, frozen: bool) -> Arc<Core> {
-        let config: Config = config::read(&dir, "config.json");
+        let mut config: Config = config::read(&dir, "config.json");
+        // Destinations made before they could be named may share one ("Keepr" twice): give each a
+        // name that says which it is.
+        let mut taken: Vec<String> = Vec::new();
+        let mut renamed = false;
+        for d in config.destinations.iter_mut() {
+            if taken.iter().any(|t| t.eq_ignore_ascii_case(&d.name)) {
+                d.name = places::unique_name(&places::default_name(&d.place), &taken);
+                renamed = true;
+            }
+            taken.push(d.name.clone());
+        }
+        if renamed && !frozen {
+            let _ = config::write(&dir, "config.json", &config);
+        }
         let state: State = config::read(&dir, "state.json");
         Arc::new(Core {
             dir,
@@ -701,11 +715,22 @@ pub fn describe_sources(plan: &Plan) -> String {
     plan.sources.iter().map(places::describe).collect::<Vec<_>>().join(", ")
 }
 
+/// Each source's name, for lists: its own, else its default ("Documents").
+pub fn source_names(plan: &Plan) -> Vec<String> {
+    plan.sources
+        .iter()
+        .map(|s| match s {
+            Place::Folder { path, name } => name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.clone())),
+            Place::Smb(_) => places::name_of(s),
+        })
+        .collect()
+}
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Destination, Place, Schedule};
+    use crate::config::{Destination, Schedule};
 
     fn core(dir: &std::path::Path) -> Arc<Core> {
         let c = Core::new(dir.to_path_buf(), Box::new(|_, _| {}), Box::new(|_, _| {}), false);
@@ -718,7 +743,7 @@ mod tests {
             id: "p1".into(),
             name: "Docs".into(),
             enabled: true,
-            sources: vec![Place::Folder { path: src.to_string_lossy().into() }],
+            sources: vec![Place::Folder { path: src.to_string_lossy().into(), name: None }],
             destination: "d1".into(),
             folder: "Docs p1".into(),
             schedule: Schedule { every: Every::Hourly, at: "02:00".into(), weekday: 0 },
@@ -753,7 +778,7 @@ mod tests {
         let c = core(data.path());
         {
             let mut cfg = c.config.lock().unwrap();
-            cfg.destinations.push(Destination { id: "d1".into(), name: "Disk".into(), place: Place::Folder { path: dst.path().to_string_lossy().into() }, disconnect_after: true });
+            cfg.destinations.push(Destination { id: "d1".into(), name: "Disk".into(), place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None }, disconnect_after: true });
             cfg.plans.push(plan(src.path()));
         }
         c.start();

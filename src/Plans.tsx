@@ -37,10 +37,20 @@ function placeLabel(p: Place, home: string): { title: string; sub: string } {
   if (p.kind === "folder") {
     const name = p.path.split("/").filter(Boolean).pop() ?? p.path;
     const vol = p.path.startsWith("/Volumes/") ? p.path.split("/")[2] : null;
-    return { title: name, sub: `${tilde(p.path, home)} · ${vol ? `on ${vol}` : "folder on this Mac"}` };
+    return { title: p.name?.trim() || name, sub: `${tilde(p.path, home)} · ${vol ? `on ${vol}` : "folder on this Mac"}` };
   }
   const folder = p.folder.replace(/^\/+|\/+$/g, "");
-  return { title: folder ? folder.split("/").pop()! : p.share, sub: `smb://${p.server}/${p.share}${folder ? `/${folder}` : ""} · SMB share` };
+  return { title: p.name?.trim() || (folder ? folder.split("/").pop()! : p.share), sub: `smb://${p.server}/${p.share}${folder ? `/${folder}` : ""} · SMB share` };
+}
+
+/** A default name for each source that tells same-named folders apart: "Notes (Work)", "Notes (Home)". */
+function defaultNames(sources: Place[], home: string): string[] {
+  const base = sources.map((s) => placeLabel({ ...s, name: null }, home).title);
+  return sources.map((s, i) => {
+    if (base.filter((b) => b.toLowerCase() === base[i].toLowerCase()).length < 2) return base[i];
+    const parts = (s.kind === "folder" ? s.path : `${s.server}/${s.share}/${s.folder}`).split("/").filter(Boolean);
+    return `${base[i]} (${parts[parts.length - 2] ?? (s.kind === "smb" ? s.server : "")})`;
+  });
 }
 
 // ---- versions to keep ----
@@ -471,11 +481,20 @@ export default function Plans() {
             </div>
             {plan.sources.map((s, i) => {
               const l = placeLabel(s, home);
+              const fallback = defaultNames(plan.sources, home)[i];
               return (
                 <div key={i} className="source-row">
                   <Icon name={s.kind === "smb" ? "server" : "folder"} size={20} style={{ color: "var(--accent)" }} />
                   <div className="grow col" style={{ gap: 1 }}>
-                    <span style={{ fontWeight: 600 }}>{l.title}</span>
+                    <input
+                      aria-label="Source name"
+                      title="Rename this source"
+                      className="input"
+                      value={s.name ?? ""}
+                      placeholder={fallback}
+                      onChange={(e) => update((p) => ({ ...p, sources: p.sources.map((x, j) => (j === i ? { ...x, name: e.target.value || null } : x)) }))}
+                      style={{ border: 0, padding: 0, height: 20, fontWeight: 600, background: "transparent" }}
+                    />
                     <span className="small muted ellipsis">{l.sub}</span>
                   </div>
                   <button className="iconbtn" aria-label={`Remove ${l.title}`} title="Remove source" onClick={() => update((p) => ({ ...p, sources: p.sources.filter((_, j) => j !== i) }))}>

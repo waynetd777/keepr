@@ -80,13 +80,86 @@ pub fn cloud_root(p: &Path) -> Option<(PathBuf, bool)> {
     Some((root, n > 0))
 }
 
+/// "ContosoHoldingsLimited" → "Contoso Holdings Limited".
+fn words(s: &str) -> String {
+    let mut out = String::new();
+    let cs: Vec<char> = s.chars().collect();
+    for (i, &c) in cs.iter().enumerate() {
+        let prev = i.checked_sub(1).map(|j| cs[j]);
+        if c.is_uppercase() && prev.is_some_and(|p| p.is_lowercase()) {
+            out.push(' ');
+        }
+        out.push(if c == '_' || c == '-' { ' ' } else { c });
+    }
+    out
+}
+
+/// A cloud sync folder's name as people know it: "OneDrive-Personal" → "OneDrive Personal",
+/// "iCloudDrive-iCloudDrive" → "iCloud Drive", "GoogleDrive-me@gmail.com" → "Google Drive me@gmail.com".
+pub fn cloud_name(root: &str) -> String {
+    let root = root.split(" (").next().unwrap_or(root);
+    let (provider, account) = root.split_once('-').unwrap_or((root, ""));
+    let p = match provider {
+        "iCloudDrive" => "iCloud Drive".to_string(),
+        "OneDrive" => "OneDrive".to_string(),
+        other => words(other),
+    };
+    if account.is_empty() || account == provider {
+        p
+    } else if account.contains('@') {
+        format!("{p} {account}")
+    } else {
+        format!("{p} {}", words(account))
+    }
+}
+
+/// A name that says where a place is: "OneDrive Personal: Keepr", "Archive SSD: Keepr",
+/// "keep-nas: Backups", or the folder's own name.
+pub fn default_name(p: &Place) -> String {
+    match p {
+        Place::Folder { path, .. } => {
+            let pb = Path::new(path);
+            let leaf = pb.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Folder".into());
+            if let Some((root, _)) = cloud_root(pb) {
+                let r = root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                let cloud = cloud_name(&r);
+                return if root == pb { cloud } else { format!("{cloud}: {leaf}") };
+            }
+            match volume_of(pb) {
+                Some(vol) if vol != leaf => format!("{vol}: {leaf}"),
+                Some(vol) => vol,
+                None => leaf,
+            }
+        }
+        Place::Smb(s) => format!("{}: {}", s.server.trim_end_matches(".local"), s.share.trim_matches('/')),
+    }
+}
+
+/// A place's own name if it has one, else its default.
+pub fn name_of(p: &Place) -> String {
+    let own = match p {
+        Place::Folder { name, .. } => name.as_deref(),
+        Place::Smb(s) => s.name.as_deref(),
+    };
+    own.map(str::trim).filter(|n| !n.is_empty()).map(str::to_string).unwrap_or_else(|| default_name(p))
+}
+
+/// `base`, or "base 2", "base 3"… if that's taken (any case).
+pub fn unique_name(base: &str, taken: &[String]) -> String {
+    let free = |n: &str| !taken.iter().any(|t| t.eq_ignore_ascii_case(n));
+    if free(base) {
+        return base.to_string();
+    }
+    (2..).map(|i| format!("{base} {i}")).find(|n| free(n)).unwrap()
+}
+
 pub fn smb_password(s: &Smb) -> Option<String> {
     keychain::get(&keychain::smb_account(&s.user, &s.server))
 }
 
 pub fn describe(p: &Place) -> String {
     match p {
-        Place::Folder { path } => tilde(path),
+        Place::Folder { path, .. } => tilde(path),
         Place::Smb(s) => format!("smb://{}/{}{}", s.server, s.share, if s.folder.trim_matches('/').is_empty() { String::new() } else { format!("/{}", s.folder.trim_matches('/')) }),
     }
 }
@@ -102,7 +175,7 @@ pub fn tilde(p: &str) -> String {
 /// The folder a place is, connecting a share if `connect` and it isn't mounted.
 pub fn resolve(place: &Place, mounts: &Mounts, connect: bool, disconnect_after: bool) -> Result<PathBuf, String> {
     match place {
-        Place::Folder { path } => {
+        Place::Folder { path, .. } => {
             let p = PathBuf::from(path);
             // A drive that isn't connected leaves /Volumes/<name> missing, or (worse) an empty
             // folder of that name on the startup disk. Writing there would fill the Mac's own
@@ -154,16 +227,25 @@ mod tests {
         assert_eq!(volume_of(Path::new("/Volumes/Archive SSD/Keepr")).as_deref(), Some("Archive SSD"));
         assert_eq!(volume_of(Path::new("/Users/w")), None);
         let m = Mounts::default();
-        let e = resolve(&Place::Folder { path: "/Volumes/Keepr Test Drive That Isn't There/x".into() }, &m, true, true).unwrap_err();
+        let e = resolve(&Place::Folder { path: "/Volumes/Keepr Test Drive That Isn't There/x".into(), name: None }, &m, true, true).unwrap_err();
         assert!(e.contains("isn't connected"), "{e}");
         let t = tempfile::tempdir().unwrap();
-        assert!(resolve(&Place::Folder { path: t.path().to_string_lossy().into() }, &m, true, true).is_ok());
+        assert!(resolve(&Place::Folder { path: t.path().to_string_lossy().into(), name: None }, &m, true, true).is_ok());
         assert_eq!(mount_point(Path::new("/")).as_deref(), Some(Path::new("/")));
         assert!(cloud_root(Path::new("/Users/nobody/Documents")).is_none());
+        assert_eq!(cloud_name("OneDrive-ContosoHoldingsLimited"), "OneDrive Contoso Holdings Limited");
+        assert_eq!(cloud_name("OneDrive-Personal"), "OneDrive Personal");
+        assert_eq!(cloud_name("iCloudDrive-iCloudDrive (2024-03-26 10:00)"), "iCloud Drive");
+        assert_eq!(cloud_name("GoogleDrive-me@gmail.com"), "Google Drive me@gmail.com");
+        let home = std::env::var("HOME").unwrap();
+        assert_eq!(default_name(&Place::Folder { path: format!("{home}/Library/CloudStorage/OneDrive-Personal/Keepr"), name: None }), "OneDrive Personal: Keepr");
+        assert_eq!(default_name(&Place::Folder { path: "/Volumes/Archive SSD/Keepr".into(), name: None }), "Archive SSD: Keepr");
+        assert_eq!(default_name(&Place::Folder { path: "/Volumes/Archive SSD".into(), name: None }), "Archive SSD");
+        assert_eq!(unique_name("Keepr", &["keepr".into(), "Keepr 2".into()]), "Keepr 3");
         let home = std::env::var("HOME").unwrap();
         let (root, _) = cloud_root(&Path::new(&home).join("Library/CloudStorage/Some-Cloud/Backups/Keepr")).unwrap();
         assert!(root.ends_with("Library/CloudStorage/Some-Cloud"));
-        let e = resolve(&Place::Folder { path: format!("{home}/Library/CloudStorage/Keepr-Test-Not-There/x") }, &m, true, true).unwrap_err();
+        let e = resolve(&Place::Folder { path: format!("{home}/Library/CloudStorage/Keepr-Test-Not-There/x"), name: None }, &m, true, true).unwrap_err();
         assert!(e.contains("sync folder"), "{e}");
     }
 }
