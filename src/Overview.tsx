@@ -45,6 +45,9 @@ function PlanCard({ p }: { p: PlanSummary }) {
           </span>
         </div>
         <Strata p={p} compact />
+        <button className="btn" onClick={() => go({ name: "plans", plan: p.id })} title="Change what this plan backs up, where, when and how">
+          Edit…
+        </button>
         <button className="btn" onClick={() => api.backUp(p.id)}>
           Try again
         </button>
@@ -78,6 +81,9 @@ function PlanCard({ p }: { p: PlanSummary }) {
             {p.sources} → {p.destination}
           </span>
         </div>
+        <button className="btn" onClick={() => go({ name: "plans", plan: p.id })} title="Change what this plan backs up, where, when and how">
+          Edit…
+        </button>
         <button className="btn" disabled={p.snapshots === 0} onClick={() => go({ name: "restore", plan: p.id })}>
           Restore…
         </button>
