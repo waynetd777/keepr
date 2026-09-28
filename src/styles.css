@@ -271,3 +271,7 @@ html.tray body { background: transparent; }
 .source-name { border-radius: 5px !important; margin-left: -4px !important; padding: 0 4px !important; }
 .source-name:hover { background: var(--sunk) !important; }
 .source-name:focus { background: var(--surface) !important; box-shadow: 0 0 0 1.5px var(--accent); }
+/* The retention boxes are pop-up menus: say so on hover. */
+.keep-box { cursor: pointer; transition: border-color 0.12s, background 0.12s; }
+.keep-box:hover { border-color: var(--line2); background: var(--sunk); }
+.keep-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
