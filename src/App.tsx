@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api, on, type Config, type JobStatus, type Overview as OverviewData } from "./api";
 import { Icon, Mark } from "./icons";
-import { pct, StopButton, ToastProvider, Tooltips } from "./ui";
+import { ClearButton, pct, StopButton, ToastProvider, Tooltips } from "./ui";
 import Overview from "./Overview";
 import Plans from "./Plans";
 import Restore from "./Restore";
@@ -114,8 +114,17 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
           }}
         >
           <Icon name="search" size={15} stroke={2} />
-          <input ref={input} aria-label="Find a file in any backup" placeholder="Find a file in any backup" value={q} onChange={(e) => setQ(e.target.value)} />
-          <span className="kbd">⌘K</span>
+          <input ref={input} aria-label="Find a file in any backup" placeholder="Find a file in any backup" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQ("")} />
+          {q ? (
+            <ClearButton
+              onClick={() => {
+                setQ("");
+                input.current?.focus();
+              }}
+            />
+          ) : (
+            <span className="kbd">⌘K</span>
+          )}
         </form>
       )}
       <div className="spacer" data-tauri-drag-region />

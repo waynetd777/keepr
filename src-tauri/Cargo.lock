@@ -2126,7 +2126,7 @@ dependencies = [
 
 [[package]]
 name = "keepr"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "block2",
  "chrono",

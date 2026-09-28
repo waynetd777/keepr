@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Comparison, type Conflict, type Entry, type SnapInfo, type Version } from "./api";
 import { statusDot, useApp } from "./App";
 import { Icon } from "./icons";
-import { PlanProgress, Sheet, Switch, useAct, useToast } from "./ui";
+import { ClearButton, PlanProgress, Sheet, Switch, useAct, useToast } from "./ui";
 import { bytes, dayKey, dayLabel, longWhen, tilde, when } from "./format";
 
 const DAYS_SHOWN = 10;
@@ -300,11 +300,7 @@ export default function Restore() {
           <label className="search" style={{ width: 360 }}>
             <Icon name="search" size={15} stroke={2} />
             <input aria-label="Find in this backup" placeholder={`Find in ${plan.name}`} value={query} onChange={(e) => setQuery(e.target.value)} />
-            {query && (
-              <button className="iconbtn" style={{ width: 18, height: 18 }} aria-label="Clear" onClick={() => setQuery("")}>
-                <Icon name="close" size={12} />
-              </button>
-            )}
+            {query && <ClearButton onClick={() => setQuery("")} />}
           </label>
           <span className="grow" />
           <label className="row small muted" style={{ gap: 8 }}>

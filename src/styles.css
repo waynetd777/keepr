@@ -256,3 +256,7 @@ html.tray body { background: transparent; }
 .tabs button { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; white-space: nowrap; color: var(--ink2); }
 .tabs button:hover { color: var(--ink); }
 .tabs button.on { background: var(--surface); box-shadow: var(--seg); color: var(--ink); font-weight: 600; }
+
+/* The x in a search box. */
+.clear-btn { width: 22px; height: 22px; flex-shrink: 0; border: 0; border-radius: 11px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: var(--line2); color: var(--ink); margin-right: -4px; }
+.clear-btn:hover { background: var(--ink3); color: var(--ground); }

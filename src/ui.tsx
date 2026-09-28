@@ -235,3 +235,12 @@ export function StopButton({ job, small, iconOnly, label = "Stop" }: { job: JobS
     </button>
   );
 }
+
+/** The x that empties a search box: a 22px round button, easy to hit. */
+export function ClearButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" className="clear-btn" aria-label="Clear the search" title="Clear" onClick={onClick}>
+      <Icon name="close" size={12} stroke={2.6} />
+    </button>
+  );
+}
