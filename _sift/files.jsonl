@@ -1,2 +1,3 @@
 {"desc": "S3-compatible bucket backend: SigV4-signed blocking HTTPS, retries, friendly errors", "hash": "42e8e6709222a6e9", "path": "src-tauri/engine/src/s3.rs", "ts": "2026-09-28T20:59:01Z", "who": "114321799+waynetd777@users.noreply.github.com"}
 {"desc": "Sets up an S3 bucket plus a bucket-only IAM user via aws login or a CloudShell script", "hash": "d4e5be0837517c67", "path": "src-tauri/src/aws_setup.rs", "ts": "2026-09-28T21:13:28Z", "who": "114321799+waynetd777@users.noreply.github.com"}
+{"desc": "Sheet for adding an S3 bucket as a read-only plan source, with AWS sign-in setup", "hash": "972e4d1104c367a4", "path": "src/S3Source.tsx", "ts": "2026-09-28T21:27:42Z", "who": "114321799+waynetd777@users.noreply.github.com"}
