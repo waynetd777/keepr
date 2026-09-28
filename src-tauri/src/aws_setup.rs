@@ -56,24 +56,38 @@ fn check(region: &str, bucket: &str) -> Result<(), String> {
 /// CloudShell doesn't close CloudShell.
 pub fn script(region: &str, bucket: &str) -> Result<String, String> {
     check(region, bucket)?;
-    let user = format!("keepr-{}", &bucket[..bucket.len().min(57)]);
+    // IAM user names stop at 64 characters.
+    let user = if bucket.starts_with("keepr") { bucket[..bucket.len().min(64)].to_string() } else { format!("keepr-{}", &bucket[..bucket.len().min(57)]) };
     Ok(format!(
         r#"(
 set -euo pipefail
 export AWS_PAGER=""
 R='{region}'; B='{bucket}'; U='{user}'
-echo "Making the bucket $B in $R…"
-if [ "$R" = us-east-1 ]; then aws s3api create-bucket --bucket "$B" --region "$R" >/dev/null
-else aws s3api create-bucket --bucket "$B" --region "$R" --create-bucket-configuration LocationConstraint="$R" >/dev/null; fi
-aws s3api put-public-access-block --bucket "$B" --region "$R" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-echo "Making the user $U, allowed only into that bucket…"
-aws iam create-user --user-name "$U" --tags Key=created-by,Value=Keepr >/dev/null
-aws iam put-user-policy --user-name "$U" --policy-name keepr-bucket-only --policy-document '{{"Version":"2012-10-17","Statement":[{{"Effect":"Allow","Action":"s3:ListBucket","Resource":"arn:aws:s3:::'"$B"'"}},{{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":"arn:aws:s3:::'"$B"'/*"}}]}}'
-K=$(aws iam create-access-key --user-name "$U" --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text)
+# ${{R}} not $R throughout: macOS's bash 3.2 reads a following non-ASCII byte as part of the name.
+if aws s3api head-bucket --bucket "${{B}}" --region "${{R}}" >/dev/null 2>&1; then
+  echo "The bucket ${{B}} is already there; using it."
+else
+  echo "Making the bucket ${{B}} in ${{R}}..."
+  if [ "${{R}}" = us-east-1 ]; then aws s3api create-bucket --bucket "${{B}}" --region "${{R}}" >/dev/null
+  else aws s3api create-bucket --bucket "${{B}}" --region "${{R}}" --create-bucket-configuration LocationConstraint="${{R}}" >/dev/null; fi
+fi
+aws s3api put-public-access-block --bucket "${{B}}" --region "${{R}}" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+if aws iam get-user --user-name "${{U}}" >/dev/null 2>&1; then
+  echo "The user ${{U}} is already there; giving it a new key."
+else
+  echo "Making the user ${{U}}, allowed only into that bucket..."
+  aws iam create-user --user-name "${{U}}" --tags Key=created-by,Value=Keepr >/dev/null
+fi
+aws iam put-user-policy --user-name "${{U}}" --policy-name keepr-bucket-only --policy-document '{{"Version":"2012-10-17","Statement":[{{"Effect":"Allow","Action":"s3:ListBucket","Resource":"arn:aws:s3:::'"${{B}}"'"}},{{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":"arn:aws:s3:::'"${{B}}"'/*"}}]}}'
+# A user may have two keys: make room by removing the oldest Keepr made before.
+OLD=$(aws iam list-access-keys --user-name "${{U}}" --query 'AccessKeyMetadata[].AccessKeyId' --output text)
+set -- $OLD
+if [ $# -ge 2 ]; then aws iam delete-access-key --user-name "${{U}}" --access-key-id "$1"; fi
+K=$(aws iam create-access-key --user-name "${{U}}" --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text)
 set -- $K
 echo
 echo "Done. Copy the next line into Keepr:"
-echo "keepr-setup {{\"region\":\"$R\",\"bucket\":\"$B\",\"accessKey\":\"$1\",\"secret\":\"$2\"}}"
+echo "keepr-setup {{\"region\":\"${{R}}\",\"bucket\":\"${{B}}\",\"accessKey\":\"$1\",\"secret\":\"$2\"}}"
 )
 "#
     ))
@@ -198,7 +212,8 @@ fn explain(out: &str) -> String {
     } else if out.contains("AccessDenied") || out.contains("not authorized") {
         "Your AWS login may not make buckets and users. Sign in as an administrator, or ask whoever runs the account.".into()
     } else {
-        format!("Setting up didn't finish: {}", last_line(out))
+        let tail: Vec<&str> = out.lines().filter(|l| !l.trim().is_empty() && !l.contains("SecretAccessKey")).collect();
+        format!("Setting up didn't finish: {}", tail[tail.len().saturating_sub(3)..].join(" · "))
     }
 }
 
@@ -209,8 +224,8 @@ mod tests {
     #[test]
     fn script_and_its_answer() {
         let s = script("eu-west-1", "keepr-backup-1a2b3c4d").unwrap();
-        assert!(s.contains("R='eu-west-1'; B='keepr-backup-1a2b3c4d'; U='keepr-keepr-backup-1a2b3c4d'"));
-        assert!(s.contains(r#""Resource":"arn:aws:s3:::'"$B"'/*""#));
+        assert!(s.contains("R='eu-west-1'; B='keepr-backup-1a2b3c4d'; U='keepr-backup-1a2b3c4d'"));
+        assert!(s.contains(r#""Resource":"arn:aws:s3:::'"${B}"'/*""#));
         assert!(script("eu-west-1", "Bad_Name").is_err());
         assert!(script("eu-west-1; rm", "keepr").is_err());
         let m = parse("Done.\nkeepr-setup {\"region\":\"eu-west-1\",\"bucket\":\"keepr-x1\",\"accessKey\":\"AKIA1\",\"secret\":\"s/+x\"}\n$ ").unwrap();
