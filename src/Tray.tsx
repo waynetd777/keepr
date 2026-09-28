@@ -23,6 +23,28 @@ export default function Tray() {
     const u3 = on("tray-opened", load);
     return () => (u1(), u2(), u3());
   }, []);
+  // The shortcuts the menu shows work while it's open.
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if (e.key === "Escape") return void getCurrentWindow().hide();
+      if (!e.metaKey) return;
+      const act: Record<string, () => unknown> = {
+        b: () => api.backUpAll(),
+        r: () => api.showMain("restore"),
+        o: () => api.showMain(),
+        ",": () => api.showMain("settings"),
+        q: () => api.quit(),
+      };
+      const f = act[e.key.toLowerCase()];
+      if (f) {
+        e.preventDefault();
+        f();
+        getCurrentWindow().hide();
+      }
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
   // Size the window to what it shows.
   useEffect(() => {
     const el = document.querySelector(".traywin") as HTMLElement | null;

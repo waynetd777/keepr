@@ -233,7 +233,7 @@ input[type="checkbox"] { accent-color: var(--accent); }
 .steps li { display: flex; flex-direction: column; gap: 6px; }
 .steps .bar { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .steps .bar div { height: 4px; background: var(--accent); }
-.progress { height: 10px; border-radius: 5px; background: var(--sunk); overflow: hidden; display: flex; }
+.progress { height: 10px; border-radius: 5px; background: var(--line); overflow: hidden; display: flex; }
 .progress .soft { background: var(--bar); }
 .progress .solid { background: var(--accent); }
 table.history { width: 100%; border-collapse: collapse; }
