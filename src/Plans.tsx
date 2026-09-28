@@ -474,7 +474,18 @@ export default function Plans() {
           <>
             <label className="row small muted" style={{ gap: 8 }}>
               Plan on
-              <Switch label="Plan on" on={plan.enabled} onChange={(v) => update((p) => ({ ...p, enabled: v }))} />
+              <Switch
+                label="Plan on"
+                on={plan.enabled}
+                onChange={async (v) => {
+                  if (!v) {
+                    const { ask } = await import("@tauri-apps/plugin-dialog");
+                    const sure = await ask(`Turn off ${plan.name}? It won't back up until you turn it on again. Its backups so far stay as they are.`, { title: "Turn off this plan", kind: "warning", okLabel: "Turn Off", cancelLabel: "Cancel" });
+                    if (!sure) return;
+                  }
+                  update((p) => ({ ...p, enabled: v }));
+                }}
+              />
             </label>
             <button className="btn" onClick={() => go({ name: "plans", isNew: true })} title="Make another plan ⌘N">
               <Icon name="plus" size={13} stroke={2.4} />
