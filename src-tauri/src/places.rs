@@ -125,6 +125,11 @@ pub fn default_name(p: &Place) -> String {
                 let cloud = cloud_name(&r);
                 return if root == pb { cloud } else { format!("{cloud}: {leaf}") };
             }
+            let home = std::env::var("HOME").unwrap_or_default();
+            let icloud = Path::new(&home).join("Library/Mobile Documents/com~apple~CloudDocs");
+            if pb.starts_with(&icloud) {
+                return if pb == icloud { "iCloud Drive".into() } else { format!("iCloud Drive: {leaf}") };
+            }
             match volume_of(pb) {
                 Some(vol) if vol != leaf => format!("{vol}: {leaf}"),
                 Some(vol) => vol,
@@ -154,6 +159,62 @@ pub fn unique_name(base: &str, taken: &[String]) -> String {
 }
 
 /// A share's password: Keepr's saved one, else Finder's.
+#[derive(serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudFolder {
+    /// "OneDrive Personal", "iCloud Drive".
+    pub name: String,
+    /// "onedrive", "icloud", "google", "dropbox" or "other".
+    pub provider: String,
+    pub root: String,
+    /// False when it's there but not a working sync folder (iCloud Drive turned off, or an
+    /// orphaned root); such folders are listed so people see why they can't be picked.
+    pub live: bool,
+    pub why: String,
+    pub free: Option<u64>,
+}
+
+fn provider_of(root: &str) -> &'static str {
+    let r = root.to_lowercase();
+    if r.starts_with("onedrive") { "onedrive" } else if r.starts_with("googledrive") { "google" } else if r.starts_with("dropbox") { "dropbox" } else if r.starts_with("icloud") { "icloud" } else { "other" }
+}
+
+/// The cloud services' sync folders on this Mac: everything in ~/Library/CloudStorage that macOS
+/// treats as a live sync root, and iCloud Drive (~/Library/Mobile Documents/com~apple~CloudDocs,
+/// which only exists while iCloud Drive is on).
+pub fn cloud_folders() -> Vec<CloudFolder> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut out = Vec::new();
+    let icloud = Path::new(&home).join("Library/Mobile Documents/com~apple~CloudDocs");
+    out.push(CloudFolder {
+        name: "iCloud Drive".into(),
+        provider: "icloud".into(),
+        root: icloud.to_string_lossy().to_string(),
+        live: icloud.is_dir(),
+        why: if icloud.is_dir() { String::new() } else { "iCloud Drive is turned off (System Settings › Apple Account › iCloud)".into() },
+        free: space(&icloud).map(|s| s.0),
+    });
+    if let Ok(rd) = std::fs::read_dir(Path::new(&home).join("Library/CloudStorage")) {
+        let mut found: Vec<CloudFolder> = rd
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .filter_map(|e| {
+                let dir = e.file_name().to_string_lossy().to_string();
+                let provider = provider_of(&dir);
+                // The old iCloud Drive location is only ever an orphan now.
+                if provider == "icloud" {
+                    return None;
+                }
+                let (_, live) = cloud_root(&e.path().join("x"))?;
+                (live).then(|| CloudFolder { name: cloud_name(&dir), provider: provider.into(), root: e.path().to_string_lossy().to_string(), live, why: String::new(), free: space(&e.path()).map(|s| s.0) })
+            })
+            .collect();
+        found.sort_by(|a, b| a.name.cmp(&b.name));
+        out.extend(found);
+    }
+    out
+}
+
 pub fn smb_password(s: &Smb) -> Option<String> {
     keychain::get(&keychain::smb_account(&s.user, &s.server)).or_else(|| keychain::finder_smb_password(&s.server, &s.user))
 }
@@ -243,6 +304,11 @@ mod tests {
         assert_eq!(default_name(&Place::Folder { path: "/Volumes/Archive SSD/Keepr".into(), name: None }), "Archive SSD: Keepr");
         assert_eq!(default_name(&Place::Folder { path: "/Volumes/Archive SSD".into(), name: None }), "Archive SSD");
         assert_eq!(unique_name("Keepr", &["keepr".into(), "Keepr 2".into()]), "Keepr 3");
+        assert_eq!(default_name(&Place::Folder { path: format!("{home}/Library/Mobile Documents/com~apple~CloudDocs/Keepr"), name: None }), "iCloud Drive: Keepr");
+        let found = cloud_folders();
+        assert_eq!(found[0].provider, "icloud");
+        assert!(found.iter().skip(1).all(|c| c.live && c.provider != "icloud"));
+        println!("cloud folders: {:?}", found.iter().map(|c| (&c.name, c.live)).collect::<Vec<_>>());
         let home = std::env::var("HOME").unwrap();
         let (root, _) = cloud_root(&Path::new(&home).join("Library/CloudStorage/Some-Cloud/Backups/Keepr")).unwrap();
         assert!(root.ends_with("Library/CloudStorage/Some-Cloud"));

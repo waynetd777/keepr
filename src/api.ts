@@ -127,6 +127,7 @@ export const api = {
   deleteDestination: (id: string) => invoke<void>("delete_destination", { id }),
   suggestName: (place: Place, except?: string) => invoke<string>("suggest_name", { place, except: except ?? null }),
   testPlace: (place: Place, password?: string) => invoke<Tested>("test_place", { place, password: password ?? null }),
+  cloudFolders: () => invoke<{ name: string; provider: string; root: string; live: boolean; why: string; free: number | null }[]>("cloud_folders"),
   discoverServers: () => invoke<string[]>("discover_servers"),
   savedSmbLogin: (server: string) => invoke<{ user: string; source: "keepr" | "finder" } | null>("saved_smb_login", { server }),
   listShares: (server: string, user: string, password?: string) => invoke<string[]>("list_shares", { server, user, password: password ?? null }),

@@ -463,6 +463,12 @@ async fn test_place(core: State<'_, Core_>, place: Place, password: Option<Strin
 }
 
 /// SMB servers to offer: ones Keepr already uses, ones mounted now, and ones on Bonjour.
+/// The cloud services' sync folders on this Mac, for Add a destination.
+#[tauri::command]
+async fn cloud_folders() -> Vec<places::CloudFolder> {
+    tauri::async_runtime::spawn_blocking(places::cloud_folders).await.unwrap_or_default()
+}
+
 #[tauri::command]
 async fn discover_servers(core: State<'_, Core_>) -> Result<Vec<String>, String> {
     let mut known: Vec<String> = {
@@ -928,6 +934,7 @@ pub fn run() {
             suggest_name,
             test_place,
             discover_servers,
+            cloud_folders,
             list_shares,
             save_smb_password,
             saved_smb_login,

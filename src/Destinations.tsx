@@ -8,17 +8,22 @@ import { Icon } from "./icons";
 import { SAVED_PASSWORD, Sheet, useAct, useSavedLogin } from "./ui";
 import { bytes, tilde } from "./format";
 
-const LATER: [string, string][] = [
-  ["Amazon S3 or compatible", "bucket"],
-  ["Google Drive", "cloud"],
-  ["OneDrive", "cloud"],
-  ["iCloud Drive", "cloud"],
-];
+const LATER: [string, string][] = [["Amazon S3 or compatible", "bucket"]];
+
+type Cloud = Awaited<ReturnType<typeof api.cloudFolders>>[number];
+
+/** Which cloud folder a path is in, if any. */
+function cloudOf(path: string, clouds: Cloud[]): Cloud | undefined {
+  return clouds.find((c) => path === c.root || path.startsWith(c.root + "/"));
+}
 
 export function AddDestination({ onClose, editing }: { onClose: () => void; editing?: Destination }) {
   const { refresh, home } = useApp();
   const act = useAct();
-  const [kind, setKind] = useState<"folder" | "smb">(editing?.place.kind ?? "folder");
+  const [kind, setKind] = useState<"folder" | "smb" | "cloud">(editing?.place.kind ?? "folder");
+  const [clouds, setClouds] = useState<Cloud[]>([]);
+  const [cloud, setCloud] = useState<Cloud | null>(null);
+  const [inCloud, setInCloud] = useState("Keepr");
   const [servers, setServers] = useState<string[]>([]);
   const smb = editing?.place.kind === "smb" ? editing.place : null;
   const [server, setServer] = useState(smb?.server ?? "");
@@ -42,22 +47,34 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   const pw = password === SAVED_PASSWORD ? undefined : password;
 
   useEffect(() => {
+    api.cloudFolders().then((c) => {
+      setClouds(c);
+      // Changing a destination that's in a cloud folder opens on that folder.
+      const p = editing?.place.kind === "folder" ? editing.place.path : "";
+      const at = p && cloudOf(p, c);
+      if (at) {
+        setKind("cloud");
+        setCloud(at);
+        setInCloud(p.slice(at.root.length).replace(/^\/+/, ""));
+      }
+    });
     api.discoverServers().then((s) => {
       setServers(s);
       if (!server && s[0]) setServer(s[0]);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  useEffect(() => setTested(null), [kind, server, share, user, password, folder, path]);
+  useEffect(() => setTested(null), [kind, server, share, user, password, folder, path, cloud, inCloud]);
 
-  const place: Place = kind === "smb" ? { kind: "smb", server: server.trim(), share: share.trim(), folder: folder.trim() || "/", user: user.trim() } : { kind: "folder", path };
-  const ready = kind === "smb" ? !!(server && share) : !!path;
+  const cloudPath = cloud ? `${cloud.root}/${inCloud.trim().replace(/^\/+|\/+$/g, "")}`.replace(/\/$/, "") : "";
+  const place: Place = kind === "smb" ? { kind: "smb", server: server.trim(), share: share.trim(), folder: folder.trim() || "/", user: user.trim() } : { kind: "folder", path: kind === "cloud" ? cloudPath : path };
+  const ready = kind === "smb" ? !!(server && share) : kind === "cloud" ? !!cloud : !!path;
   useEffect(() => {
     if (named || !ready) return;
     const t = window.setTimeout(() => api.suggestName(place, editing?.id).then(setName), 200);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [named, ready, kind, server, share, folder, path]);
+  }, [named, ready, kind, server, share, folder, path, cloud, inCloud]);
 
   const test = async () => {
     setBusy("Connecting…");
@@ -131,6 +148,33 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
             </button>
           ))}
           <div className="caps" style={{ margin: "16px 10px 6px" }}>
+            Cloud folders on this Mac
+          </div>
+          {clouds.map((c) => {
+            const on = kind === "cloud" && cloud?.root === c.root;
+            return (
+              <button
+                key={c.root}
+                disabled={!c.live || (!!editing && editing.place.kind !== "folder")}
+                title={c.live ? c.root.replace(/^\/Users\/[^/]+/, "~") : c.why}
+                aria-pressed={on}
+                onClick={() => {
+                  setKind("cloud");
+                  setCloud(c);
+                }}
+                style={{ display: "flex", alignItems: "center", gap: 10, height: 36, padding: "0 10px", border: 0, borderRadius: 8, textAlign: "left", background: on ? "var(--surface)" : "transparent", boxShadow: on ? "var(--seg)" : "none", color: !c.live ? "var(--ink3)" : on ? "var(--accent-text)" : "inherit" }}
+              >
+                <Icon name="cloud" size={16} style={{ flexShrink: 0 }} />
+                <span className="col" style={{ gap: 0, minWidth: 0 }}>
+                  <span className="ellipsis" style={{ fontWeight: on ? 600 : 400 }}>
+                    {c.name}
+                  </span>
+                  {!c.live && <span className="tiny faint">Off</span>}
+                </span>
+              </button>
+            );
+          })}
+          <div className="caps" style={{ margin: "16px 10px 6px" }}>
             Coming later
           </div>
           {LATER.map(([name, icon]) => (
@@ -142,7 +186,19 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
         </div>
 
         <div className="grow" style={{ padding: "20px 26px", display: "flex", flexDirection: "column", gap: 14 }}>
-          {kind === "folder" ? (
+          {kind === "cloud" && cloud ? (
+            <>
+              <span className="muted" style={{ lineHeight: 1.5 }}>
+                Keepr writes the backup into {cloud.name}'s folder on this Mac, and {cloud.provider === "icloud" ? "iCloud" : cloud.name.split(" ")[0]} uploads it. The Mac keeps a copy until the service offloads it (turn on {cloud.provider === "icloud" ? "Optimise Mac Storage" : "Files On-Demand"} for that).
+              </span>
+              <label className="field">
+                <span>Folder inside {cloud.name}</span>
+                <input className="input mono" value={inCloud} onChange={(e) => setInCloud(e.target.value)} />
+              </label>
+              <span className="small faint mono ellipsis">{tilde(cloudPath, home)}</span>
+              {cloud.free != null && <span className="small muted">{bytes(cloud.free)} free on this Mac</span>}
+            </>
+          ) : kind === "folder" ? (
             <>
               <span className="muted" style={{ lineHeight: 1.5 }}>
                 A folder on this Mac or on a drive. For an external drive, Keepr waits while it's unplugged and catches up when it's back.

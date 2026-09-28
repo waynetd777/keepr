@@ -601,7 +601,7 @@ export default function Plans() {
                 Coming later
               </div>
               <div className="row" style={{ flexWrap: "wrap", gap: 6, padding: "4px 10px 8px" }}>
-                {["iCloud Drive", "Google Drive", "OneDrive", "S3 bucket"].map((c) => (
+                {["S3 bucket"].map((c) => (
                   <span key={c} className="chip">
                     {c}
                   </span>
