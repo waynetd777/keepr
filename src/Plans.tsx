@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { api, type Every, type Often, type Place, type Plan, type Retention } from "./api";
-import { useApp } from "./App";
+import { useApp } from "./context";
 import { Icon } from "./icons";
 import { PlanProgress, Seg, Sheet, Switch, useAct, useMenu, useToast } from "./ui";
 import { ago, bytes, next, tilde } from "./format";

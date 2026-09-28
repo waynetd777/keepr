@@ -1,6 +1,7 @@
 // The window: sidebar, toolbar, one history of places for back and forward, and the screens.
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Ctx, useApp, type AppCtx, type Screen } from "./context";
 import { api, on, type Config, type JobStatus, type Overview as OverviewData } from "./api";
 import { Icon, Mark } from "./icons";
 import { ClearButton, pct, StopButton, ToastProvider, Tooltips } from "./ui";
@@ -13,27 +14,7 @@ import Settings from "./Settings";
 import Search from "./Search";
 import { hideSplash } from "./splash";
 
-export type Screen =
-  | { name: "overview" }
-  | { name: "plans"; plan?: string; isNew?: boolean }
-  | { name: "restore"; plan?: string; query?: string; focus?: { snapshot: string; path: string } }
-  | { name: "search"; query: string }
-  | { name: "activity" }
-  | { name: "destinations"; add?: boolean }
-  | { name: "settings" };
 
-type AppCtx = {
-  ov: OverviewData | null;
-  cfg: Config | null;
-  job: JobStatus | null;
-  home: string;
-  screen: Screen;
-  go: (s: Screen) => void;
-  refresh: () => Promise<void>;
-};
-
-const Ctx = createContext<AppCtx>(null as unknown as AppCtx);
-export const useApp = () => useContext(Ctx);
 
 // Backup Plans is the overview of every plan; a plan's settings open from its card.
 const NAV: [Screen["name"], string, string, string][] = [
@@ -43,13 +24,6 @@ const NAV: [Screen["name"], string, string, string][] = [
   ["destinations", "Destinations", "server", "⌘4"],
 ];
 
-export function statusDot(status: string): string {
-  if (status === "running") return "dot spin";
-  if (status === "waiting" || status === "stale") return "dot amber";
-  if (status === "failed") return "dot red";
-  if (status === "off" || status === "never") return "dot grey";
-  return "dot";
-}
 
 function Sidebar() {
   const { screen, go } = useApp();

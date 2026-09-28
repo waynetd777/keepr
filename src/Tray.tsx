@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, on, type JobStatus, type Overview } from "./api";
 import { Mark } from "./icons";
-import { statusDot } from "./App";
+import { statusDot } from "./context";
 import { next, secondsLeft, when } from "./format";
 
 export default function Tray() {

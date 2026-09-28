@@ -5,7 +5,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
 const PAGE = 50;
 import { api, type Run } from "./api";
-import { useApp } from "./App";
+import { useApp } from "./context";
 import { Icon } from "./icons";
 import { Seg, STOPPING, StopButton } from "./ui";
 import { bytes, duration, secondsLeft, when } from "./format";

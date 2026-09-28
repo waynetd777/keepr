@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Comparison, type Conflict, type Entry, type SnapInfo, type Version } from "./api";
-import { statusDot, useApp } from "./App";
+import { statusDot, useApp } from "./context";
 import { Icon } from "./icons";
 import { ClearButton, PlanProgress, Sheet, Switch, useAct, useToast } from "./ui";
 import { bytes, dayKey, dayLabel, longWhen, tilde, when } from "./format";

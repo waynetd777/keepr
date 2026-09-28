@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { api, type PlanSummary, type Run } from "./api";
-import { useApp } from "./App";
+import { useApp } from "./context";
 import { Icon } from "./icons";
 import { ago, bytes, count, longDate, next, when } from "./format";
 import { RecoverySheet } from "./Plans";

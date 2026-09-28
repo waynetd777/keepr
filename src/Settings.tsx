@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "./api";
-import { useApp } from "./App";
+import { useApp } from "./context";
 import { Seg, Switch, useAct } from "./ui";
 
 export type Theme = "system" | "light" | "dark";

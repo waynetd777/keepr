@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { api, type Found } from "./api";
-import { useApp } from "./App";
+import { useApp } from "./context";
 import { Icon } from "./icons";
 import { bytes, tilde, when } from "./format";
 
