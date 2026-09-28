@@ -6,7 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, on, type JobStatus, type Overview } from "./api";
 import { Mark } from "./icons";
 import { statusDot } from "./App";
-import { secondsLeft, when } from "./format";
+import { next, secondsLeft, when } from "./format";
 
 export default function Tray() {
   const [ov, setOv] = useState<Overview | null>(null);
@@ -76,11 +76,19 @@ export default function Tray() {
       {others.length > 0 && (
         <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 1, borderBottom: "1px solid var(--line)" }}>
           {others.map((p) => (
-            <button key={p.id} className="menu-item" style={{ height: 34 }} onClick={() => (api.showMain("overview"), hide())}>
+            <button key={p.id} className="menu-item" style={{ height: 44 }} onClick={() => (api.showMain("overview"), hide())}>
               <span className={statusDot(p.status)} />
-              <span className="grow ellipsis">{p.name}</span>
-              <span className="small" style={{ color: ["failed", "waiting", "stale"].includes(p.status) ? "var(--amber)" : "var(--ink2)" }}>
-                {["failed", "waiting", "stale"].includes(p.status) ? p.message.slice(0, 34) : when(p.lastSuccess)}
+              <span className="grow col" style={{ gap: 1, minWidth: 0 }}>
+                <span className="ellipsis">{p.name}</span>
+                {["failed", "waiting", "stale"].includes(p.status) ? (
+                  <span className="tiny ellipsis" style={{ color: "var(--amber)" }}>
+                    {p.message}
+                  </span>
+                ) : (
+                  <span className="tiny muted ellipsis">
+                    Last: {p.lastSuccess ? when(p.lastSuccess) : "never"} · Next: {!p.enabled ? "off" : p.nextRun ? next(p.nextRun) : "when you ask"}
+                  </span>
+                )}
               </span>
             </button>
           ))}
