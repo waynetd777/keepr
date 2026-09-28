@@ -387,6 +387,10 @@ export default function Plans() {
   const [newPassword2, setNewPassword2] = useState("");
   const [ruleText, setRuleText] = useState("");
   const [sheet, setSheet] = useState<"" | "smb" | "s3" | "password" | "recovery">("");
+  const [clouds, setClouds] = useState<Awaited<ReturnType<typeof api.cloudFolders>>>([]);
+  useEffect(() => {
+    api.cloudFolders().then((c) => setClouds(c.filter((x) => x.live)));
+  }, []);
   const [removing, setRemoving] = useState<number | null>(null);
   const addMenu = useMenu();
   const moreMenu = useMenu();
@@ -454,10 +458,6 @@ export default function Plans() {
     }
   };
 
-  const [clouds, setClouds] = useState<Awaited<ReturnType<typeof api.cloudFolders>>>([]);
-  useEffect(() => {
-    api.cloudFolders().then((c) => setClouds(c.filter((x) => x.live)));
-  }, []);
   const addFolders = async (from?: string) => {
     const paths = await api.chooseFolders(from ? "Choose folders in the cloud folder to back up" : "Choose folders to back up", true, from);
     if (paths.length) update((p) => ({ ...p, sources: [...p.sources, ...paths.filter((x) => !p.sources.some((s) => s.kind === "folder" && s.path === x)).map((path) => ({ kind: "folder" as const, path }))], name: p.name || (paths[0].split("/").pop() ?? "") }));
