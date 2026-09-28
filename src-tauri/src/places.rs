@@ -146,6 +146,8 @@ pub fn s3_service(endpoint: &str) -> String {
     let host = endpoint.split("://").last().unwrap_or_default().split(['/', ':']).next().unwrap_or_default().to_lowercase();
     if host.ends_with(".amazonaws.com") {
         "Amazon S3".into()
+    } else if host.ends_with(".backblazeb2.com") {
+        "Backblaze B2".into()
     } else if host.ends_with(".r2.cloudflarestorage.com") {
         "Cloudflare R2".into()
     } else if host.ends_with(".wasabisys.com") {

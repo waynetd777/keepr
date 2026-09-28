@@ -8,12 +8,13 @@ import { Icon } from "./icons";
 import { DestIcon, SAVED_PASSWORD, Seg, Sheet, useAct, useSavedLogin } from "./ui";
 import { bytes, tilde } from "./format";
 
-type Service = "aws" | "r2" | "other";
+type Service = "aws" | "b2" | "r2" | "other";
 
 /** The S3 service an endpoint belongs to, and what the form needs to rebuild it. */
 function serviceOf(endpoint: string): { service: Service; r2Account: string } {
   const host = endpoint.replace(/^[a-z]+:\/\//, "").split(/[/:]/)[0];
   if (!endpoint || host.endsWith(".amazonaws.com")) return { service: "aws", r2Account: "" };
+  if (host.endsWith(".backblazeb2.com")) return { service: "b2", r2Account: "" };
   if (host.endsWith(".r2.cloudflarestorage.com")) return { service: "r2", r2Account: host.split(".")[0] };
   return { service: "other", r2Account: "" };
 }
@@ -84,7 +85,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   useEffect(() => setTested(null), [kind, server, share, user, password, folder, path, cloud, inCloud, service, r2Account, endpoint, region, bucket, prefix, accessKey, secret]);
 
   const cloudPath = cloud ? `${cloud.root}/${inCloud.trim().replace(/^\/+|\/+$/g, "")}`.replace(/\/$/, "") : "";
-  const s3Endpoint = service === "aws" ? `https://s3.${region.trim()}.amazonaws.com` : service === "r2" ? `https://${r2Account.trim()}.r2.cloudflarestorage.com` : endpoint.trim();
+  const s3Endpoint = service === "aws" ? `https://s3.${region.trim()}.amazonaws.com` : service === "b2" ? `https://s3.${region.trim()}.backblazeb2.com` : service === "r2" ? `https://${r2Account.trim()}.r2.cloudflarestorage.com` : endpoint.trim();
   const place: Place = kind === "s3" ? { kind: "s3", endpoint: s3Endpoint, region: service === "r2" ? "auto" : region.trim(), bucket: bucket.trim(), prefix: prefix.trim().replace(/^\/+|\/+$/g, ""), accessKey: accessKey.trim() } : kind === "smb" ? { kind: "smb", server: server.trim(), share: share.trim(), folder: folder.trim() || "/", user: user.trim() } : { kind: "folder", path: kind === "cloud" ? cloudPath : path };
   const ready = kind === "s3" ? !!(bucket.trim() && accessKey.trim() && (secret || s3) && (service === "r2" ? r2Account.trim() : service === "other" ? endpoint.trim() : region.trim())) : kind === "smb" ? !!(server && share) : kind === "cloud" ? !!cloud : !!path;
   useEffect(() => {
@@ -149,7 +150,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
             [
               ["folder", "Folder or drive", "This Mac, USB, Thunderbolt", "drive"],
               ["smb", "SMB share", "A NAS or another computer", "server"],
-              ["s3", "S3 bucket", "Amazon S3, R2, Wasabi, MinIO", "bucket"],
+              ["s3", "S3 bucket", "Amazon, Backblaze, R2, MinIO…", "bucket"],
             ] as const
           ).map(([k, title, sub, icon]) => (
             <button
@@ -207,8 +208,9 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
                 onChange={setService}
                 options={[
                   ["aws", "Amazon S3"],
+                  ["b2", "Backblaze B2"],
                   ["r2", "Cloudflare R2"],
-                  ["other", "Other (Wasabi, MinIO, a NAS…)"],
+                  ["other", "Other"],
                 ]}
               />
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px 14px" }}>
@@ -231,7 +233,8 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
                 ) : (
                   <label className="field" style={{ gridColumn: "span 2" }}>
                     <span>Region</span>
-                    <input className="input mono" placeholder="eu-west-1" value={region} onChange={(e) => setRegion(e.target.value)} />
+                    <input className="input mono" placeholder={service === "b2" ? "eu-central-003" : "eu-west-1"} value={region} onChange={(e) => setRegion(e.target.value)} />
+                    {service === "b2" && <span className="tiny faint">The part after "s3." in the bucket's S3 endpoint, shown on its page in Backblaze</span>}
                   </label>
                 )}
                 <label className="field">
