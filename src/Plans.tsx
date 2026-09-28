@@ -391,6 +391,14 @@ export default function Plans() {
   useEffect(() => {
     api.cloudFolders().then((c) => setClouds(c.filter((x) => x.live)));
   }, []);
+  // After a rename, the backup's folder can still carry the old name: offer to bring it in line.
+  const [folderFor, setFolderFor] = useState("");
+  const [renamingFolder, setRenamingFolder] = useState(false);
+  useEffect(() => {
+    if (!plan?.id) return;
+    const t = window.setTimeout(() => api.suggestPlanFolder(plan.name.trim() || "Plan", plan.id).then(setFolderFor), 400);
+    return () => window.clearTimeout(t);
+  }, [plan?.name, plan?.id]);
   const [removing, setRemoving] = useState<number | null>(null);
   const addMenu = useMenu();
   const moreMenu = useMenu();
@@ -719,6 +727,27 @@ export default function Plans() {
                     {dest?.place.kind === "smb" ? `smb://${dest.place.server}/${dest.place.share}${dest.place.folder && dest.place.folder !== "/" ? dest.place.folder : ""}` : dest?.place.kind === "folder" ? tilde(dest.place.path, home) : dest?.place.kind === "s3" ? `s3://${dest.place.bucket}${dest.place.prefix ? `/${dest.place.prefix}` : ""}` : ""}
                     {plan.folder ? ` / ${plan.folder}` : ""}
                   </span>
+                  {created && plan.name.trim() && folderFor && folderFor !== plan.folder && dest?.place.kind !== "s3" && (
+                    <span className="small muted row" style={{ gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+                      Its folder there is still called “{plan.folder}”.
+                      <button
+                        className="btn small"
+                        disabled={renamingFolder}
+                        onClick={async () => {
+                          setRenamingFolder(true);
+                          const n = await act(() => api.renamePlanFolder(plan.id));
+                          setRenamingFolder(false);
+                          if (n) {
+                            setPlan((p) => (p ? { ...p, folder: n } : p));
+                            toast(`Renamed to ${n}.`);
+                            refresh();
+                          }
+                        }}
+                      >
+                        {renamingFolder ? "Renaming…" : `Rename to “${folderFor}”`}
+                      </button>
+                    </span>
+                  )}
                 </div>
               </div>
             )}

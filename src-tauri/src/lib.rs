@@ -307,6 +307,9 @@ fn save_plan(core: State<Core_>, mut plan: Plan, password: Option<String>) -> Re
         // A backup's encryption is fixed when it is made.
         let created = core.state.lock().unwrap().plans.get(&plan.id).is_some_and(|s| s.created);
         if let Some(old) = c.plans.iter_mut().find(|p| p.id == plan.id) {
+            // The folder only changes through rename_plan_folder: a page still holding the old
+            // name must not point the plan back at a folder that has gone.
+            plan.folder = old.folder.clone();
             if created && (old.encrypted != plan.encrypted || old.destination != plan.destination) {
                 return Err(if old.encrypted != plan.encrypted {
                     "Encryption can't be turned on or off for a backup that already exists. Make a new plan instead.".into()
@@ -323,6 +326,19 @@ fn save_plan(core: State<Core_>, mut plan: Plan, password: Option<String>) -> Re
     core.forget_repo(&plan.id);
     core.changed();
     Ok(plan)
+}
+
+/// What a plan's backup folder would be called for this name.
+#[tauri::command]
+fn suggest_plan_folder(name: String, id: String) -> String {
+    config::folder_name(&name, &id)
+}
+
+/// Renames a plan's backup folder to match its name.
+#[tauri::command]
+async fn rename_plan_folder(core: State<'_, Core_>, id: String) -> Result<String, String> {
+    let core = core.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || core.rename_plan_folder(&id)).await.map_err(|e| e.to_string())?
 }
 
 /// Puts the plans in this order (dragged on Backup Plans); the order is used wherever plans are listed.
@@ -998,6 +1014,20 @@ pub fn cli(args: &[String]) -> Option<i32> {
     // Before anything reads a file: both the app and these commands may meet cloud-only files.
     system::allow_cloud_downloads();
     match args.first().map(String::as_str) {
+        // Renames a plan's backup folder to match its name (the app must not be running).
+        Some("--rename-plan-folder") if args.len() == 2 => {
+            let core = Core::new(config::data_dir(), Box::new(|_, _| {}), Box::new(|_, _| {}), false);
+            return Some(match core.rename_plan_folder(&args[1]) {
+                Ok(n) => {
+                    println!("renamed to {n}");
+                    0
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    1
+                }
+            });
+        }
         // Restores a plan's latest snapshot into a folder and compares it with the sources.
         Some("--verify-restore") if args.len() == 3 => {
             return Some(match verify::run(&args[1], std::path::Path::new(&args[2])) {
@@ -1094,6 +1124,8 @@ pub fn run() {
             overview,
             aws_setup_info,
             reorder_plans,
+            suggest_plan_folder,
+            rename_plan_folder,
             aws_setup_run,
             aws_setup_script,
             aws_setup_paste,

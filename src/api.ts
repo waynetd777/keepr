@@ -132,6 +132,8 @@ export const api = {
   deleteDestination: (id: string) => invoke<void>("delete_destination", { id }),
   suggestName: (place: Place, except?: string) => invoke<string>("suggest_name", { place, except: except ?? null }),
   testPlace: (place: Place, password?: string) => invoke<Tested>("test_place", { place, password: password ?? null }),
+  suggestPlanFolder: (name: string, id: string) => invoke<string>("suggest_plan_folder", { name, id }),
+  renamePlanFolder: (id: string) => invoke<string>("rename_plan_folder", { id }),
   reorderPlans: (ids: string[]) => invoke<void>("reorder_plans", { ids }),
   awsSetupInfo: () => invoke<{ cli: boolean; bucket: string }>("aws_setup_info"),
   awsSetupRun: (region: string, bucket: string, mode: "destination" | "source" = "destination") => invoke<AwsMade>("aws_setup_run", { region, bucket, mode }),

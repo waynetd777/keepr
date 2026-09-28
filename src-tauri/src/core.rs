@@ -464,6 +464,42 @@ impl Core {
         Ok(repo)
     }
 
+    /// Renames the plan's backup folder at its destination to match the plan's name ("Downloads
+    /// 1c9b7f" → "Personal-Files 1c9b7f"), after a rename made the old one misleading. Returns
+    /// the new name. A folder rename on a disk, share or cloud folder moves nothing; a bucket has
+    /// no folders to rename, so it isn't offered there.
+    pub fn rename_plan_folder(&self, plan: &str) -> Result<String, String> {
+        if self.busy_with(plan) {
+            return Err("Wait until this plan's backup has finished.".into());
+        }
+        let (p, d) = self.plan_and_dest(plan)?;
+        let new = config::folder_name(&p.name, &p.id);
+        if new == p.folder {
+            return Ok(new);
+        }
+        if matches!(d.place, Place::S3(_)) {
+            return Err("A backup in a bucket can't be renamed in place.".into());
+        }
+        // Nobody else (another Mac) may be using it. The lock is let go before the move: it's
+        // a file inside the folder, and one carried along would look held by this Mac.
+        let repo = self.repo(plan, false)?;
+        drop(repo.lock(true).map_err(|e| e.0)?);
+        self.forget_repo(plan);
+        drop(repo);
+        let root = places::resolve(&d.place, &self.mounts, true, d.disconnect_after)?;
+        let (from, to) = (root.join(&p.folder), root.join(&new));
+        if to.exists() {
+            return Err(format!("There's already a folder called {new} there."));
+        }
+        std::fs::rename(&from, &to).map_err(|e| format!("Couldn't rename {} to {new}: {e}", p.folder))?;
+        if let Some(pl) = self.config.lock().unwrap().plans.iter_mut().find(|x| x.id == plan) {
+            pl.folder = new.clone();
+        }
+        self.save_config()?;
+        self.changed();
+        Ok(new)
+    }
+
     pub fn snapshots(&self, plan: &str) -> Result<Vec<Snapshot>, String> {
         self.repo(plan, false)?.snapshots().map_err(|e| e.0)
     }
