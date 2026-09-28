@@ -4,16 +4,48 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Keepr</title>
-    <!-- Painted before React starts, in the theme's background, so no white frame shows. Keep in step with --ground in src/styles.css. -->
+    <!--
+      Inline splash: paints as soon as the webview does and covers the wait for the first screen.
+      Keep the colours in step with --ground and --accent in src/styles.css.
+    -->
+    <script>
+      try { var t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+      if (new URLSearchParams(location.search).get("view") === "tray") document.documentElement.classList.add("tray");
+    </script>
     <style>
-      :root { color-scheme: light dark; }
-      html, body { margin: 0; background: #ffffff; }
-      @media (prefers-color-scheme: dark) { html, body { background: #1e1e20; } }
+      :root { color-scheme: light dark; --splash-bg: #ffffff; --splash-fg: #1d1d1f; --splash-dim: #6e6e73; --splash-line: #e5e5ea; --splash-accent: #0f7a5c; }
+      @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --splash-bg: #1e1e20; --splash-fg: #f2f2f4; --splash-dim: #8e8e93; --splash-line: #323235; --splash-accent: #3cc593; } }
+      :root[data-theme="dark"] { --splash-bg: #1e1e20; --splash-fg: #f2f2f4; --splash-dim: #8e8e93; --splash-line: #323235; --splash-accent: #3cc593; }
+      html, body { margin: 0; background: var(--splash-bg); }
       html.tray, html.tray body { background: transparent; }
+      html.tray #splash { display: none; }
+      #splash { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: var(--splash-bg); color: var(--splash-fg); font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; transition: opacity .2s ease-out; -webkit-user-select: none; user-select: none; }
+      #splash.gone { opacity: 0; pointer-events: none; }
+      #splash .brand { display: flex; align-items: center; gap: 16px; animation: rise .4s ease-out both; }
+      #splash .name { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; font-weight: 650; letter-spacing: -0.03em; font-size: 56px; line-height: 1; }
+      #splash .name i { font-style: normal; color: var(--splash-accent); }
+      #splash .tagline { font-size: 17px; color: var(--splash-dim); letter-spacing: -0.01em; animation: rise .4s .08s ease-out both; }
+      #splash .bar { width: 152px; height: 3px; border-radius: 99px; background: var(--splash-line); overflow: hidden; margin-top: 10px; }
+      #splash .bar i { display: block; width: 40%; height: 100%; border-radius: 99px; background: var(--splash-accent); animation: slide 1.1s ease-in-out infinite; }
+      @keyframes slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(360%); } }
+      @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+      @media (prefers-reduced-motion: reduce) { #splash .brand, #splash .tagline, #splash .bar i { animation: none; } }
     </style>
   </head>
   <body>
     <div id="root"></div>
+    <div id="splash">
+      <!-- The app icon's mark (tools/make_icons.py, Mark in src/icons.tsx): three lines, the last short. -->
+      <div class="brand">
+        <svg width="72" height="72" viewBox="0 0 28 28" aria-hidden="true">
+          <rect width="28" height="28" rx="8" fill="var(--splash-accent)" />
+          <path d="M8 10h12M8 14h12M8 18h7" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" fill="none" />
+        </svg>
+        <span class="name">Keepr<i>.</i></span>
+      </div>
+      <div class="tagline">Every file. Every version. Kept.</div>
+      <div class="bar"><i></i></div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

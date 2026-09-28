@@ -11,6 +11,7 @@ import Restore from "./Restore";
 import Activity from "./Activity";
 import Destinations from "./Destinations";
 import Settings from "./Settings";
+import { hideSplash } from "./splash";
 
 export type Screen =
   | { name: "overview" }
@@ -209,16 +210,19 @@ export default function App() {
     setOv(o);
     setCfg(c);
     setJob(o.job);
+    hideSplash();
   }, []);
 
   useEffect(() => {
     api.home().then(setHome);
-    refresh();
-    // Screenshot mode: open the screen the scene names.
+    // Screenshot mode: open the screen the scene names. Read before the first load, so a scene
+    // can keep the splash up.
     api.scene().then((sc) => {
+      refresh();
       if (!sc) return;
       document.documentElement.dataset.scene = "1";
-      const s = JSON.parse(sc) as { screen?: Screen; theme?: string };
+      const s = JSON.parse(sc) as { screen?: Screen; theme?: string; splash?: boolean };
+      if (s.splash) document.documentElement.dataset.keepSplash = "1";
       if (s.theme) document.documentElement.dataset.theme = s.theme;
       if (s.screen) setScreen(s.screen);
     });

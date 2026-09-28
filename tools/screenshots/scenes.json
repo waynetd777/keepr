@@ -6,5 +6,6 @@
   { "name": "destinations", "screen": { "name": "destinations" } },
   { "name": "add-destination", "screen": { "name": "destinations", "add": true } },
   { "name": "settings", "screen": { "name": "settings" } },
-  { "name": "menu-bar", "tray": true }
+  { "name": "menu-bar", "tray": true },
+  { "name": "splash", "splash": true }
 ]
