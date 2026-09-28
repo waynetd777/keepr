@@ -245,10 +245,26 @@ fn get_config(core: State<Core_>) -> config::Config {
     core.config.lock().unwrap().clone()
 }
 
+/// A run's log (Activity, when a run is expanded). Empty for runs from before logs were kept.
 #[tauri::command]
-fn history(core: State<Core_>, limit: usize) -> Vec<Run> {
+fn run_log(core: State<Core_>, id: String) -> Vec<String> {
+    if !id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return vec![];
+    }
+    std::fs::read_to_string(core.dir.join("logs").join(format!("{id}.log"))).map(|t| t.lines().map(str::to_string).collect()).unwrap_or_default()
+}
+
+/// Runs newest first: `limit` of them after skipping `offset`, filtered to "all", "problems"
+/// (anything not ok) or "restores".
+#[tauri::command]
+fn history(core: State<Core_>, offset: usize, limit: usize, filter: Option<String>) -> Vec<Run> {
     let st = core.state.lock().unwrap();
-    st.history.iter().rev().take(limit).cloned().collect()
+    let keep = |r: &&Run| match filter.as_deref() {
+        Some("problems") => r.result != "ok",
+        Some("restores") => r.kind == "restore",
+        _ => true,
+    };
+    st.history.iter().rev().filter(keep).skip(offset).take(limit).cloned().collect()
 }
 
 #[tauri::command]
@@ -847,6 +863,7 @@ pub fn run() {
             overview,
             get_config,
             history,
+            run_log,
             default_excludes,
             save_plan,
             delete_plan,

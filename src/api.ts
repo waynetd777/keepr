@@ -113,7 +113,8 @@ export type Comparison = { currentExists: boolean; identical: boolean; text: boo
 export const api = {
   overview: () => invoke<Overview>("overview"),
   config: () => invoke<Config>("get_config"),
-  history: (limit = 200) => invoke<Run[]>("history", { limit }),
+  runLog: (id: string) => invoke<string[]>("run_log", { id }),
+  history: (limit = 50, offset = 0, filter: "all" | "problems" | "restores" = "all") => invoke<Run[]>("history", { offset, limit, filter }),
   defaultExcludes: () => invoke<string[]>("default_excludes"),
   savePlan: (plan: Plan, password?: string) => invoke<Plan>("save_plan", { plan, password: password ?? null }),
   deletePlan: (id: string) => invoke<void>("delete_plan", { id }),

@@ -117,6 +117,32 @@ fn keep_deleted(repo: &Repo, snaps: &[crate::repo::Snapshot], times: &[chrono::D
     Ok(())
 }
 
+/// Total size and file count of a tree, using folders' own totals where they have them.
+fn size_of(repo: &Repo, t: &crate::tree::Tree) -> Result<(u64, u64)> {
+    let (mut bytes, mut files) = (0, 0);
+    for n in &t.nodes {
+        match n.kind {
+            NodeKind::File => {
+                bytes += n.size;
+                files += 1;
+            }
+            NodeKind::Dir if n.files > 0 || n.size > 0 => {
+                bytes += n.size;
+                files += n.files;
+            }
+            NodeKind::Dir => {
+                if let Some(sub) = n.subtree {
+                    let (b, f) = crate::browse::du(repo, &sub)?;
+                    bytes += b;
+                    files += f;
+                }
+            }
+            NodeKind::Symlink => {}
+        }
+    }
+    Ok((bytes, files))
+}
+
 /// Removes a source (by its path, as the snapshots name it) from every snapshot, then frees the
 /// space only it used. New snapshots are written before the old ones are removed, so a stop
 /// part-way leaves both, never neither.
@@ -136,6 +162,10 @@ pub fn remove_source(repo: &Arc<Repo>, source: &str, ctl: &Control) -> Result<Pr
         let mut ns = s.clone();
         ns.tree = repo.save_tree(&t)?;
         ns.sources.retain(|x| x.trim_end_matches('/') != key);
+        // Its size figures, for what's left.
+        let (bytes, files) = size_of(repo, &t)?;
+        ns.stats.bytes = bytes;
+        ns.stats.files = files;
         repo.flush()?;
         let old = s.id;
         repo.save_snapshot(&mut ns)?;
@@ -286,6 +316,7 @@ mod tests {
         assert_eq!(snaps.len(), 2);
         for s in &snaps {
             assert_eq!(s.sources, vec![a.path().to_string_lossy().to_string()]);
+            assert_eq!((s.stats.bytes, s.stats.files), (4, 1), "sizes are for what's left");
             assert!(crate::browse::node_at(&r2, s, &format!("{}/keep.txt", a.path().display())).unwrap().is_some());
         }
         assert!(crate::check::run(&r2, 1.0, &Control::default()).unwrap().problems.is_empty());

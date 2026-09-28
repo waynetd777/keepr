@@ -226,7 +226,8 @@ pub struct Run {
     pub stored_bytes: u64,
     #[serde(default)]
     pub dup_bytes: u64,
-    /// What happened, step by step, for Activity to show when the run is expanded.
+    /// What happened, step by step, while the run is going; written to logs/<id>.log when it
+    /// ends (so state.json stays small) and read back only when Activity expands the run.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub log: Vec<String>,
 }
@@ -301,18 +302,20 @@ pub struct State {
     pub history: Vec<Run>,
 }
 
-pub const HISTORY_MAX: usize = 1000;
+pub const HISTORY_MAX: usize = 5000;
 
 impl State {
     pub fn plan(&mut self, id: &str) -> &mut PlanState {
         self.plans.entry(id.to_string()).or_default()
     }
-    pub fn record(&mut self, run: Run) {
+    /// Adds a run; returns the runs that fell off the end, whose logs can go.
+    pub fn record(&mut self, run: Run) -> Vec<Run> {
         self.history.push(run);
         if self.history.len() > HISTORY_MAX {
             let extra = self.history.len() - HISTORY_MAX;
-            self.history.drain(..extra);
+            return self.history.drain(..extra).collect();
         }
+        vec![]
     }
 }
 

@@ -1,7 +1,9 @@
 // Activity: what is running now, step by step, and the history of every backup, check, tidy-up
 // and restore.
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+
+const PAGE = 50;
 import { api, type Run } from "./api";
 import { useApp } from "./App";
 import { Icon } from "./icons";
@@ -153,18 +155,46 @@ export default function Activity() {
   const { ov, job } = useApp();
   const [runs, setRuns] = useState<Run[]>([]);
   const [filter, setFilter] = useState<"all" | "problems" | "restores">("all");
+  // Fifty at a time: the next fifty load when the end of the list scrolls into view.
+  const [more, setMore] = useState(true);
+  const loading = useRef(false);
+  const end = useRef<HTMLDivElement>(null);
+  const loadMore = useCallback(
+    async (from: number, reset = false) => {
+      if (loading.current) return;
+      loading.current = true;
+      const page = await api.history(PAGE, from, filter);
+      setRuns((r) => (reset ? page : [...r, ...page]));
+      setMore(page.length === PAGE);
+      loading.current = false;
+    },
+    [filter],
+  );
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const [logs, setLogs] = useState<Record<string, string[]>>({});
   const toggle = (id: string) => {
     const s = new Set(open);
     if (s.has(id)) s.delete(id);
-    else s.add(id);
+    else {
+      s.add(id);
+      if (!logs[id]) api.runLog(id).then((l) => setLogs((m) => ({ ...m, [id]: l })));
+    }
     setOpen(s);
   };
+  // The first page again whenever something changes (a run finishes) or the filter does.
   useEffect(() => {
-    api.history(300).then(setRuns);
-  }, [ov]);
+    loading.current = false;
+    loadMore(0, true);
+  }, [ov, loadMore]);
+  useEffect(() => {
+    const el = end.current;
+    if (!el) return;
+    const io = new IntersectionObserver((e) => e[0].isIntersecting && more && loadMore(runs.length), { rootMargin: "200px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [more, runs.length, loadMore]);
   const nameOf = (id: string) => ov?.plans.find((p) => p.id === id)?.name ?? "A deleted plan";
-  const shown = runs.filter((r) => (filter === "all" ? true : filter === "problems" ? r.result !== "ok" : r.kind === "restore"));
+  const shown = runs;
   const kindName: Record<string, string> = { backup: "Incremental", full: "Full re-read", check: "Check", prune: "Tidy up", restore: "Restore", remove: "Remove a folder" };
   return (
     <div className="content col" style={{ gap: 18 }}>
@@ -225,7 +255,7 @@ export default function Activity() {
                     <tr>
                       <td colSpan={7} style={{ borderTop: 0, paddingTop: 0 }}>
                         <div className="mono" style={{ fontSize: 11, lineHeight: 1.6, background: "var(--sunk)", borderRadius: 8, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", userSelect: "text", WebkitUserSelect: "text", maxHeight: 360, overflow: "auto" }}>
-                          {r.log && r.log.length ? r.log.join("\n") : "No log for this run: it ran before Keepr kept logs."}
+                          {!logs[r.id] ? "Loading…" : logs[r.id].length ? logs[r.id].join("\n") : "No log for this run: it ran before Keepr kept logs."}
                         </div>
                       </td>
                     </tr>
@@ -236,6 +266,9 @@ export default function Activity() {
             </tbody>
           </table>
         )}
+        <div ref={end} className="small faint" style={{ padding: "12px 20px", textAlign: "center" }}>
+          {shown.length > 0 && (more ? "Loading more…" : `That's everything: ${shown.length.toLocaleString()} ${filter === "all" ? "runs" : filter === "problems" ? "problems" : "restores"}.`)}
+        </div>
       </section>
     </div>
   );

@@ -177,7 +177,18 @@ impl Core {
         if renamed && !frozen {
             let _ = config::write(&dir, "config.json", &config);
         }
-        let state: State = config::read(&dir, "state.json");
+        let mut state: State = config::read(&dir, "state.json");
+        // Runs from 0.1.18 kept their logs in state.json: move them to logs/.
+        if !frozen && state.history.iter().any(|r| !r.log.is_empty()) {
+            let logs = dir.join("logs");
+            let _ = std::fs::create_dir_all(&logs);
+            for r in state.history.iter_mut().filter(|r| !r.log.is_empty()) {
+                if std::fs::write(logs.join(format!("{}.log", r.id)), r.log.join("\n")).is_ok() {
+                    r.log.clear();
+                }
+            }
+            let _ = config::write(&dir, "state.json", &state);
+        }
         Arc::new(Core {
             dir,
             config: Mutex::new(config),
@@ -492,10 +503,20 @@ impl Core {
                 }
             }
         }
-        {
+        // The log to its own file; the history keeps only the summary.
+        let logs = self.dir.join("logs");
+        if !self.frozen && !run.log.is_empty() {
+            let _ = std::fs::create_dir_all(&logs);
+            let _ = std::fs::write(logs.join(format!("{}.log", run.id)), run.log.join("\n"));
+        }
+        run.log.clear();
+        let dropped = {
             let mut s = self.state.lock().unwrap();
             s.plan(job.plan()).last_attempt = Some(run.started.clone());
-            s.record(run);
+            s.record(run)
+        };
+        for r in dropped {
+            let _ = std::fs::remove_file(logs.join(format!("{}.log", r.id)));
         }
         self.save_state();
         *self.current.lock().unwrap() = None;
@@ -641,11 +662,14 @@ impl Core {
     fn refresh_stats(&self, plan_id: &str, repo: &Repo) {
         let bytes: u64 = repo.index.read().unwrap().blobs.values().map(|l| l.len as u64).sum();
         let snaps = repo.snapshots().unwrap_or_default();
+        // From each snapshot's top-level folders, which carry their totals: right even for
+        // snapshots rewritten since they were taken.
+        let versions = snaps.iter().map(|s| repo.load_tree(&s.tree).map(|t| t.nodes.iter().map(|n| n.size).sum::<u64>()).unwrap_or(s.stats.bytes)).sum();
         let mut s = self.state.lock().unwrap();
         let ps = s.plan(plan_id);
         ps.repo_bytes = bytes;
         ps.snapshots = snaps.len() as u64;
-        ps.versions_bytes = snaps.iter().map(|s| s.stats.bytes).sum();
+        ps.versions_bytes = versions;
         ps.oldest = snaps.first().map(|s| s.time.clone());
     }
 

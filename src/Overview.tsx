@@ -15,7 +15,7 @@ function dayTip(d: PlanSummary["days"][number], daysAgo: number): string {
   date.setDate(date.getDate() - daysAgo);
   const label = daysAgo === 0 ? "Today" : daysAgo === 1 ? "Yesterday" : date.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
   if (!d.ran) return `${label}: no backup`;
-  const parts = [d.count ? count(d.count, "backup") : "no backup completed", d.count ? `${bytes(d.added)} stored` : ""].filter(Boolean);
+  const parts = [d.count ? count(d.count, "backup") : "no backup completed", d.count ? `${bytes(d.added)} sent` : ""].filter(Boolean);
   return `${label}: ${parts.join(", ")}${d.failed ? " · one didn't finish" : ""}`;
 }
 
@@ -117,7 +117,7 @@ function PlanCard({ p }: { p: PlanSummary }) {
         <Strata p={p} />
         <div className="row tiny faint" style={{ justifyContent: "space-between" }}>
           <span>30 days ago</span>
-          <span>Data stored per day · {p.snapshots.toLocaleString()} snapshot{p.snapshots === 1 ? "" : "s"}</span>
+          <span>Data sent per day · {p.snapshots.toLocaleString()} snapshot{p.snapshots === 1 ? "" : "s"}</span>
           <span>Today</span>
         </div>
       </div>
@@ -126,8 +126,8 @@ function PlanCard({ p }: { p: PlanSummary }) {
           <span>Last backup</span>
           <span>{p.status === "never" ? "Not yet" : running ? "Running now" : `${ago(p.lastSuccess)}${p.lastChanged ? ` · ${p.lastChanged.toLocaleString()} changed` : ""}`}</span>
         </div>
-        <div>
-          <span>Stored</span>
+        <div title="What this plan's backup takes up at its destination now, all versions included">
+          <span>Backup size now</span>
           <span className="mono">{bytes(p.repoBytes)}</span>
         </div>
         <div>
