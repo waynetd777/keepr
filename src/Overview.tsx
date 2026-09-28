@@ -1,7 +1,7 @@
 // Overview: are my files kept? A headline, what needs attention, each plan with its last 30
 // days, and the space the backups take.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type PlanSummary, type Run } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
@@ -186,13 +186,27 @@ function Welcome() {
   );
 }
 
+const ROW_HEIGHT = 18;
+const ROW_GAP = 10;
+
 export default function Overview() {
   const { ov, go } = useApp();
   const [recent, setRecent] = useState<Run[]>([]);
   const [recovery, setRecovery] = useState<PlanSummary | null>(null);
+  // As many recent runs as fit in the space left under Destinations: the list takes no height of
+  // its own (flex-basis 0), so the card is as tall as the column allows, and rows are counted in.
+  const listRef = useRef<HTMLDivElement>(null);
+  const [fits, setFits] = useState(5);
   useEffect(() => {
-    api.history(5).then(setRecent);
-  }, [ov]);
+    const el = listRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setFits(Math.max(3, Math.floor((el.clientHeight + ROW_GAP) / (ROW_HEIGHT + ROW_GAP)))));
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+  useEffect(() => {
+    api.history(Math.min(fits, 100)).then(setRecent);
+  }, [ov, fits]);
   if (!ov) return null;
   if (ov.plans.length === 0) return <Welcome />;
 
@@ -310,17 +324,18 @@ export default function Overview() {
           ))}
         </div>
 
-        <div className="card pad col" style={{ gap: 10, flexGrow: 1 }}>
+        <div className="card pad col" style={{ gap: 10, flexGrow: 1, minHeight: 200 }}>
           <div className="row" style={{ justifyContent: "space-between" }}>
             <span className="caps">Recent</span>
             <a href="#" className="small" onClick={(e) => (e.preventDefault(), go({ name: "activity" }))}>
               All activity
             </a>
           </div>
-          {recent.length === 0 && <span className="small muted">Nothing yet.</span>}
-          {recent.map((r) => (
-            <div key={r.id} className="row small" style={{ gap: 10, alignItems: "flex-start" }}>
-              <span className="mono faint" style={{ width: 70, fontSize: 11, flexShrink: 0 }}>
+          <div ref={listRef} className="col" style={{ flex: "1 1 0", minHeight: 0, overflow: "hidden", gap: ROW_GAP }}>
+            {recent.length === 0 && <span className="small muted">Nothing yet.</span>}
+            {recent.slice(0, fits).map((r) => (
+              <div key={r.id} className="row small" style={{ gap: 10, alignItems: "center", height: ROW_HEIGHT, flexShrink: 0 }}>
+              <span className="mono faint nowrap" style={{ width: 104, fontSize: 11, flexShrink: 0 }}>
                 {when(r.started).replace(/^Today /, "")}
               </span>
               <span className="grow ellipsis" title={r.message}>
@@ -329,8 +344,9 @@ export default function Overview() {
               <span style={{ color: r.result === "ok" ? "var(--accent-text)" : r.result === "failed" ? "var(--red)" : r.result === "cancelled" ? "var(--ink3)" : "var(--amber)" }}>
                 {r.result === "ok" ? "✓" : r.result === "failed" ? "Failed" : r.result === "cancelled" ? "Stopped" : r.result === "waiting" ? "Waiting" : "!"}
               </span>
-            </div>
-          ))}
+              </div>
+            ))}
+          </div>
         </div>
       </aside>
       {recovery && <RecoverySheet plan={recovery.id} name={recovery.name} onClose={() => setRecovery(null)} />}
