@@ -21,6 +21,15 @@ pub struct Made {
     pub access_key: String,
     #[serde(default, skip_serializing)]
     secret: String,
+    /// The S3 endpoint, when not Amazon's for the region (Backblaze's).
+    #[serde(default)]
+    pub endpoint: String,
+}
+
+impl Made {
+    pub fn new(region: String, bucket: String, access_key: String, secret: String, endpoint: String) -> Made {
+        Made { region, bucket, access_key, secret, endpoint }
+    }
 }
 
 const CANDIDATES: [&str; 3] = ["/opt/homebrew/bin/aws", "/usr/local/bin/aws", "/usr/bin/aws"];
@@ -131,7 +140,8 @@ pub fn parse(text: &str) -> Result<Made, String> {
 /// Saves the secret and waits for the new key to work: IAM takes a few seconds to tell S3.
 pub fn finish(m: Made) -> Result<Made, String> {
     keychain::set(&keychain::s3_account(&m.access_key), &m.secret)?;
-    let place = config::S3 { endpoint: endpoint(&m.region), region: m.region.clone(), bucket: m.bucket.clone(), prefix: String::new(), access_key: m.access_key.clone(), name: None };
+    let ep = if m.endpoint.is_empty() { endpoint(&m.region) } else { m.endpoint.clone() };
+    let place = config::S3 { endpoint: ep, region: m.region.clone(), bucket: m.bucket.clone(), prefix: String::new(), access_key: m.access_key.clone(), name: None };
     let b = places::s3_backend(&place, Some(m.secret.clone()), "")?;
     let start = Instant::now();
     loop {

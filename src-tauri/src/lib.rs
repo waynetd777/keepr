@@ -2,6 +2,7 @@
 //! scheduler. The backup engine itself is the keepr-engine crate (engine/).
 
 mod aws_setup;
+mod b2_setup;
 mod browse;
 mod config;
 mod core;
@@ -511,6 +512,19 @@ async fn aws_setup_info() -> AwsSetupInfo {
 #[tauri::command]
 async fn aws_setup_run(region: String, bucket: String, mode: aws_setup::Mode) -> Result<aws_setup::Made, String> {
     tauri::async_runtime::spawn_blocking(move || aws_setup::with_cli(region.trim(), bucket.trim(), mode)).await.map_err(|e| e.to_string())?
+}
+
+/// Backblaze B2: the buckets a master key can see.
+#[tauri::command]
+async fn b2_buckets(key_id: String, key: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || b2_setup::list(&key_id, &key)).await.map_err(|e| e.to_string())?
+}
+
+/// Backblaze B2: makes (or finds) the bucket and a key for it alone, from a master key that
+/// isn't kept.
+#[tauri::command]
+async fn b2_setup_run(key_id: String, key: String, bucket: String, mode: aws_setup::Mode) -> Result<aws_setup::Made, String> {
+    tauri::async_runtime::spawn_blocking(move || b2_setup::setup(&key_id, &key, &bucket, mode)).await.map_err(|e| e.to_string())?
 }
 
 /// Signs in to AWS through the browser and lists the buckets there.
@@ -1044,6 +1058,8 @@ pub fn run() {
             aws_setup_script,
             aws_setup_paste,
             aws_buckets,
+            b2_buckets,
+            b2_setup_run,
             aws_setup_end,
             check_s3_source,
             get_config,

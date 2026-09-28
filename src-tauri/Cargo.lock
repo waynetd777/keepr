@@ -2152,12 +2152,14 @@ dependencies = [
 name = "keepr"
 version = "0.1.25"
 dependencies = [
+ "base64 0.21.7",
  "block2",
  "chrono",
  "core-foundation",
  "core-foundation-sys",
  "keepr-engine",
  "libc",
+ "native-tls",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
@@ -2173,6 +2175,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-window-state",
  "tempfile",
+ "ureq",
 ]
 
 [[package]]
@@ -4691,6 +4694,8 @@ dependencies = [
  "log",
  "native-tls",
  "once_cell",
+ "serde",
+ "serde_json",
  "url",
 ]
 

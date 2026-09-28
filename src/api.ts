@@ -7,7 +7,7 @@ export type Smb = { server: string; share: string; folder: string; user: string;
 export type S3 = { endpoint: string; region: string; bucket: string; prefix: string; accessKey: string; name?: string | null };
 export type Place = { kind: "folder"; path: string; name?: string | null } | ({ kind: "smb" } & Smb) | ({ kind: "s3" } & S3);
 
-export type AwsMade = { region: string; bucket: string; accessKey: string };
+export type AwsMade = { region: string; bucket: string; accessKey: string; endpoint: string };
 
 export type DestKind = "folder" | "drive" | "cloud" | "smb" | "s3";
 
@@ -135,6 +135,8 @@ export const api = {
   awsSetupInfo: () => invoke<{ cli: boolean; bucket: string }>("aws_setup_info"),
   awsSetupRun: (region: string, bucket: string, mode: "destination" | "source" = "destination") => invoke<AwsMade>("aws_setup_run", { region, bucket, mode }),
   awsSetupScript: (region: string, bucket: string, mode: "destination" | "source" = "destination") => invoke<string>("aws_setup_script", { region, bucket, mode }),
+  b2Buckets: (keyId: string, key: string) => invoke<string[]>("b2_buckets", { keyId, key }),
+  b2SetupRun: (keyId: string, key: string, bucket: string, mode: "destination" | "source") => invoke<AwsMade>("b2_setup_run", { keyId, key, bucket, mode }),
   awsBuckets: (region: string) => invoke<string[]>("aws_buckets", { region }),
   awsSetupEnd: () => invoke<void>("aws_setup_end"),
   checkS3Source: (place: Place, secret?: string) => invoke<string>("check_s3_source", { place, secret: secret ?? null }),
