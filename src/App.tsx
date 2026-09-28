@@ -125,6 +125,12 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
           {running ? `Backing up ${ov?.job?.planName}` : `Watching ${watching} plan${watching === 1 ? "" : "s"}`}
         </span>
       )}
+      {(screen.name === "overview" || screen.name === "plans") && (ov?.plans.length ?? 0) > 0 && (
+        <button className="btn" onClick={() => go({ name: "plans", isNew: true })} title="Make a new backup plan ⌘N">
+          <Icon name="plus" size={13} stroke={2.4} />
+          New plan
+        </button>
+      )}
       {running ? (
         <>
           <div className="progress" style={{ width: 90, height: 6 }} aria-label="Progress">

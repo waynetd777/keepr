@@ -487,10 +487,6 @@ export default function Plans() {
                 }}
               />
             </label>
-            <button className="btn" onClick={() => go({ name: "plans", isNew: true })} title="Make another plan ⌘N">
-              <Icon name="plus" size={13} stroke={2.4} />
-              New plan
-            </button>
             <button className="iconbtn" aria-label="More" title="More" onClick={moreMenu.open}>
               <Icon name="more" />
             </button>
