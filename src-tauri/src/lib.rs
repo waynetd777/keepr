@@ -956,6 +956,28 @@ pub fn cli(args: &[String]) -> Option<i32> {
     // Before anything reads a file: both the app and these commands may meet cloud-only files.
     system::allow_cloud_downloads();
     match args.first().map(String::as_str) {
+        // Lists what's in an S3 destination's bucket, for looking into its size.
+        Some("--list-destination") if args.len() == 2 => {
+            let c: config::Config = config::read(&config::data_dir(), "config.json");
+            let Some(Place::S3(b)) = c.destinations.iter().find(|d| d.id == args[1]).map(|d| d.place.clone()) else {
+                eprintln!("no S3 destination {}", args[1]);
+                return Some(1);
+            };
+            let res = places::s3_backend(&b, None, "").and_then(|r| keepr_engine::backup::Remote::objects(&r).map_err(|e| e.to_string()));
+            match res {
+                Ok(objects) => {
+                    for o in &objects {
+                        println!("{:>12}  {}", o.size, o.key);
+                    }
+                    println!("{} objects, {} bytes", objects.len(), objects.iter().map(|o| o.size).sum::<u64>());
+                    return Some(0);
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    return Some(1);
+                }
+            }
+        }
         // Copies one plan's backup password to another, so a new plan can share it.
         Some("--copy-plan-password") if args.len() == 3 => {
             let Some(pw) = keychain::get(&keychain::plan_account(&args[1])) else {

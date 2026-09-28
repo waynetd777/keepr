@@ -70,6 +70,7 @@ mod tests {
 
 extern "C" {
     fn setiopolicy_np(iotype: libc::c_int, scope: libc::c_int, policy: libc::c_int) -> libc::c_int;
+    #[cfg(test)]
     fn getiopolicy_np(iotype: libc::c_int, scope: libc::c_int) -> libc::c_int;
 }
 
@@ -92,6 +93,7 @@ pub fn allow_cloud_downloads() {
     }
 }
 
+#[cfg(test)]
 pub fn cloud_downloads_allowed() -> bool {
     unsafe { getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_PROCESS) == IOPOL_MATERIALIZE_DATALESS_FILES_ON }
 }
