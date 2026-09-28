@@ -27,7 +27,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   const [shares, setShares] = useState<string[]>([]);
   const [user, setUser] = useState(smb?.user ?? "");
   const [password, setPassword] = useState("");
-  const [folder, setFolder] = useState(smb?.folder ?? "/Keepr");
+  const [folder, setFolder] = useState(smb?.folder ?? "/");
   const [path, setPath] = useState(editing?.place.kind === "folder" ? editing.place.path : "");
   const [keychain, setKeychain] = useState(true);
   // The name: suggested from the place until someone types one.
