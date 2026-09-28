@@ -1,6 +1,7 @@
 //! Keepr's app: the window's commands, the menu-bar item, and starting the job runner and the
 //! scheduler. The backup engine itself is the keepr-engine crate (engine/).
 
+mod aws_setup;
 mod browse;
 mod config;
 mod core;
@@ -492,6 +493,38 @@ fn test_bucket(s: &config::S3, secret: Option<String>) -> Result<f64, String> {
     Ok(4.0 * 1.048_576 / secs.max(0.001))
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AwsSetupInfo {
+    cli: bool,
+    bucket: String,
+}
+
+/// Whether Keepr can sign in to AWS through the browser (the AWS CLI is installed), and a free-looking bucket name.
+#[tauri::command]
+async fn aws_setup_info() -> AwsSetupInfo {
+    let cli = tauri::async_runtime::spawn_blocking(|| aws_setup::cli().is_some()).await.unwrap_or(false);
+    AwsSetupInfo { cli, bucket: aws_setup::suggest_bucket() }
+}
+
+/// Signs in through the browser and makes the bucket and its user.
+#[tauri::command]
+async fn aws_setup_run(region: String, bucket: String) -> Result<aws_setup::Made, String> {
+    tauri::async_runtime::spawn_blocking(move || aws_setup::with_cli(region.trim(), bucket.trim())).await.map_err(|e| e.to_string())?
+}
+
+/// The same setup as a script to paste into AWS CloudShell.
+#[tauri::command]
+fn aws_setup_script(region: String, bucket: String) -> Result<String, String> {
+    aws_setup::script(region.trim(), bucket.trim())
+}
+
+/// The line CloudShell printed at the end.
+#[tauri::command]
+async fn aws_setup_paste(text: String) -> Result<aws_setup::Made, String> {
+    tauri::async_runtime::spawn_blocking(move || aws_setup::parse(&text).and_then(aws_setup::finish)).await.map_err(|e| e.to_string())?
+}
+
 /// SMB servers to offer: ones Keepr already uses, ones mounted now, and ones on Bonjour.
 /// The cloud services' sync folders on this Mac, for Add a destination.
 #[tauri::command]
@@ -951,6 +984,10 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             overview,
+            aws_setup_info,
+            aws_setup_run,
+            aws_setup_script,
+            aws_setup_paste,
             get_config,
             history,
             run_log,

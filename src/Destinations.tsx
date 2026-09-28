@@ -2,7 +2,8 @@
 // SMB share, a cloud service's folder on this Mac, or an S3 bucket).
 
 import { useEffect, useState } from "react";
-import { api, type Destination, type Place, type Tested } from "./api";
+import { api, type AwsMade, type Destination, type Place, type Tested } from "./api";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useApp } from "./context";
 import { Icon } from "./icons";
 import { DestIcon, SAVED_PASSWORD, Seg, Sheet, useAct, useSavedLogin } from "./ui";
@@ -24,6 +25,85 @@ type Cloud = Awaited<ReturnType<typeof api.cloudFolders>>[number];
 /** Which cloud folder a path is in, if any. */
 function cloudOf(path: string, clouds: Cloud[]): Cloud | undefined {
   return clouds.find((c) => path === c.root || path.startsWith(c.root + "/"));
+}
+
+/** Makes a private bucket and a user that may only use it, by signing in to AWS in the browser
+ *  (with the AWS CLI) or with a script pasted into AWS CloudShell. */
+function AwsSetup({ region, setRegion, onMade }: { region: string; setRegion: (r: string) => void; onMade: (m: AwsMade) => void }) {
+  const act = useAct();
+  const [info, setInfo] = useState<{ cli: boolean; bucket: string } | null>(null);
+  const [bucket, setBucket] = useState("");
+  const [busy, setBusy] = useState("");
+  const [shell, setShell] = useState(false);
+  const [pasted, setPasted] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api.awsSetupInfo().then((i) => {
+      setInfo(i);
+      setBucket(i.bucket);
+    });
+  }, []);
+  const run = async (f: () => Promise<AwsMade>, doing: string) => {
+    setBusy(doing);
+    setError("");
+    try {
+      onMade(await f());
+    } catch (e) {
+      setError(String(e));
+    }
+    setBusy("");
+  };
+  const cloudShell = () =>
+    act(async () => {
+      const script = await api.awsSetupScript(region, bucket);
+      await navigator.clipboard.writeText(script);
+      setShell(true);
+      await openUrl(`https://${region}.console.aws.amazon.com/cloudshell/home?region=${region}`);
+    });
+  if (!info) return null;
+  return (
+    <div className="card col" style={{ padding: 14, gap: 10, background: "var(--sunk)" }}>
+      <span style={{ fontWeight: 600 }}>New to this? Let Keepr set it up</span>
+      <span className="small muted" style={{ lineHeight: 1.5 }}>
+        Keepr makes a private bucket and a user that can only reach that bucket, and keeps its key in your Keychain. You sign in with your own AWS login; Keepr doesn't keep it.
+      </span>
+      <div className="row" style={{ gap: 8 }}>
+        <label className="field grow">
+          <span>New bucket's name</span>
+          <input className="input mono" value={bucket} onChange={(e) => setBucket(e.target.value)} />
+        </label>
+        <label className="field" style={{ width: 180 }}>
+          <span>Region</span>
+          <input className="input mono" placeholder="eu-west-1" value={region} onChange={(e) => setRegion(e.target.value)} />
+        </label>
+      </div>
+      <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+        {info.cli && (
+          <button className="btn primary" disabled={!!busy || !bucket || !region} onClick={() => run(() => api.awsSetupRun(region, bucket), "Sign in in your browser, then come back here…")}>
+            Sign in to AWS and set up
+          </button>
+        )}
+        <button className={`btn${info.cli ? "" : " primary"}`} disabled={!!busy || !bucket || !region} onClick={cloudShell}>
+          {info.cli ? "Use CloudShell instead" : "Set up in AWS CloudShell"}
+        </button>
+        <span className="small muted grow">{busy}</span>
+      </div>
+      {shell && (
+        <div className="col" style={{ gap: 6 }}>
+          <span className="small muted" style={{ lineHeight: 1.5 }}>
+            The setup is copied. In CloudShell, paste it (⌘V) and press Return. When it's done, copy the line starting <span className="mono">keepr-setup</span> and paste it here.
+          </span>
+          <div className="row" style={{ gap: 8 }}>
+            <input className="input mono grow" placeholder="keepr-setup {…}" value={pasted} onChange={(e) => setPasted(e.target.value)} />
+            <button className="btn" disabled={!!busy || !pasted.includes("keepr-setup")} onClick={() => run(() => api.awsSetupPaste(pasted), "Checking the new key…")}>
+              Use it
+            </button>
+          </div>
+        </div>
+      )}
+      {error && <span className="small" style={{ color: "var(--red)" }}>{error}</span>}
+    </div>
+  );
 }
 
 export function AddDestination({ onClose, editing }: { onClose: () => void; editing?: Destination }) {
@@ -52,6 +132,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   const [prefix, setPrefix] = useState(s3?.prefix ?? "");
   const [accessKey, setAccessKey] = useState(s3?.accessKey ?? "");
   const [secret, setSecret] = useState("");
+  const [secretSaved, setSecretSaved] = useState(false);
   // The name: suggested from the place until someone types one.
   const [name, setName] = useState(editing?.name ?? "");
   const [named, setNamed] = useState(!!editing);
@@ -87,7 +168,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   const cloudPath = cloud ? `${cloud.root}/${inCloud.trim().replace(/^\/+|\/+$/g, "")}`.replace(/\/$/, "") : "";
   const s3Endpoint = service === "aws" ? `https://s3.${region.trim()}.amazonaws.com` : service === "b2" ? `https://s3.${region.trim()}.backblazeb2.com` : service === "r2" ? `https://${r2Account.trim()}.r2.cloudflarestorage.com` : endpoint.trim();
   const place: Place = kind === "s3" ? { kind: "s3", endpoint: s3Endpoint, region: service === "r2" ? "auto" : region.trim(), bucket: bucket.trim(), prefix: prefix.trim().replace(/^\/+|\/+$/g, ""), accessKey: accessKey.trim() } : kind === "smb" ? { kind: "smb", server: server.trim(), share: share.trim(), folder: folder.trim() || "/", user: user.trim() } : { kind: "folder", path: kind === "cloud" ? cloudPath : path };
-  const ready = kind === "s3" ? !!(bucket.trim() && accessKey.trim() && (secret || s3) && (service === "r2" ? r2Account.trim() : service === "other" ? endpoint.trim() : region.trim())) : kind === "smb" ? !!(server && share) : kind === "cloud" ? !!cloud : !!path;
+  const ready = kind === "s3" ? !!(bucket.trim() && accessKey.trim() && (secret || s3 || secretSaved) && (service === "r2" ? r2Account.trim() : service === "other" ? endpoint.trim() : region.trim())) : kind === "smb" ? !!(server && share) : kind === "cloud" ? !!cloud : !!path;
   useEffect(() => {
     if (named || !ready) return;
     const t = window.setTimeout(() => api.suggestName(place, editing?.id).then(setName), 200);
@@ -213,6 +294,22 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
                   ["other", "Other"],
                 ]}
               />
+              {service === "aws" && !s3 && !secretSaved && (
+                <AwsSetup region={region} setRegion={setRegion} onMade={(m) => {
+                  setRegion(m.region);
+                  setBucket(m.bucket);
+                  setAccessKey(m.accessKey);
+                  setSecret("");
+                  setSecretSaved(true);
+                }} />
+              )}
+              {secretSaved && (
+                <div role="status" className="banner good">
+                  <Icon name="check" size={18} stroke={2.4} />
+                  <span className="text">Made {bucket}, and a user that can only use it. Its key is in your Keychain. Add the destination to finish.</span>
+                </div>
+              )}
+              {service === "aws" && !s3 && !secretSaved && <span className="small muted">Or use a bucket and key you already have:</span>}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px 14px" }}>
                 {service === "r2" ? (
                   <label className="field" style={{ gridColumn: "span 2" }}>
@@ -251,7 +348,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
                 </label>
                 <label className="field">
                   <span>Secret access key</span>
-                  <input className="input" type="password" placeholder={s3 ? "Unchanged" : ""} value={secret} onChange={(e) => setSecret(e.target.value)} />
+                  <input className="input" type="password" placeholder={s3 ? "Unchanged" : secretSaved ? "Saved in your Keychain" : ""} value={secret} onChange={(e) => setSecret(e.target.value)} />
                 </label>
               </div>
               <span className="small faint">

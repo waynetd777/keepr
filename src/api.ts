@@ -7,6 +7,8 @@ export type Smb = { server: string; share: string; folder: string; user: string;
 export type S3 = { endpoint: string; region: string; bucket: string; prefix: string; accessKey: string; name?: string | null };
 export type Place = { kind: "folder"; path: string; name?: string | null } | ({ kind: "smb" } & Smb) | ({ kind: "s3" } & S3);
 
+export type AwsMade = { region: string; bucket: string; accessKey: string };
+
 export type DestKind = "folder" | "drive" | "cloud" | "smb" | "s3";
 
 export type Destination = { id: string; name: string; place: Place; disconnectAfter: boolean };
@@ -130,6 +132,10 @@ export const api = {
   deleteDestination: (id: string) => invoke<void>("delete_destination", { id }),
   suggestName: (place: Place, except?: string) => invoke<string>("suggest_name", { place, except: except ?? null }),
   testPlace: (place: Place, password?: string) => invoke<Tested>("test_place", { place, password: password ?? null }),
+  awsSetupInfo: () => invoke<{ cli: boolean; bucket: string }>("aws_setup_info"),
+  awsSetupRun: (region: string, bucket: string) => invoke<AwsMade>("aws_setup_run", { region, bucket }),
+  awsSetupScript: (region: string, bucket: string) => invoke<string>("aws_setup_script", { region, bucket }),
+  awsSetupPaste: (text: string) => invoke<AwsMade>("aws_setup_paste", { text }),
   cloudFolders: () => invoke<{ name: string; provider: string; root: string; live: boolean; why: string; free: number | null }[]>("cloud_folders"),
   discoverServers: () => invoke<string[]>("discover_servers"),
   savedSmbLogin: (server: string) => invoke<{ user: string; source: "keepr" | "finder" } | null>("saved_smb_login", { server }),
