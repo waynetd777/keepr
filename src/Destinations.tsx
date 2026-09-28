@@ -9,10 +9,10 @@ import { Icon } from "./icons";
 import { DestIcon, SAVED_PASSWORD, Seg, Sheet, useAct, useSavedLogin } from "./ui";
 import { bytes, tilde } from "./format";
 
-type Service = "aws" | "b2" | "r2" | "other";
+export type Service = "aws" | "b2" | "r2" | "other";
 
 /** The S3 service an endpoint belongs to, and what the form needs to rebuild it. */
-function serviceOf(endpoint: string): { service: Service; r2Account: string } {
+export function serviceOf(endpoint: string): { service: Service; r2Account: string } {
   const host = endpoint.replace(/^[a-z]+:\/\//, "").split(/[/:]/)[0];
   if (!endpoint || host.endsWith(".amazonaws.com")) return { service: "aws", r2Account: "" };
   if (host.endsWith(".backblazeb2.com")) return { service: "b2", r2Account: "" };

@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { api, type Every, type Often, type Place, type Plan, type Retention } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
+import { S3SourceSheet } from "./S3Source";
 import { DestIcon, PlanProgress, SAVED_PASSWORD, Seg, Sheet, Switch, useAct, useMenu, useSavedLogin, useToast } from "./ui";
 import { ago, bytes, next, tilde } from "./format";
 
@@ -41,7 +42,7 @@ function placeLabel(p: Place, home: string): { title: string; sub: string } {
     const vol = p.path.startsWith("/Volumes/") ? p.path.split("/")[2] : null;
     return { title: p.name?.trim() || name, sub: `${tilde(p.path, home)} · ${vol ? `on ${vol}` : "folder on this Mac"}` };
   }
-  if (p.kind === "s3") return { title: p.name?.trim() || p.bucket, sub: `s3://${p.bucket} · S3 bucket` };
+  if (p.kind === "s3") return { title: p.name?.trim() || (p.prefix ? p.prefix.split("/").pop()! : p.bucket), sub: `s3://${p.bucket}${p.prefix ? `/${p.prefix}` : ""} · S3 bucket` };
   const folder = p.folder.replace(/^\/+|\/+$/g, "");
   return { title: p.name?.trim() || (folder ? folder.split("/").pop()! : p.share), sub: `smb://${p.server}/${p.share}${folder ? `/${folder}` : ""} · SMB share` };
 }
@@ -380,7 +381,7 @@ export default function Plans() {
   const [newPassword, setNewPassword] = useState("");
   const [newPassword2, setNewPassword2] = useState("");
   const [ruleText, setRuleText] = useState("");
-  const [sheet, setSheet] = useState<"" | "smb" | "password" | "recovery">("");
+  const [sheet, setSheet] = useState<"" | "smb" | "s3" | "password" | "recovery">("");
   const [removing, setRemoving] = useState<number | null>(null);
   const addMenu = useMenu();
   const moreMenu = useMenu();
@@ -562,7 +563,7 @@ export default function Plans() {
               const fallback = defaultNames(plan.sources, home)[i];
               return (
                 <div key={i} className="source-row">
-                  <Icon name={s.kind === "smb" ? "server" : "folder"} size={20} style={{ color: "var(--accent)" }} />
+                  <Icon name={s.kind === "smb" ? "server" : s.kind === "s3" ? "bucket" : "folder"} size={20} style={{ color: "var(--accent)" }} />
                   <div className="grow col" style={{ gap: 1 }}>
                     <input
                       aria-label="Source name"
@@ -597,17 +598,10 @@ export default function Plans() {
                 <Icon name="server" />
                 <span className="grow">SMB share on the network…</span>
               </button>
-              <hr />
-              <div className="tiny faint" style={{ padding: "4px 10px 2px" }}>
-                Coming later
-              </div>
-              <div className="row" style={{ flexWrap: "wrap", gap: 6, padding: "4px 10px 8px" }}>
-                {["S3 bucket"].map((c) => (
-                  <span key={c} className="chip">
-                    {c}
-                  </span>
-                ))}
-              </div>
+              <button onClick={() => setSheet("s3")}>
+                <Icon name="bucket" />
+                <span className="grow">S3 bucket…</span>
+              </button>
             </addMenu.Menu>
           </section>
 
@@ -876,6 +870,7 @@ export default function Plans() {
         />
       )}
       {sheet === "smb" && <SmbSourceSheet onClose={() => setSheet("")} onAdd={(s) => update((p) => ({ ...p, sources: [...p.sources, s], name: p.name || (s.kind === "smb" ? s.share : "") }))} />}
+      {sheet === "s3" && <S3SourceSheet onClose={() => setSheet("")} onAdd={(s) => update((p) => ({ ...p, sources: [...p.sources, s], name: p.name || (s.kind === "s3" ? s.bucket : "") }))} />}
       {sheet === "password" && <PasswordSheet plan={plan} onClose={() => setSheet("")} />}
       {sheet === "recovery" && <RecoverySheet plan={plan.id} name={plan.name} onClose={() => setSheet("")} />}
     </div>
