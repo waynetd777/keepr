@@ -433,6 +433,11 @@ async fn list_shares(server: String, user: String, password: Option<String>) -> 
 }
 
 #[tauri::command]
+fn save_smb_password(server: String, user: String, password: String) -> Result<(), String> {
+    keychain::set(&keychain::smb_account(&user, &server), &password)
+}
+
+#[tauri::command]
 fn has_password(account_kind: String, id: String, user: Option<String>) -> bool {
     let acct = match account_kind.as_str() {
         "plan" => keychain::plan_account(&id),
@@ -705,6 +710,31 @@ fn toggle_tray_window(app: &AppHandle, rect: tauri::Rect) {
     let _ = w.emit("tray-opened", ());
 }
 
+/// `Keepr --back-up <plan id>…`: runs those backups without a window and exits, for scripts
+/// (tools/screenshots.py makes its demo backups this way). Exit status 1 if any didn't complete.
+pub fn cli(args: &[String]) -> Option<i32> {
+    if args.first().map(String::as_str) != Some("--back-up") {
+        return None;
+    }
+    let core = Core::new(config::data_dir(), Box::new(|_, _| {}), Box::new(|t, b| eprintln!("{t}: {b}")), false);
+    core.start();
+    let before = core.state.lock().unwrap().history.len();
+    for id in &args[1..] {
+        core.enqueue(Job::Backup { plan: id.clone(), full: false });
+    }
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    while core.running() || core.busy_with_any() {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let st = core.state.lock().unwrap();
+    let mut ok = true;
+    for r in &st.history[before..] {
+        println!("{} {}: {}", r.kind, r.result, r.message);
+        ok &= r.result == "ok" || r.result == "warning";
+    }
+    Some(if ok { 0 } else { 1 })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let frozen = scene().is_some();
@@ -727,6 +757,7 @@ pub fn run() {
             test_place,
             discover_servers,
             list_shares,
+            save_smb_password,
             has_password,
             recovery_key,
             recovery_saved,

@@ -173,7 +173,7 @@ impl Core {
             emit,
             notify,
             frozen,
-            still_copies: std::sync::atomic::AtomicBool::new(true),
+            still_copies: std::sync::atomic::AtomicBool::new(std::env::var_os("KEEPR_NO_STILL").is_none()),
         })
     }
 
@@ -227,6 +227,10 @@ impl Core {
 
     pub fn busy_with(&self, plan: &str) -> bool {
         self.current.lock().unwrap().as_ref().is_some_and(|c| c.job.plan() == plan) || self.queue.lock().unwrap().iter().any(|(_, j)| j.plan() == plan)
+    }
+
+    pub fn busy_with_any(&self) -> bool {
+        !self.queue.lock().unwrap().is_empty()
     }
 
     pub fn running(&self) -> bool {

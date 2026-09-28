@@ -1,0 +1,163 @@
+// Shared controls: the app's own tooltip (never macOS's), switches, segmented controls, sheets,
+// pop-up menus and a toast for passing messages.
+
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+
+/** Every tooltip in the app. Give an element a `title` (or an icon-only button an aria-label). */
+export function Tooltips() {
+  const [tip, setTip] = useState<{ text: string; x: number; y: number; side: "below" | "above" | "right" } | null>(null);
+  useEffect(() => {
+    let timer: number | undefined;
+    let el: HTMLElement | null = null;
+    const hide = () => {
+      window.clearTimeout(timer);
+      el = null;
+      setTip(null);
+    };
+    const over = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const t = (target.closest?.("[title], [data-tip]") ?? target.closest?.("button[aria-label]")) as HTMLElement | null;
+      if (t === el) return;
+      hide();
+      if (!t) return;
+      if (t.title) {
+        t.dataset.tip = t.title;
+        t.removeAttribute("title");
+      }
+      const text = t.dataset.tip || (!t.textContent?.trim() ? t.getAttribute("aria-label") : null);
+      if (!text) return;
+      el = t;
+      timer = window.setTimeout(() => {
+        if (el !== t || !t.isConnected || document.documentElement.dataset.scene) return;
+        const r = t.getBoundingClientRect();
+        const x = Math.max(150, Math.min(r.left + r.width / 2, window.innerWidth - 150));
+        if (t.closest(".sidebar")) setTip({ text, side: "right", x: r.right + 8, y: r.top + r.height / 2 });
+        else if (r.bottom + 44 > window.innerHeight) setTip({ text, side: "above", x, y: r.top - 6 });
+        else setTip({ text, side: "below", x, y: r.bottom + 6 });
+      }, 450);
+    };
+    document.addEventListener("mouseover", over);
+    document.addEventListener("mousedown", hide, true);
+    document.addEventListener("scroll", hide, true);
+    window.addEventListener("blur", hide);
+    return () => {
+      hide();
+      document.removeEventListener("mouseover", over);
+      document.removeEventListener("mousedown", hide, true);
+      document.removeEventListener("scroll", hide, true);
+      window.removeEventListener("blur", hide);
+    };
+  }, []);
+  if (!tip) return null;
+  const style: React.CSSProperties =
+    tip.side === "right" ? { left: tip.x, top: tip.y, transform: "translateY(-50%)" } : { left: tip.x, top: tip.y, transform: tip.side === "above" ? "translate(-50%, -100%)" : "translateX(-50%)" };
+  return (
+    <div className="tip" role="tooltip" style={style}>
+      {tip.text}
+    </div>
+  );
+}
+
+export function Switch({ on, onChange, label, disabled }: { on: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
+  return <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={disabled} className={`switch${on ? " on" : ""}`} onClick={() => onChange(!on)} />;
+}
+
+export function Seg<T extends string>({ value, options, onChange, label }: { value: T; options: [T, string][]; onChange: (v: T) => void; label: string }) {
+  return (
+    <div className="seg" role="group" aria-label={label}>
+      {options.map(([v, text]) => (
+        <button key={v} type="button" aria-pressed={v === value} className={v === value ? "on" : ""} onClick={() => onChange(v)}>
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function Sheet({ title, subtitle, width = 620, onClose, children, foot }: { title: string; subtitle?: ReactNode; width?: number; onClose: () => void; children: ReactNode; foot?: ReactNode }) {
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [onClose]);
+  return (
+    <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <section role="dialog" aria-modal="true" aria-label={title} className="sheet" style={{ width }}>
+        <div className="sheet-head">
+          <h2>{title}</h2>
+          {subtitle && <span className="muted">{subtitle}</span>}
+        </div>
+        {children}
+        {foot && <div className="sheet-foot">{foot}</div>}
+      </section>
+    </div>
+  );
+}
+
+/** A pop-up menu under the element that opened it; closes on a click elsewhere or Escape. */
+export function useMenu() {
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!at) return;
+    const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setAt(null);
+    const key = (e: KeyboardEvent) => e.key === "Escape" && setAt(null);
+    window.addEventListener("mousedown", down, true);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("mousedown", down, true);
+      window.removeEventListener("keydown", key);
+    };
+  }, [at]);
+  const open = (e: React.MouseEvent) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setAt(at ? null : { x: r.left, y: r.bottom + 4 });
+  };
+  const Menu = ({ children, width = 260 }: { children: ReactNode; width?: number }) =>
+    at ? (
+      <div ref={ref} className="menu" role="menu" style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - width - 12), top: at.y, width }} onClick={() => setAt(null)}>
+        {children}
+      </div>
+    ) : null;
+  return { open, close: () => setAt(null), Menu, isOpen: !!at };
+}
+
+const ToastContext = createContext<(msg: string) => void>(() => {});
+
+export function ToastProvider({ children }: { children: ReactNode }) {
+  const [msg, setMsg] = useState<string | null>(null);
+  const timer = useRef<number>(undefined);
+  const show = useCallback((m: string) => {
+    setMsg(m);
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setMsg(null), 5000);
+  }, []);
+  return (
+    <ToastContext.Provider value={show}>
+      {children}
+      {msg && (
+        <div className="toast" role="status" onClick={() => setMsg(null)}>
+          {msg}
+        </div>
+      )}
+    </ToastContext.Provider>
+  );
+}
+
+export const useToast = () => useContext(ToastContext);
+
+/** Runs an action and shows its error, if any, as a toast. */
+export function useAct() {
+  const toast = useToast();
+  return useCallback(
+    async <T,>(f: () => Promise<T>): Promise<T | undefined> => {
+      try {
+        return await f();
+      } catch (e) {
+        toast(String(e));
+        return undefined;
+      }
+    },
+    [toast],
+  );
+}

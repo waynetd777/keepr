@@ -1,0 +1,744 @@
+// A backup plan: what to keep, what to leave out, which versions to keep, where, when, full and
+// incremental, and encryption. Changes to an existing plan are saved as they are made; a new
+// plan is saved with Create.
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
+import { api, type Every, type Often, type Place, type Plan, type Retention } from "./api";
+import { useApp } from "./App";
+import { Icon } from "./icons";
+import { Seg, Sheet, Switch, useAct, useMenu, useToast } from "./ui";
+import { ago, bytes, next, tilde } from "./format";
+
+const DEFAULT_RETENTION: Retention = { allHours: 24, dailyDays: 30, weeklyWeeks: 52, monthlyMonths: 0, keepDeletedDays: 90 };
+
+function blankPlan(dest: string, excludes: string[]): Plan {
+  return {
+    id: "",
+    name: "",
+    enabled: true,
+    sources: [],
+    destination: dest,
+    folder: "",
+    schedule: { every: "hourly", at: "02:00", weekday: 0 },
+    retention: DEFAULT_RETENTION,
+    excludes,
+    gitignore: true,
+    skipCloudOnly: true,
+    maxFileSize: 0,
+    encrypted: true,
+    fullEvery: "weekly",
+    checkEvery: "weekly",
+    conditions: { catchUp: true, minBattery: 20, noHotspot: true, limitMbps: 0 },
+  };
+}
+
+function placeLabel(p: Place, home: string): { title: string; sub: string } {
+  if (p.kind === "folder") {
+    const name = p.path.split("/").filter(Boolean).pop() ?? p.path;
+    const vol = p.path.startsWith("/Volumes/") ? p.path.split("/")[2] : null;
+    return { title: name, sub: `${tilde(p.path, home)} · ${vol ? `on ${vol}` : "folder on this Mac"}` };
+  }
+  const folder = p.folder.replace(/^\/+|\/+$/g, "");
+  return { title: folder ? folder.split("/").pop()! : p.share, sub: `smb://${p.server}/${p.share}${folder ? `/${folder}` : ""} · SMB share` };
+}
+
+// ---- versions to keep ----
+
+function Ticks({ r }: { r: Retention }) {
+  // Sixty ticks from now into the past, denser where more versions are kept.
+  const ticks = useMemo(() => {
+    const out: { h: number; on: boolean }[] = [];
+    for (let i = 0; i < 60; i++) {
+      let on: boolean;
+      let h: number;
+      if (i < 12) [on, h] = [r.allHours > 0, 24];
+      else if (i < 30) [on, h] = [r.dailyDays > 0 && i % 2 === 0, 20];
+      else if (i < 48) [on, h] = [r.weeklyWeeks > 0 && i % 4 === 0, 16];
+      else [on, h] = [(r.monthlyMonths === 0 || i < 48 + r.monthlyMonths / 2) && i % 6 === 0, 12];
+      out.push({ h: on ? h : 4, on });
+    }
+    return out;
+  }, [r]);
+  return (
+    <div className="ticks" aria-hidden="true">
+      {ticks.map((t, i) => (
+        <div key={i}>
+          <div style={{ height: t.h, background: t.on ? "var(--accent)" : "var(--line2)" }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function KeepBox({ label, value, options, onChange }: { label: string; value: number; options: [number, string][]; onChange: (v: number) => void }) {
+  return (
+    <label className="keep-box">
+      <span className="tiny faint">{label}</span>
+      <select value={value} onChange={(e) => onChange(Number(e.target.value))}>
+        {options.map(([v, t]) => (
+          <option key={v} value={v}>
+            {t}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+// ---- sheets ----
+
+export function RecoverySheet({ plan, name, onClose }: { plan: string; name: string; onClose: () => void }) {
+  const [key, setKey] = useState<string | null>(null);
+  const toast = useToast();
+  useEffect(() => {
+    api.recoveryKey(plan).then(setKey);
+  }, [plan]);
+  return (
+    <Sheet
+      title={`${name}: recovery key`}
+      subtitle="If the password is ever lost, this key still opens the backup. Keep it somewhere other than this Mac: printed, or in a password manager."
+      onClose={onClose}
+      foot={
+        <>
+          <button className="btn" disabled={!key} onClick={() => key && navigator.clipboard.writeText(key).then(() => toast("Recovery key copied."))}>
+            Copy
+          </button>
+          <span className="grow" />
+          <button className="btn" onClick={onClose}>
+            Later
+          </button>
+          <button
+            className="btn primary"
+            onClick={async () => {
+              await api.recoverySaved(plan);
+              onClose();
+            }}
+          >
+            I've saved it
+          </button>
+        </>
+      }
+    >
+      <div className="sheet-body">
+        {key ? (
+          <div className="mono" style={{ fontSize: 18, letterSpacing: "0.04em", padding: "18px 16px", background: "var(--sunk)", borderRadius: 10, textAlign: "center", userSelect: "text", wordBreak: "break-all" }}>
+            {key}
+          </div>
+        ) : (
+          <span className="muted">The recovery key is made with the first backup. Back up once, then come back here.</span>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
+function PasswordSheet({ plan, onClose }: { plan: Plan; onClose: () => void }) {
+  const [cur, setCur] = useState("");
+  const [pw, setPw] = useState("");
+  const [again, setAgain] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const toast = useToast();
+  const ok = cur && pw.length >= 8 && pw === again;
+  return (
+    <Sheet
+      title="Change password"
+      subtitle="The recovery key keeps working. Nothing in the backup is rewritten."
+      onClose={onClose}
+      width={480}
+      foot={
+        <>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="btn primary"
+            disabled={!ok || busy}
+            onClick={async () => {
+              setBusy(true);
+              setErr("");
+              try {
+                await api.changePassword(plan.id, cur, pw);
+                toast("Password changed.");
+                onClose();
+              } catch (e) {
+                setErr(String(e));
+              }
+              setBusy(false);
+            }}
+          >
+            {busy ? "Changing…" : "Change password"}
+          </button>
+        </>
+      }
+    >
+      <div className="sheet-body">
+        <label className="field">
+          <span>Current password, or the recovery key</span>
+          <input className="input" type="password" value={cur} onChange={(e) => setCur(e.target.value)} autoFocus />
+        </label>
+        <label className="field">
+          <span>New password (at least 8 characters)</span>
+          <input className="input" type="password" value={pw} onChange={(e) => setPw(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>New password again</span>
+          <input className="input" type="password" value={again} onChange={(e) => setAgain(e.target.value)} />
+        </label>
+        {err && <span style={{ color: "var(--red)" }}>{err}</span>}
+      </div>
+    </Sheet>
+  );
+}
+
+export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; onClose: () => void }) {
+  const [servers, setServers] = useState<string[]>([]);
+  const [server, setServer] = useState("");
+  const [user, setUser] = useState("");
+  const [password, setPassword] = useState("");
+  const [share, setShare] = useState("");
+  const [shares, setShares] = useState<string[]>([]);
+  const [folder, setFolder] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.discoverServers().then(setServers);
+  }, []);
+  const place: Place = { kind: "smb", server: server.trim(), share: share.trim(), folder: folder.trim(), user: user.trim() };
+  return (
+    <Sheet
+      title="Back up a folder on a share"
+      subtitle="Keepr connects to the share when it backs up, and disconnects afterwards."
+      onClose={onClose}
+      width={560}
+      foot={
+        <>
+          <span className="grow small muted">{msg}</span>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="btn primary"
+            disabled={!server || !share || busy}
+            onClick={async () => {
+              setBusy(true);
+              setMsg("Connecting…");
+              const t = await api.testPlace(place, password).catch((e) => ({ ok: false, message: String(e) }));
+              setBusy(false);
+              if (!t.ok) return setMsg(t.message);
+              if (password) await invoke("save_smb_password", { server: place.server, user: place.user, password });
+              onAdd(place);
+              onClose();
+            }}
+          >
+            Add
+          </button>
+        </>
+      }
+    >
+      <div className="sheet-body">
+        {servers.length > 0 && (
+          <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+            {servers.map((s) => (
+              <button key={s} className={`btn small${server === `${s}.local` ? " primary" : ""}`} onClick={() => setServer(`${s}.local`)}>
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px 14px" }}>
+          <label className="field" style={{ gridColumn: "span 2" }}>
+            <span>Server</span>
+            <input className="input mono" placeholder="keep-nas.local" value={server} onChange={(e) => setServer(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>User name</span>
+            <input className="input" value={user} onChange={(e) => setUser(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>Password</span>
+            <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>Share</span>
+            <div className="row" style={{ gap: 6 }}>
+              <input className="input grow" list="smb-shares" value={share} onChange={(e) => setShare(e.target.value)} />
+              <button
+                className="btn"
+                disabled={!server}
+                onClick={async () => {
+                  setMsg("Asking for its shares…");
+                  try {
+                    const s = await api.listShares(server, user, password);
+                    setShares(s);
+                    if (!share && s[0]) setShare(s[0]);
+                    setMsg("");
+                  } catch (e) {
+                    setMsg(String(e));
+                  }
+                }}
+              >
+                List
+              </button>
+            </div>
+            <datalist id="smb-shares">
+              {shares.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+          </label>
+          <label className="field">
+            <span>Folder in the share</span>
+            <input className="input mono" placeholder="/ for all of it" value={folder} onChange={(e) => setFolder(e.target.value)} />
+          </label>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+// ---- the editor ----
+
+export default function Plans() {
+  const { cfg, ov, screen, go, home, refresh } = useApp();
+  const act = useAct();
+  const toast = useToast();
+  const wantedId = screen.name === "plans" ? screen.plan : undefined;
+  const isNew = screen.name === "plans" && !!screen.isNew;
+  const existing = cfg?.plans.find((p) => p.id === (wantedId ?? cfg?.plans[0]?.id));
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [newPassword2, setNewPassword2] = useState("");
+  const [ruleText, setRuleText] = useState("");
+  const [sheet, setSheet] = useState<"" | "smb" | "password" | "recovery">("");
+  const addMenu = useMenu();
+  const moreMenu = useMenu();
+  const saveTimer = useRef<number>(undefined);
+
+  useEffect(() => {
+    if (isNew) {
+      api.defaultExcludes().then((ex) => setPlan(blankPlan(cfg?.destinations[0]?.id ?? "", ex)));
+    } else if (existing) {
+      setPlan(structuredClone(existing));
+    }
+    // Loaded once per plan; later saves come back through the config without replacing edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNew, existing?.id]);
+
+  if (!cfg) return null;
+  if (!isNew && !existing) {
+    return (
+      <div className="content">
+        <div className="empty">
+          <h1>No plans yet</h1>
+          <span>A plan says what to back up, where to, and how often.</span>
+          <button className="btn primary" disabled={cfg.destinations.length === 0} onClick={() => go({ name: "plans", isNew: true })}>
+            Make a plan
+          </button>
+          {cfg.destinations.length === 0 && (
+            <a href="#" onClick={(e) => (e.preventDefault(), go({ name: "destinations", add: true }))}>
+              First, add a destination
+            </a>
+          )}
+        </div>
+      </div>
+    );
+  }
+  if (!plan) return null;
+
+  const summary = ov?.plans.find((p) => p.id === plan.id);
+  const created = !!plan.id && (summary?.snapshots ?? 0) > 0;
+  const dest = cfg.destinations.find((d) => d.id === plan.destination);
+
+  const update = (f: (p: Plan) => Plan) => {
+    const nextPlan = f(structuredClone(plan));
+    setPlan(nextPlan);
+    if (!nextPlan.id) return; // a new plan is saved with Create
+    window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => {
+      act(async () => {
+        await api.savePlan(nextPlan);
+        await refresh();
+      });
+    }, 500);
+  };
+
+  const create = async () => {
+    if (plan.encrypted && (newPassword.length < 8 || newPassword !== newPassword2)) {
+      toast(newPassword.length < 8 ? "Use a password of at least 8 characters." : "The two passwords aren't the same.");
+      return;
+    }
+    const saved = await act(() => api.savePlan({ ...plan, name: plan.name.trim() || placeLabel(plan.sources[0] ?? { kind: "folder", path: "Plan" }, home).title }, plan.encrypted ? newPassword : undefined));
+    if (saved) {
+      await refresh();
+      go({ name: "plans", plan: saved.id });
+      api.backUp(saved.id);
+      toast(`${saved.name} is set up. Its first backup has started.`);
+    }
+  };
+
+  const addFolders = async () => {
+    const picked = await openDialog({ directory: true, multiple: true, title: "Choose folders to back up" });
+    const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+    if (paths.length) update((p) => ({ ...p, sources: [...p.sources, ...paths.filter((x) => !p.sources.some((s) => s.kind === "folder" && s.path === x)).map((path) => ({ kind: "folder" as const, path }))], name: p.name || (paths[0].split("/").pop() ?? "") }));
+  };
+
+  const r = plan.retention;
+  const setR = (k: keyof Retention, v: number) => update((p) => ({ ...p, retention: { ...p.retention, [k]: v } }));
+  const everyOptions: [Every, string][] = [
+    ["minutes15", "Every 15 min"],
+    ["hourly", "Hourly"],
+    ["daily", "Daily"],
+    ["weekly", "Weekly"],
+    ["manual", "Only when I ask"],
+  ];
+
+  return (
+    <div className="content col" style={{ gap: 18 }}>
+      <div className="row" style={{ gap: 12 }}>
+        <div className="grow col" style={{ gap: 4 }}>
+          <input
+            aria-label="Plan name"
+            className="input"
+            placeholder="Name this plan"
+            value={plan.name}
+            onChange={(e) => update((p) => ({ ...p, name: e.target.value }))}
+            style={{ border: 0, padding: 0, height: 40, fontFamily: "var(--display)", fontWeight: 650, letterSpacing: "-0.02em", fontSize: 30, background: "transparent" }}
+          />
+          <span className="small muted">
+            {!plan.id ? "A new plan. It's saved when you create it." : summary?.lastSuccess ? `Last backup ${ago(summary.lastSuccess)}. ${plan.enabled && summary.nextRun ? `Next ${next(summary.nextRun)}.` : ""} Changes are saved as you make them.` : "Changes are saved as you make them."}
+          </span>
+        </div>
+        {plan.id ? (
+          <>
+            <label className="row small muted" style={{ gap: 8 }}>
+              Plan on
+              <Switch label="Plan on" on={plan.enabled} onChange={(v) => update((p) => ({ ...p, enabled: v }))} />
+            </label>
+            <button className="iconbtn" aria-label="More" title="More" onClick={moreMenu.open}>
+              <Icon name="more" />
+            </button>
+            <moreMenu.Menu>
+              <button onClick={() => api.backUp(plan.id, true)}>Back up everything now (full)</button>
+              <button onClick={() => api.checkNow(plan.id, false)}>Check a sample of the backup now</button>
+              <button onClick={() => api.checkNow(plan.id, true)}>Check all of the backup now</button>
+              <hr />
+              <button
+                onClick={async () => {
+                  const { ask } = await import("@tauri-apps/plugin-dialog");
+                  if (await ask(`Start a new backup for ${plan.name}? Use this only if the old one is gone for good: Keepr makes a new, empty backup at ${dest?.name}.`, { title: "Start a new backup", kind: "warning" })) act(() => api.startNewBackup(plan.id));
+                }}
+              >
+                Start a new backup…
+              </button>
+              <button
+                style={{ color: "var(--red)" }}
+                onClick={async () => {
+                  const { ask } = await import("@tauri-apps/plugin-dialog");
+                  if (await ask(`Delete the plan ${plan.name}? Its backup stays at ${dest?.name} and isn't deleted.`, { title: "Delete plan", kind: "warning" })) {
+                    await act(() => api.deletePlan(plan.id));
+                    await refresh();
+                    go({ name: "overview" });
+                  }
+                }}
+              >
+                Delete plan…
+              </button>
+            </moreMenu.Menu>
+            <button className="btn primary" disabled={ov?.job?.plan === plan.id} onClick={() => api.backUp(plan.id)}>
+              <Icon name="up" size={14} stroke={2.2} />
+              Back up now
+            </button>
+          </>
+        ) : (
+          <>
+            <button className="btn" onClick={() => go({ name: "overview" })}>
+              Cancel
+            </button>
+            <button className="btn primary" disabled={plan.sources.length === 0 || !plan.destination} onClick={create}>
+              Create and back up
+            </button>
+          </>
+        )}
+      </div>
+
+      <div className="plan-grid">
+        <div className="col" style={{ gap: 16 }}>
+          <section className="card section">
+            <div className="row" style={{ alignItems: "baseline" }}>
+              <h2>What to keep</h2>
+              <span className="muted grow">{plan.sources.length === 0 ? "Nothing yet" : `${plan.sources.length} source${plan.sources.length === 1 ? "" : "s"}`}</span>
+            </div>
+            {plan.sources.map((s, i) => {
+              const l = placeLabel(s, home);
+              return (
+                <div key={i} className="source-row">
+                  <Icon name={s.kind === "smb" ? "server" : "folder"} size={20} style={{ color: "var(--accent)" }} />
+                  <div className="grow col" style={{ gap: 1 }}>
+                    <span style={{ fontWeight: 600 }}>{l.title}</span>
+                    <span className="small muted ellipsis">{l.sub}</span>
+                  </div>
+                  <button className="iconbtn" aria-label={`Remove ${l.title}`} title="Remove source" onClick={() => update((p) => ({ ...p, sources: p.sources.filter((_, j) => j !== i) }))}>
+                    <Icon name="close" size={14} stroke={2} />
+                  </button>
+                </div>
+              );
+            })}
+            <div className="row" style={{ gap: 12 }}>
+              <button className="btn dashed" onClick={addMenu.open}>
+                <Icon name="plus" size={13} stroke={2.4} />
+                Add a source
+              </button>
+              <span className="small faint">Keepr only reads your sources. It never changes or moves them.</span>
+            </div>
+            <addMenu.Menu width={290}>
+              <button onClick={addFolders}>
+                <Icon name="folder" />
+                <span className="grow">Folder or drive…</span>
+              </button>
+              <button onClick={() => setSheet("smb")}>
+                <Icon name="server" />
+                <span className="grow">SMB share on the network…</span>
+              </button>
+              <hr />
+              <div className="tiny faint" style={{ padding: "4px 10px 2px" }}>
+                Coming later
+              </div>
+              <div className="row" style={{ flexWrap: "wrap", gap: 6, padding: "4px 10px 8px" }}>
+                {["iCloud Drive", "Google Drive", "OneDrive", "S3 bucket"].map((c) => (
+                  <span key={c} className="chip">
+                    {c}
+                  </span>
+                ))}
+              </div>
+            </addMenu.Menu>
+          </section>
+
+          <section className="card section">
+            <h2>What to leave out</h2>
+            <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+              {plan.excludes.map((x, i) => (
+                <span key={i} className="rule">
+                  {x}
+                  <button aria-label={`Remove rule ${x}`} onClick={() => update((p) => ({ ...p, excludes: p.excludes.filter((_, j) => j !== i) }))}>
+                    <Icon name="close" size={10} stroke={2.6} />
+                  </button>
+                </span>
+              ))}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const t = ruleText.trim();
+                  if (t) update((p) => ({ ...p, excludes: [...p.excludes, t] }));
+                  setRuleText("");
+                }}
+              >
+                <input className="input mono" style={{ height: 26, width: 150, borderStyle: "dashed", borderRadius: 13 }} placeholder="+ Rule, e.g. *.iso" value={ruleText} onChange={(e) => setRuleText(e.target.value)} title="A name (*.tmp), a folder name ending in / (build/), or a path starting ~/ or /" />
+              </form>
+            </div>
+            <label className="check">
+              <input type="checkbox" checked={plan.gitignore} onChange={(e) => update((p) => ({ ...p, gitignore: e.target.checked }))} />
+              Follow .gitignore files in projects
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={plan.skipCloudOnly} onChange={(e) => update((p) => ({ ...p, skipCloudOnly: e.target.checked }))} />
+              Skip files that are only in the cloud (they aren't downloaded)
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={plan.maxFileSize > 0} onChange={(e) => update((p) => ({ ...p, maxFileSize: e.target.checked ? 4 * 1024 ** 3 : 0 }))} />
+              Skip files larger than
+              <select className="input" style={{ height: 24, fontSize: 12 }} disabled={plan.maxFileSize === 0} value={plan.maxFileSize || 4 * 1024 ** 3} onChange={(e) => update((p) => ({ ...p, maxFileSize: Number(e.target.value) }))}>
+                {[1, 2, 4, 10, 50].map((g) => (
+                  <option key={g} value={g * 1024 ** 3}>
+                    {g} GB
+                  </option>
+                ))}
+              </select>
+            </label>
+          </section>
+
+          <section className="card section">
+            <div className="row" style={{ alignItems: "baseline" }}>
+              <h2>Versions to keep</h2>
+              {summary && summary.snapshots > 0 && <span className="muted">{summary.snapshots.toLocaleString()} snapshots now</span>}
+            </div>
+            <Ticks r={r} />
+            <div className="row tiny faint" style={{ justifyContent: "space-between", marginTop: -6 }}>
+              <span>Now</span>
+              <span>1 day</span>
+              <span>1 month</span>
+              <span>1 year</span>
+              <span>{r.monthlyMonths === 0 ? "Forever" : `${r.monthlyMonths / 12} years`}</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+              <KeepBox label="Every backup" value={r.allHours} onChange={(v) => setR("allHours", v)} options={[[0, "not kept"], [24, "for 24 hours"], [48, "for 2 days"], [168, "for a week"]]} />
+              <KeepBox label="One a day" value={r.dailyDays} onChange={(v) => setR("dailyDays", v)} options={[[0, "not kept"], [7, "for 7 days"], [14, "for 14 days"], [30, "for 30 days"], [90, "for 90 days"]]} />
+              <KeepBox label="One a week" value={r.weeklyWeeks} onChange={(v) => setR("weeklyWeeks", v)} options={[[0, "not kept"], [4, "for 4 weeks"], [12, "for 3 months"], [26, "for 6 months"], [52, "for 12 months"]]} />
+              <KeepBox label="One a month" value={r.monthlyMonths} onChange={(v) => setR("monthlyMonths", v)} options={[[12, "for a year"], [24, "for 2 years"], [60, "for 5 years"], [0, "forever"]]} />
+            </div>
+            <label className="check muted">
+              <input type="checkbox" checked={r.keepDeletedDays > 0} onChange={(e) => setR("keepDeletedDays", e.target.checked ? 90 : 0)} />
+              Keep deleted files for at least 90 days, whatever the rules above say
+            </label>
+          </section>
+        </div>
+
+        <div className="col" style={{ gap: 16 }}>
+          <section className="card section" style={{ gap: 10 }}>
+            <h2>Where</h2>
+            {cfg.destinations.length === 0 ? (
+              <button className="btn primary" onClick={() => go({ name: "destinations", add: true })}>
+                Add a destination
+              </button>
+            ) : (
+              <div className="row" style={{ gap: 12 }}>
+                <div className="tile" style={{ width: 38, height: 38 }}>
+                  <Icon name={dest?.place.kind === "smb" ? "server" : "drive"} size={20} />
+                </div>
+                <div className="grow col" style={{ gap: 2 }}>
+                  <select className="input" value={plan.destination} disabled={created} title={created ? "A backup stays where it was made. Make a new plan to keep one elsewhere." : undefined} onChange={(e) => update((p) => ({ ...p, destination: e.target.value }))} style={{ fontWeight: 600 }}>
+                    {cfg.destinations.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="small muted ellipsis">
+                    {dest?.place.kind === "smb" ? `smb://${dest.place.server}/${dest.place.share}${dest.place.folder && dest.place.folder !== "/" ? dest.place.folder : ""}` : dest?.place.kind === "folder" ? tilde(dest.place.path, home) : ""}
+                    {plan.folder ? ` / ${plan.folder}` : ""}
+                  </span>
+                </div>
+              </div>
+            )}
+            <a href="#" className="small" onClick={(e) => (e.preventDefault(), go({ name: "destinations", add: true }))}>
+              Add another destination
+            </a>
+          </section>
+
+          <section className="card section">
+            <h2>When</h2>
+            <Seg label="Schedule" value={plan.schedule.every} options={everyOptions} onChange={(v) => update((p) => ({ ...p, schedule: { ...p.schedule, every: v } }))} />
+            {(plan.schedule.every === "daily" || plan.schedule.every === "weekly") && (
+              <div className="row small">
+                {plan.schedule.every === "weekly" && (
+                  <select className="input" value={plan.schedule.weekday} onChange={(e) => update((p) => ({ ...p, schedule: { ...p.schedule, weekday: Number(e.target.value) } }))}>
+                    {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => (
+                      <option key={d} value={i}>
+                        {d}s
+                      </option>
+                    ))}
+                  </select>
+                )}
+                at
+                <input className="input mono" type="time" value={plan.schedule.at} onChange={(e) => update((p) => ({ ...p, schedule: { ...p.schedule, at: e.target.value } }))} />
+              </div>
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "8px 16px" }}>
+              <label className="check">
+                <input type="checkbox" checked={plan.conditions.catchUp} onChange={(e) => update((p) => ({ ...p, conditions: { ...p.conditions, catchUp: e.target.checked } }))} />
+                Catch up after sleep or when the destination comes back
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={plan.conditions.minBattery > 0} onChange={(e) => update((p) => ({ ...p, conditions: { ...p.conditions, minBattery: e.target.checked ? 20 : 0 } }))} />
+                Wait when battery is below 20%
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={plan.conditions.noHotspot} onChange={(e) => update((p) => ({ ...p, conditions: { ...p.conditions, noHotspot: e.target.checked } }))} />
+                Not on a personal hotspot
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={plan.conditions.limitMbps > 0} onChange={(e) => update((p) => ({ ...p, conditions: { ...p.conditions, limitMbps: e.target.checked ? 20 : 0 } }))} />
+                Limit speed to
+                <select className="input" style={{ height: 24, fontSize: 12 }} disabled={plan.conditions.limitMbps === 0} value={plan.conditions.limitMbps || 20} onChange={(e) => update((p) => ({ ...p, conditions: { ...p.conditions, limitMbps: Number(e.target.value) } }))}>
+                  {[5, 10, 20, 50, 100].map((v) => (
+                    <option key={v} value={v}>
+                      {v} MB/s
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section className="card section" style={{ gap: 10 }}>
+            <h2>Full and incremental</h2>
+            <p className="muted" style={{ lineHeight: 1.5 }}>
+              The first backup copies everything. After that, each backup stores only what changed, but every snapshot restores as a complete copy.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+              <label className="field">
+                <span className="tiny faint">Re-read every file, not just changed ones</span>
+                <select className="input" value={plan.fullEvery} onChange={(e) => update((p) => ({ ...p, fullEvery: e.target.value as Often }))}>
+                  <option value="weekly">Every week</option>
+                  <option value="monthly">Every month</option>
+                  <option value="never">Never</option>
+                </select>
+              </label>
+              <label className="field">
+                <span className="tiny faint">Check stored data can be read back</span>
+                <select className="input" value={plan.checkEvery} onChange={(e) => update((p) => ({ ...p, checkEvery: e.target.value as Often }))}>
+                  <option value="weekly">A sample each week</option>
+                  <option value="monthly">All of it each month</option>
+                  <option value="never">Never</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section className="card section" style={{ gap: 10 }}>
+            <div className="row">
+              <h2 className="grow">Encryption</h2>
+              {created || plan.id ? (
+                <span className="row small" style={{ gap: 5, fontWeight: 600, color: plan.encrypted ? "var(--accent-text)" : "var(--ink3)" }}>
+                  {plan.encrypted && <Icon name="lock" size={13} stroke={2.2} />}
+                  {plan.encrypted ? "On" : "Off"}
+                </span>
+              ) : (
+                <Switch label="Encryption" on={plan.encrypted} onChange={(v) => update((p) => ({ ...p, encrypted: v }))} />
+              )}
+            </div>
+            <p className="muted" style={{ lineHeight: 1.5 }}>
+              {plan.encrypted ? `Files are encrypted on this Mac before they leave it. The password is in your Keychain; ${dest?.name ?? "the destination"} only ever sees scrambled data.` : "Files are stored as they are, compressed. Anyone who can open the destination can read them."}
+            </p>
+            {!plan.id && plan.encrypted && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+                <label className="field">
+                  <span>Password</span>
+                  <input className="input" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+                </label>
+                <label className="field">
+                  <span>Again</span>
+                  <input className="input" type="password" value={newPassword2} onChange={(e) => setNewPassword2(e.target.value)} />
+                </label>
+              </div>
+            )}
+            {plan.id && plan.encrypted && (
+              <div className="row" style={{ gap: 8 }}>
+                <button className="btn" disabled={!created} onClick={() => setSheet("password")}>
+                  Change password…
+                </button>
+                <button className="btn" disabled={!created} onClick={() => setSheet("recovery")}>
+                  <Icon name="key" size={14} stroke={1.9} />
+                  Save recovery key…
+                </button>
+              </div>
+            )}
+            {plan.encrypted && (
+              <div className="banner" style={{ alignItems: "flex-start", fontSize: 12, lineHeight: 1.45 }}>
+                <Icon name="warning" size={15} stroke={2} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span className="text">Without the password or the recovery key, nobody can restore these files, including you.</span>
+              </div>
+            )}
+          </section>
+          {summary && summary.repoBytes > 0 && <span className="small faint">This backup takes {bytes(summary.repoBytes)} at {summary.destination}.</span>}
+        </div>
+      </div>
+
+      {sheet === "smb" && <SmbSourceSheet onClose={() => setSheet("")} onAdd={(s) => update((p) => ({ ...p, sources: [...p.sources, s], name: p.name || (s.kind === "smb" ? s.share : "") }))} />}
+      {sheet === "password" && <PasswordSheet plan={plan} onClose={() => setSheet("")} />}
+      {sheet === "recovery" && <RecoverySheet plan={plan.id} name={plan.name} onClose={() => setSheet("")} />}
+    </div>
+  );
+}

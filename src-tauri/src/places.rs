@@ -64,6 +64,22 @@ fn volume_of(p: &Path) -> Option<String> {
     Some(c.next()?.as_os_str().to_string_lossy().to_string())
 }
 
+/// For a folder in a cloud service's sync folder (~/Library/CloudStorage/OneDrive-Personal/…):
+/// that sync folder, and whether macOS still treats it as a live one. When a cloud account is
+/// signed out or its sync root breaks, macOS renames the root and leaves its contents looking
+/// intact; only the file-provider domain attribute tells a live root from an orphan. Backing up
+/// into an orphan would quietly go to local disk and never reach the cloud.
+pub fn cloud_root(p: &Path) -> Option<(PathBuf, bool)> {
+    let home = std::env::var("HOME").ok()?;
+    let cs = Path::new(&home).join("Library/CloudStorage");
+    let rest = p.strip_prefix(&cs).ok()?;
+    let root = cs.join(rest.components().next()?);
+    let c = std::ffi::CString::new(root.to_string_lossy().as_bytes()).ok()?;
+    let name = c"com.apple.file-provider-domain-id";
+    let n = unsafe { libc::getxattr(c.as_ptr(), name.as_ptr(), std::ptr::null_mut(), 0, 0, 0) };
+    Some((root, n > 0))
+}
+
 pub fn smb_password(s: &Smb) -> Option<String> {
     keychain::get(&keychain::smb_account(&s.user, &s.server))
 }
@@ -97,8 +113,17 @@ pub fn resolve(place: &Place, mounts: &Mounts, connect: bool, disconnect_after: 
                     return Err(format!("{vol} isn't connected."));
                 }
             }
-            if !p.exists() {
-                return Err(format!("{} isn't there.", tilde(path)));
+            if let Some((root, live)) = cloud_root(&p) {
+                let name = root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                if !root.exists() || !live {
+                    return Err(format!("{name} isn't a working sync folder right now (is the cloud account signed in?), so nothing written there would reach the cloud."));
+                }
+            }
+            // The folder must be where it was: a vanished symlink or a folder made in its place
+            // would put backups somewhere else.
+            let real = std::fs::canonicalize(&p).map_err(|_| format!("{} isn't there.", tilde(path)))?;
+            if let (Some(_), None) = (cloud_root(&p), cloud_root(&real)) {
+                return Err(format!("{} no longer leads into its cloud sync folder.", tilde(path)));
             }
             Ok(p)
         }
@@ -134,5 +159,11 @@ mod tests {
         let t = tempfile::tempdir().unwrap();
         assert!(resolve(&Place::Folder { path: t.path().to_string_lossy().into() }, &m, true, true).is_ok());
         assert_eq!(mount_point(Path::new("/")).as_deref(), Some(Path::new("/")));
+        assert!(cloud_root(Path::new("/Users/nobody/Documents")).is_none());
+        let home = std::env::var("HOME").unwrap();
+        let (root, _) = cloud_root(&Path::new(&home).join("Library/CloudStorage/Some-Cloud/Backups/Keepr")).unwrap();
+        assert!(root.ends_with("Library/CloudStorage/Some-Cloud"));
+        let e = resolve(&Place::Folder { path: format!("{home}/Library/CloudStorage/Keepr-Test-Not-There/x") }, &m, true, true).unwrap_err();
+        assert!(e.contains("sync folder"), "{e}");
     }
 }

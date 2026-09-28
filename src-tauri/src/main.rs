@@ -10,6 +10,10 @@ fn set_process_name() {
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(code) = keepr_lib::cli(&args) {
+        std::process::exit(code);
+    }
     #[cfg(target_os = "macos")]
     set_process_name();
     keepr_lib::run()

@@ -13,3 +13,6 @@ _sift/.cache/
 _sift/local/
 
 __pycache__/
+
+# tools/screenshots.py's demo files and backups
+.demo/
