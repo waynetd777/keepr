@@ -223,7 +223,9 @@ input[type="checkbox"] { accent-color: var(--accent); }
 .ticks > div { flex: 1; display: flex; justify-content: center; }
 .ticks > div > div { width: 2px; border-radius: 1px; }
 .keep-box { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; }
-.keep-box select { border: 0; background: transparent; font-weight: 600; padding: 0; outline: none; }
+.keep-box select { border: 0; background: transparent; font-weight: 600; padding: 0; outline: none; appearance: none; -webkit-appearance: none; width: 100%; text-overflow: ellipsis; }
+.keep-box { position: relative; }
+.keep-box::after { content: "⌄"; position: absolute; right: 10px; bottom: 9px; color: var(--ink3); pointer-events: none; }
 
 /* ---- activity ---- */
 .steps { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
@@ -241,6 +243,6 @@ table.history th:last-child, table.history td:last-child { padding-right: 20px; 
 
 /* ---- the menu-bar window ---- */
 html.tray body { background: transparent; }
-.traywin { margin: 0; height: 100%; background: var(--surface); border: 1px solid var(--line2); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.traywin { margin: 0; background: var(--surface); border: 1px solid var(--line2); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
 .traywin .menu-item { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; text-align: left; width: 100%; }
 .traywin .menu-item:hover { background: var(--accent-soft); color: var(--accent-text); }

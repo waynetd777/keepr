@@ -699,13 +699,30 @@ fn toggle_tray_window(app: &AppHandle, rect: tauri::Rect) {
         let _ = w.hide();
         return;
     }
-    let scale = w.scale_factor().unwrap_or(2.0);
-    let (pos, size) = (rect.position.to_physical::<f64>(scale), rect.size.to_physical::<f64>(scale));
-    let width = w.outer_size().map(|s| s.width as f64).unwrap_or(360.0 * scale);
-    let x = pos.x + size.width / 2.0 - width / 2.0;
+    // The icon's place is in physical pixels across all screens. Work out which screen it's on
+    // and use that screen's scale: the window's own scale is the screen it was last on, which
+    // with two displays puts it on the wrong one.
+    let guess = w.scale_factor().unwrap_or(2.0);
+    let (pos, size) = (rect.position.to_physical::<f64>(guess), rect.size.to_physical::<f64>(guess));
+    let monitors = app.available_monitors().unwrap_or_default();
+    let screen = monitors.iter().find(|m| {
+        let (p, s) = (m.position(), m.size());
+        pos.x >= p.x as f64 && pos.x < (p.x + s.width as i32) as f64 && pos.y >= p.y as f64 && pos.y < (p.y + s.height as i32) as f64
+    });
+    let scale = screen.map_or(guess, |m| m.scale_factor());
+    let (pos, size) = if (scale - guess).abs() > f64::EPSILON { (rect.position.to_physical::<f64>(scale), rect.size.to_physical::<f64>(scale)) } else { (pos, size) };
+    let width = 360.0 * scale;
+    let mut x = pos.x + size.width / 2.0 - width / 2.0;
+    if let Some(m) = screen {
+        let right = (m.position().x + m.size().width as i32) as f64;
+        x = x.min(right - width - 8.0 * scale).max(m.position().x as f64 + 8.0 * scale);
+    }
     let y = pos.y + size.height + 6.0 * scale;
-    let _ = w.set_position(tauri::PhysicalPosition::new(x.max(8.0), y));
+    let place = tauri::PhysicalPosition::new(x, y);
+    let _ = w.set_position(place);
     let _ = w.show();
+    // Once on that screen, place it again: macOS converts the first move with the old screen's scale.
+    let _ = w.set_position(place);
     let _ = w.set_focus();
     let _ = w.emit("tray-opened", ());
 }
@@ -852,7 +869,15 @@ pub fn run() {
                 });
             }
 
-            if let Some(w) = app.get_webview_window("main") {
+            // Screenshot mode's menu-bar scene: the menu-bar window alone, somewhere on screen.
+            let tray_scene = scene().and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()).is_some_and(|v| v["tray"] == true);
+            if tray_scene {
+                if let Some(t) = app.get_webview_window("tray") {
+                    let _ = t.set_position(tauri::LogicalPosition::new(200.0, 120.0));
+                    let _ = t.show();
+                }
+            }
+            if let Some(w) = app.get_webview_window("main").filter(|_| !tray_scene) {
                 if frozen {
                     let _ = w.set_size(tauri::LogicalSize::new(1440.0, 900.0));
                     let _ = w.center();

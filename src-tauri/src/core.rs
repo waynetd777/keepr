@@ -2,7 +2,7 @@
 //! queue, on its own thread. The scheduler (scheduler.rs) and the window both add jobs; progress
 //! and changes go to the window and the menu bar as events.
 
-use crate::config::{self, Config, Every, Often, Place, Plan, Run, State};
+use crate::config::{self, Config, Every, Often, Plan, Run, State};
 use crate::places::{self, Mounts};
 use crate::keychain;
 use keepr_engine::backend::{Backend, Folder};
@@ -535,12 +535,19 @@ impl Core {
         let snap = snap?;
         let st = &snap.stats;
         run.files = st.files;
-        run.changed = st.new_files + st.changed_files;
+        run.changed = st.new_files + st.changed_files + st.removed_files;
         run.read_bytes = st.read_bytes;
         run.added_bytes = st.added_bytes;
         run.stored_bytes = st.stored_bytes;
         run.dup_bytes = st.dup_bytes;
-        run.message = if run.changed == 0 { "Nothing changed".into() } else { format!("{} changed · {} sent", run.changed, human_bytes(st.stored_bytes)) };
+        let mut parts = Vec::new();
+        if st.new_files + st.changed_files > 0 {
+            parts.push(format!("{} changed", st.new_files + st.changed_files));
+        }
+        if st.removed_files > 0 {
+            parts.push(format!("{} removed", st.removed_files));
+        }
+        run.message = if parts.is_empty() { "Nothing changed".into() } else { format!("{} · {} sent", parts.join(" · "), human_bytes(st.stored_bytes)) };
         if st.error_count > 0 {
             run.result = "warning".into();
             run.message = format!("{} · {} couldn't be read", run.message, if st.error_count == 1 { "1 file".to_string() } else { format!("{} files", st.error_count) });
@@ -625,7 +632,7 @@ impl Core {
         self.state.lock().unwrap().plan(plan_id).last_check = Some(now());
         run.read_bytes = rep.bytes_read;
         if rep.problems.is_empty() {
-            run.message = format!("All intact · {} snapshots{}", rep.snapshots, if all { ", all data read back".to_string() } else { format!(", {} of {} packs read back", rep.packs_read, rep.packs) });
+            run.message = format!("All intact · {} snapshot{}{}", rep.snapshots, if rep.snapshots == 1 { "" } else { "s" }, if all { ", all data read back".to_string() } else { format!(", {} of {} packs read back", rep.packs_read, rep.packs) });
         } else {
             run.result = "failed".into();
             run.message = format!("{} problem{}: {}", rep.problems.len(), if rep.problems.len() == 1 { "" } else { "s" }, rep.problems[0]);
@@ -698,7 +705,7 @@ pub fn describe_sources(plan: &Plan) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Destination, Schedule};
+    use crate::config::{Destination, Place, Schedule};
 
     fn core(dir: &std::path::Path) -> Arc<Core> {
         let c = Core::new(dir.to_path_buf(), Box::new(|_, _| {}), Box::new(|_, _| {}), false);

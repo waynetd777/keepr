@@ -191,12 +191,12 @@ export default function Activity() {
                     <td className="muted nowrap">{when(r.started)}</td>
                     <td>{nameOf(r.plan)}</td>
                     <td className="muted">{kindName[r.kind] ?? r.kind}</td>
-                    <td className="muted">{r.kind === "backup" || r.kind === "full" ? (r.changed ? `${r.changed.toLocaleString()} changed` : "none changed") : r.files ? r.files.toLocaleString() : "—"}</td>
+                    <td className="muted">{r.result !== "ok" && r.result !== "warning" ? "—" : r.kind === "backup" || r.kind === "full" ? (r.changed ? `${r.changed.toLocaleString()} changed` : "none changed") : r.files ? r.files.toLocaleString() : "—"}</td>
                     <td className="mono muted" style={{ textAlign: "right", fontSize: 11 }}>
                       {r.storedBytes ? bytes(r.storedBytes) : "—"}
                     </td>
                     <td className="mono muted" style={{ textAlign: "right", fontSize: 11 }}>
-                      {secs > 0 ? duration(secs) : "—"}
+                      {r.result === "waiting" ? "—" : secs >= 1 ? duration(secs) : "<1 s"}
                     </td>
                     <td style={{ maxWidth: 420 }}>
                       <span className={`tag ${tone}`} title={r.message}>

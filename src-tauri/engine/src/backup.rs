@@ -345,6 +345,23 @@ impl Walk<'_> {
         if pushed {
             self.ignores.pop();
         }
+        // What the previous snapshot had here and this one doesn't.
+        if let Some(t) = &prev {
+            let here: HashSet<&str> = entries
+                .iter()
+                .map(|e| match e {
+                    Entry::Dir(d) => d.node.name.as_str(),
+                    Entry::File(n, _) | Entry::Link(n) | Entry::Kept(n) => n.name.as_str(),
+                })
+                .collect();
+            for n in t.nodes.iter().filter(|n| !here.contains(n.name.as_str())) {
+                self.stats.removed_files += match n.kind {
+                    NodeKind::File => 1,
+                    NodeKind::Dir => n.files,
+                    NodeKind::Symlink => 0,
+                };
+            }
+        }
         Ok(ScanDir { node, entries })
     }
 }
@@ -560,8 +577,11 @@ pub(crate) mod tests {
         let s3 = run(&repo, &o, Some(&s2), &ctl).unwrap();
         assert_eq!(ctl.progress.files_to_read.load(Relaxed), 2);
         assert_eq!(s3.stats.added_bytes, 0);
+        fs::remove_file(src.path().join("a.txt")).unwrap();
+        let s4 = run(&repo, &opts(src.path()), Some(&s3), &Control::default()).unwrap();
+        assert_eq!(s4.stats.removed_files, 1);
         assert_eq!(s3.tree, s2.tree);
-        assert_eq!(repo.snapshots().unwrap().len(), 3);
+        assert_eq!(repo.snapshots().unwrap().len(), 4);
     }
 
     #[test]

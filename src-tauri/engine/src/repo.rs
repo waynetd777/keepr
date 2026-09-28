@@ -517,6 +517,9 @@ pub struct Stats {
     pub bytes: u64,
     pub new_files: u64,
     pub changed_files: u64,
+    /// Files in the previous snapshot that aren't in this one.
+    #[serde(default)]
+    pub removed_files: u64,
     pub read_bytes: u64,
     /// New data, before compression.
     pub added_bytes: u64,

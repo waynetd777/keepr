@@ -12,6 +12,10 @@ export default function Tray() {
   const [ov, setOv] = useState<Overview | null>(null);
   const [job, setJob] = useState<JobStatus | null>(null);
   useEffect(() => {
+    api.scene().then((sc) => {
+      const t = sc && (JSON.parse(sc) as { theme?: string }).theme;
+      if (t) document.documentElement.dataset.theme = t;
+    });
     const load = () => api.overview().then((o) => (setOv(o), setJob(o.job)));
     load();
     const u1 = on("changed", load);
@@ -24,7 +28,7 @@ export default function Tray() {
     const el = document.querySelector(".traywin") as HTMLElement | null;
     if (!el) return;
     const ro = new ResizeObserver(() => {
-      import("@tauri-apps/api/dpi").then(({ LogicalSize }) => getCurrentWindow().setSize(new LogicalSize(360, Math.ceil(el.scrollHeight) + 2)));
+      import("@tauri-apps/api/dpi").then(({ LogicalSize }) => getCurrentWindow().setSize(new LogicalSize(360, Math.ceil(el.getBoundingClientRect().height))));
     });
     ro.observe(el);
     return () => ro.disconnect();

@@ -170,7 +170,7 @@ export default function Overview() {
   const kept = ov.plans.filter((p) => p.lastSuccess);
   const latest = kept.sort((a, b) => (b.lastSuccess ?? "").localeCompare(a.lastSuccess ?? ""))[0];
   const nextOne = ov.plans
-    .filter((p) => p.enabled && p.nextRun)
+    .filter((p) => p.enabled && p.nextRun && (p.status === "ok" || p.status === "never"))
     .map((p) => p.nextRun as string)
     .sort()[0];
   const headline = job ? `Backing up ${job.planName}` : failed.length ? `${failed[0].name} needs attention` : kept.length === 0 ? "Nothing is kept yet" : "Everything is kept";
@@ -234,12 +234,12 @@ export default function Overview() {
             <div className="row" style={{ gap: 8 }}>
               <span style={{ width: 8, height: 8, borderRadius: 2, background: "var(--accent)" }} />
               <span className="grow">Stored after de-duplication and compression</span>
-              <span className="mono">{bytes(ov.storedBytes)}</span>
+              <span className="mono nowrap">{bytes(ov.storedBytes)}</span>
             </div>
             <div className="row" style={{ gap: 8 }}>
               <span style={{ width: 8, height: 8, borderRadius: 2, background: "var(--sunk)", border: "1px solid var(--line2)" }} />
               <span className="grow">Unchanged data not stored twice</span>
-              <span className="mono">{bytes(Math.max(0, ov.versionsBytes - ov.storedBytes))}</span>
+              <span className="mono nowrap">{bytes(Math.max(0, ov.versionsBytes - ov.storedBytes))}</span>
             </div>
           </div>
         </div>
