@@ -194,21 +194,44 @@ export function PlanProgress({ job, queued, compact }: { job?: JobStatus | null;
           {Math.floor(p)}%
         </span>
         <span className="small muted grow ellipsis">
-          {j.paused ? "Paused" : what}
-          {!compact && j.etaSecs != null && !j.paused ? ` · ${secondsLeft(j.etaSecs)}` : ""}
+          {j.stopping ? STOPPING : j.paused ? "Paused" : what}
+          {!compact && !j.stopping && j.etaSecs != null && !j.paused ? ` · ${secondsLeft(j.etaSecs)}` : ""}
         </span>
-        <button className="btn small" onClick={() => api.pause(!j.paused)} title={j.paused ? "Resume" : "Pause"}>
+        <button className="btn small" disabled={j.stopping} onClick={() => api.pause(!j.paused)} title={j.paused ? "Resume" : "Pause"}>
           <Icon name={j.paused ? "play" : "pause"} size={12} stroke={2.4} />
           {j.paused ? "Resume" : "Pause"}
         </button>
-        <button className="btn small" onClick={() => api.cancel(j.id)} title="Stop this backup. Nothing half-done is kept as a snapshot.">
-          <Icon name="stop" size={12} />
-          Stop
-        </button>
+        <StopButton job={j} small />
       </div>
       <div className="progress" style={{ height: 6 }}>
         <div className="solid" style={{ width: `${p}%`, transition: "width 0.4s" }} />
       </div>
     </div>
+  );
+}
+
+export const STOPPING = "Stopping: finishing the current file…";
+
+/** Stop for a running job. Greys out and says Stopping… from the click until the job has ended,
+ *  because it only stops at a safe point: after the chunk or file it is on. */
+export function StopButton({ job, small, iconOnly, label = "Stop" }: { job: JobStatus; small?: boolean; iconOnly?: boolean; label?: string }) {
+  const [asked, setAsked] = useState<string | null>(null);
+  const stopping = job.stopping || asked === job.id;
+  const title = stopping ? "Finishing the current file, then stopping" : "Stop. Nothing half-done is kept as a snapshot.";
+  return (
+    <button
+      className={`btn${small ? " small" : ""}`}
+      style={iconOnly ? { width: 30, padding: 0 } : undefined}
+      disabled={stopping}
+      aria-label={iconOnly ? (stopping ? "Stopping" : label) : undefined}
+      title={title}
+      onClick={() => {
+        setAsked(job.id);
+        api.cancel(job.id);
+      }}
+    >
+      {stopping ? <span className="dot spin" style={{ width: 10, height: 10 }} /> : <Icon name="stop" size={12} />}
+      {!iconOnly && (stopping ? "Stopping…" : label)}
+    </button>
   );
 }

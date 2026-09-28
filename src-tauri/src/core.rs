@@ -77,6 +77,8 @@ pub struct JobStatus {
     pub current: String,
     pub started_at: String,
     pub paused: bool,
+    /// Stop was asked for; the job ends at the next safe point (after the chunk or file in hand).
+    pub stopping: bool,
     /// Bytes read per second, smoothed.
     pub rate: f64,
     pub eta_secs: Option<u64>,
@@ -278,6 +280,10 @@ impl Core {
                 c.ctl.pause.store(false, Relaxed);
             }
         }
+        // Tell the window straight away rather than at the next tick.
+        if let Some(s) = self.status() {
+            (self.emit)("job", serde_json::to_value(s).unwrap_or_default());
+        }
         self.changed();
     }
 
@@ -345,6 +351,7 @@ impl Core {
             current,
             started_at: c.started_at.clone(),
             paused,
+            stopping: c.ctl.cancel.load(Relaxed),
             rate,
             eta_secs: if rate > 0.0 && (phase == PHASE_READ || c.job.kind() == "restore") && to_read > read { Some(((to_read - read) as f64 / rate) as u64) } else { None },
             queued: self.queue.lock().unwrap().len(),

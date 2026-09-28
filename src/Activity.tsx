@@ -7,7 +7,7 @@ const PAGE = 50;
 import { api, type Run } from "./api";
 import { useApp } from "./App";
 import { Icon } from "./icons";
-import { Seg } from "./ui";
+import { Seg, STOPPING, StopButton } from "./ui";
 import { bytes, duration, secondsLeft, when } from "./format";
 
 const STEPS = ["Look", "Compare", "Pack", "Send", "Confirm"];
@@ -81,14 +81,12 @@ function Running() {
                 {bytes(job.bytesRead)} of {bytes(job.bytesToRead)}
                 {job.rate > 0 ? ` · ${bytes(job.rate)}/s` : ""}
               </span>
-              <span className="muted">{job.paused ? "Paused" : secondsLeft(job.etaSecs)}</span>
-              <button className="btn" onClick={() => api.pause(!job.paused)}>
+              <span className="muted">{job.stopping ? STOPPING : job.paused ? "Paused" : secondsLeft(job.etaSecs)}</span>
+              <button className="btn" disabled={job.stopping} onClick={() => api.pause(!job.paused)}>
                 <Icon name={job.paused ? "play" : "pause"} size={13} stroke={2.4} />
                 {job.paused ? "Resume" : "Pause"}
               </button>
-              <button className="btn" onClick={() => api.cancel(job.id)}>
-                Stop
-              </button>
+              <StopButton job={job} />
             </div>
             <div className="progress">
               <div className="soft" style={{ width: `${job.bytesToRead ? (100 * Math.min(skipped, job.bytesRead)) / job.bytesToRead : 0}%` }} />

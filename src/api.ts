@@ -76,6 +76,7 @@ export type JobStatus = {
   current: string;
   startedAt: string;
   paused: boolean;
+  stopping: boolean;
   rate: number;
   etaSecs: number | null;
   queued: number;

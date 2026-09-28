@@ -7,7 +7,7 @@ import { useApp } from "./App";
 import { Icon } from "./icons";
 import { ago, bytes, count, longDate, next, when } from "./format";
 import { RecoverySheet } from "./Plans";
-import { PlanProgress } from "./ui";
+import { PlanProgress, StopButton } from "./ui";
 
 /** What a day's bar means, for its tooltip: "Thursday 24 September: 12 backups, 88 MB stored". */
 function dayTip(d: PlanSummary["days"][number], daysAgo: number): string {
@@ -102,8 +102,10 @@ function PlanCard({ p }: { p: PlanSummary }) {
         <button className="btn" disabled={p.snapshots === 0} onClick={() => go({ name: "restore", plan: p.id })}>
           Restore…
         </button>
-        {running || waiting ? (
-          <button className="btn" style={{ width: 30, padding: 0 }} aria-label={`Stop ${p.name}`} title="Stop" onClick={() => api.cancel(running ? ov!.job!.id : waiting!.id)}>
+        {running ? (
+          <StopButton job={ov!.job!} iconOnly label={`Stop ${p.name}`} />
+        ) : waiting ? (
+          <button className="btn" style={{ width: 30, padding: 0 }} aria-label={`Cancel ${p.name}'s waiting backup`} title="Cancel" onClick={() => api.cancel(waiting.id)}>
             <Icon name="stop" size={12} />
           </button>
         ) : (

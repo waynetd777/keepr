@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api, on, type Config, type JobStatus, type Overview as OverviewData } from "./api";
 import { Icon, Mark } from "./icons";
-import { pct, ToastProvider, Tooltips } from "./ui";
+import { pct, StopButton, ToastProvider, Tooltips } from "./ui";
 import Overview from "./Overview";
 import Plans from "./Plans";
 import Restore from "./Restore";
@@ -122,7 +122,7 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
       {watching > 0 && (
         <span className="row small muted" style={{ gap: 6 }}>
           <span className={running ? "dot spin" : "dot"} />
-          {running ? `Backing up ${ov?.job?.planName}` : `Watching ${watching} plan${watching === 1 ? "" : "s"}`}
+          {running ? (ov?.job?.stopping ? `Stopping ${ov?.job?.planName}…` : `Backing up ${ov?.job?.planName}`) : `Watching ${watching} plan${watching === 1 ? "" : "s"}`}
         </span>
       )}
       {(screen.name === "overview" || screen.name === "plans") && (ov?.plans.length ?? 0) > 0 && (
@@ -136,10 +136,7 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
           <div className="progress" style={{ width: 90, height: 6 }} aria-label="Progress">
             <div className="solid" style={{ width: `${ov?.job ? pct(ov.job) : 0}%`, transition: "width 0.4s" }} />
           </div>
-          <button className="btn" onClick={() => api.cancel(ov!.job!.id)} title="Stop this backup">
-            <Icon name="stop" size={12} />
-            Stop
-          </button>
+          <StopButton job={ov!.job!} />
         </>
       ) : (
         (ov?.plans.length ?? 0) > 0 && (
