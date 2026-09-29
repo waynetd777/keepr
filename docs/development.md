@@ -50,6 +50,14 @@ The app's binary (`Keepr.app/Contents/MacOS/Keepr`) also runs without a window:
 | `--copy-plan-password <from id> <to id>` | Copy one plan's password in the Keychain to another |
 | `--remove-path <plan id> <path>` | Take a path out of every snapshot |
 
+A plan's id and a destination's id are their `id` fields in `~/Library/Application Support/Keepr/config.json`; the app doesn't show them. To list the plans:
+
+```sh
+python3 -c "import json,os; [print(p['id'], p['name']) for p in json.load(open(os.path.expanduser('~/Library/Application Support/Keepr/config.json')))['plans']]"
+```
+
+Quit Keepr before a command that changes a backup (`--back-up`, `--remove-path`, `--rename-plan-folder`): the app and the command would otherwise both work on the same backup and the same history.
+
 `KEEPR_NO_SCHEDULE` stops the scheduler and `KEEPR_NO_STILL` the still copies; `KEEPR_SCENE` is the screenshot mode.
 
 ## Signing and permissions
