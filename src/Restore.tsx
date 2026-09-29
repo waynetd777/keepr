@@ -298,11 +298,12 @@ export default function Restore() {
   // holds the same path twice.
   const rows: { e: Entry; depth: number; key: string }[] = [];
   const walk = (path: string, depth: number, under: string) => {
-    for (const e of kids[path] ?? []) {
-      const key = `${under}/${e.name}${e.tag}`;
+    (kids[path] ?? []).forEach((e, i) => {
+      // By position: a source's name is its whole path, so names joined up can collide.
+      const key = `${under}.${i}`;
       rows.push({ e, depth, key });
       if (e.kind === "dir" && open.has(e.path) && e.tag !== "deleted") walk(e.path, depth + 1, key);
-    }
+    });
   };
   if (hits) hits.forEach((e, i) => rows.push({ e, depth: 0, key: `${i}` }));
   else walk("", 0, "");
