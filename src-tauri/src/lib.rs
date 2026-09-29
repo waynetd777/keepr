@@ -20,6 +20,8 @@ mod login_item;
 #[cfg(target_os = "macos")]
 mod login_launch;
 mod places;
+#[cfg(target_os = "macos")]
+mod quick_look;
 mod r2_setup;
 mod scheduler;
 mod smb;
@@ -909,9 +911,26 @@ async fn search_everywhere(core: State<'_, Core_>, query: String) -> Result<Ever
 }
 
 #[tauri::command]
-async fn quick_look(core: State<'_, Core_>, plan: String, snapshot: String, path: String) -> Result<(), String> {
+async fn quick_look(app: AppHandle, core: State<'_, Core_>, plan: String, snapshot: String, path: String) -> Result<(), String> {
     let core = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || browse::quick_look(&core, &plan, &snapshot, &path)).await.map_err(|e| e.to_string())?
+    let file = tauri::async_runtime::spawn_blocking(move || browse::preview_copy(&core, &plan, &snapshot, &path))
+        .await
+        .map_err(|e| e.to_string())??;
+    #[cfg(target_os = "macos")]
+    {
+        let window = app.get_webview_window("main").ok_or("No window to show Quick Look over.")?;
+        let ns = window.ns_window().map_err(|e| e.to_string())? as usize;
+        app.run_on_main_thread(move || {
+            let mtm = objc2::MainThreadMarker::new().expect("on the main thread");
+            // Tauri's own NSWindow, alive for as long as the app is.
+            let window = unsafe { &*(ns as *const objc2_app_kit::NSWindow) };
+            quick_look::show(mtm, window, &file);
+        })
+        .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, file);
+    Ok(())
 }
 
 // ---- the app ----

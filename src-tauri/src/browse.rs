@@ -178,8 +178,8 @@ pub fn versions(core: &Core, plan: &str, path: &str) -> Result<Vec<VersionInfo>,
         .collect())
 }
 
-/// Restores one file of one snapshot into a temporary folder and opens Quick Look on it.
-pub fn quick_look(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result<(), String> {
+/// Restores one file of one snapshot into a temporary folder, for Quick Look; returns where.
+pub fn preview_copy(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result<std::path::PathBuf, String> {
     let repo = core.repo(plan, false)?;
     let snap = repo
         .snapshots()
@@ -202,15 +202,7 @@ pub fn quick_look(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result
     if r.files == 0 {
         return Err("Nothing to preview.".into());
     }
-    let dest = keepr_engine::restore::destination(&snap, path, &keepr_engine::restore::Target::Folder(dir)).map_err(|e| e.0)?;
-    std::process::Command::new("/usr/bin/qlmanage")
-        .arg("-p")
-        .arg(&dest)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    keepr_engine::restore::destination(&snap, path, &keepr_engine::restore::Target::Folder(dir)).map_err(|e| e.0)
 }
 
 #[derive(Serialize, Clone, Debug)]
