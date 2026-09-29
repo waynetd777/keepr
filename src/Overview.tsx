@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Overview: are my files kept? A headline, what needs attention, each plan with its last 30
 // days, and the space the backups take.
 
@@ -13,7 +17,12 @@ import { DestIcon, PlanProgress, StopButton } from "./ui";
 function dayTip(d: PlanSummary["days"][number], daysAgo: number): string {
   const date = new Date();
   date.setDate(date.getDate() - daysAgo);
-  const label = daysAgo === 0 ? "Today" : daysAgo === 1 ? "Yesterday" : date.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+  const label =
+    daysAgo === 0
+      ? "Today"
+      : daysAgo === 1
+        ? "Yesterday"
+        : date.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
   if (!d.ran) return `${label}: no backup`;
   const parts = [d.count ? count(d.count, "backup") : "no backup completed", d.count ? `${bytes(d.added)} sent` : ""].filter(Boolean);
   return `${label}: ${parts.join(", ")}${d.failed ? " · one didn't finish" : ""}`;
@@ -28,7 +37,11 @@ function Strata({ p, compact }: { p: PlanSummary; compact?: boolean }) {
         const cls = d.failed ? "bad" : !d.ran ? "none" : i === p.days.length - 1 ? "hi" : "";
         // The bar's hover area is its full column, so thin days are easy to point at.
         return (
-          <div key={i} title={dayTip(d, p.days.length - 1 - i)} style={{ flex: 1, height: "100%", display: "flex", alignItems: "flex-end", background: "transparent", minHeight: 0 }}>
+          <div
+            key={i}
+            title={dayTip(d, p.days.length - 1 - i)}
+            style={{ flex: 1, height: "100%", display: "flex", alignItems: "flex-end", background: "transparent", minHeight: 0 }}
+          >
             <div className={cls} style={{ height: `${h}%`, width: "100%", flex: "none" }} />
           </div>
         );
@@ -53,14 +66,20 @@ function PlanCard({ p }: { p: PlanSummary }) {
         <div className="grow col" style={{ gap: 3 }}>
           <div className="row" style={{ gap: 8 }}>
             <span style={{ fontSize: 15, fontWeight: 600 }}>{p.name}</span>
-            <span className={`tag ${bad ? "bad" : "warn"}`}>{bad ? "Didn't finish" : p.status === "stale" ? "No recent backup" : "Waiting"}</span>
+            <span className={`tag ${bad ? "bad" : "warn"}`}>
+              {bad ? "Didn't finish" : p.status === "stale" ? "No recent backup" : "Waiting"}
+            </span>
           </div>
           <span className="small muted ellipsis" title={p.message}>
             {p.message} · last backup {ago(p.lastSuccess)}
           </span>
         </div>
         <Strata p={p} compact />
-        <button className="btn" onClick={() => go({ name: "plans", plan: p.id })} title="Change what this plan backs up, where, when and how">
+        <button
+          className="btn"
+          onClick={() => go({ name: "plans", plan: p.id })}
+          title="Change what this plan backs up, where, when and how"
+        >
           Edit…
         </button>
         <button className="btn" onClick={() => api.backUp(p.id)}>
@@ -80,7 +99,10 @@ function PlanCard({ p }: { p: PlanSummary }) {
         </div>
         <div className="grow col" style={{ gap: 3 }}>
           <div className="row" style={{ gap: 8 }}>
-            <button onClick={() => go({ name: "plans", plan: p.id })} style={{ border: 0, background: "none", padding: 0, fontSize: 15, fontWeight: 600 }}>
+            <button
+              onClick={() => go({ name: "plans", plan: p.id })}
+              style={{ border: 0, background: "none", padding: 0, fontSize: 15, fontWeight: 600 }}
+            >
               {p.name}
             </button>
             {p.encrypted && (
@@ -96,7 +118,11 @@ function PlanCard({ p }: { p: PlanSummary }) {
             {p.sources} → {p.destination}
           </span>
         </div>
-        <button className="btn" onClick={() => go({ name: "plans", plan: p.id })} title="Change what this plan backs up, where, when and how">
+        <button
+          className="btn"
+          onClick={() => go({ name: "plans", plan: p.id })}
+          title="Change what this plan backs up, where, when and how"
+        >
           Edit…
         </button>
         <button className="btn" disabled={p.snapshots === 0} onClick={() => go({ name: "restore", plan: p.id })}>
@@ -105,11 +131,23 @@ function PlanCard({ p }: { p: PlanSummary }) {
         {running ? (
           <StopButton job={ov!.job!} iconOnly label={`Stop ${p.name}`} />
         ) : waiting ? (
-          <button className="btn" style={{ width: 30, padding: 0 }} aria-label={`Cancel ${p.name}'s waiting backup`} title="Cancel" onClick={() => api.cancel(waiting.id)}>
+          <button
+            className="btn"
+            style={{ width: 30, padding: 0 }}
+            aria-label={`Cancel ${p.name}'s waiting backup`}
+            title="Cancel"
+            onClick={() => api.cancel(waiting.id)}
+          >
             <Icon name="stop" size={12} />
           </button>
         ) : (
-          <button className="btn" style={{ width: 30, padding: 0 }} aria-label={`Back up ${p.name} now`} title="Back up now" onClick={() => api.backUp(p.id)}>
+          <button
+            className="btn"
+            style={{ width: 30, padding: 0 }}
+            aria-label={`Back up ${p.name} now`}
+            title="Back up now"
+            onClick={() => api.backUp(p.id)}
+          >
             <Icon name="play" size={14} />
           </button>
         )}
@@ -119,14 +157,22 @@ function PlanCard({ p }: { p: PlanSummary }) {
         <Strata p={p} />
         <div className="row tiny faint" style={{ justifyContent: "space-between" }}>
           <span>30 days ago</span>
-          <span>Data sent per day · {p.snapshots.toLocaleString()} snapshot{p.snapshots === 1 ? "" : "s"}</span>
+          <span>
+            Data sent per day · {p.snapshots.toLocaleString()} snapshot{p.snapshots === 1 ? "" : "s"}
+          </span>
           <span>Today</span>
         </div>
       </div>
       <div className="stats4">
         <div>
           <span>Last backup</span>
-          <span>{p.status === "never" ? "Not yet" : running ? "Running now" : `${ago(p.lastSuccess)}${p.lastChanged ? ` · ${p.lastChanged.toLocaleString()} changed` : ""}`}</span>
+          <span>
+            {p.status === "never"
+              ? "Not yet"
+              : running
+                ? "Running now"
+                : `${ago(p.lastSuccess)}${p.lastChanged ? ` · ${p.lastChanged.toLocaleString()} changed` : ""}`}
+          </span>
         </div>
         <div title="What this plan's backup takes up at its destination now, all versions included">
           <span>Backup size now</span>
@@ -285,7 +331,13 @@ export default function Overview() {
     .filter((p) => p.enabled && p.nextRun && (p.status === "ok" || p.status === "never"))
     .map((p) => p.nextRun as string)
     .sort()[0];
-  const headline = job ? `Backing up ${job.planName}` : failed.length ? `${failed[0].name} needs attention` : kept.length === 0 ? "Nothing is kept yet" : "Everything is kept";
+  const headline = job
+    ? `Backing up ${job.planName}`
+    : failed.length
+      ? `${failed[0].name} needs attention`
+      : kept.length === 0
+        ? "Nothing is kept yet"
+        : "Everything is kept";
   const nameOf = (id: string) => ov.plans.find((p) => p.id === id)?.name ?? "";
 
   return (
@@ -297,7 +349,9 @@ export default function Overview() {
             <span style={{ color: "var(--accent)" }}>{job ? "…" : "."}</span>
           </h1>
           <p className="muted" style={{ fontSize: 14 }}>
-            {latest ? `Last backup ${ago(latest.lastSuccess)} to ${latest.destination}.` : "The first backup copies everything, so it takes longest."}
+            {latest
+              ? `Last backup ${ago(latest.lastSuccess)} to ${latest.destination}.`
+              : "The first backup copies everything, so it takes longest."}
             {nextOne && ` The next one starts ${next(nextOne) === "now" ? "now" : `at ${next(nextOne)}`}.`}
           </p>
         </div>
@@ -333,7 +387,12 @@ export default function Overview() {
           return (
             <div key={id} ref={reorder.ref(id)} className={`plan-slot${reorder.dragging === id ? " lifted" : ""}`}>
               {ov.plans.length > 1 && (
-                <button className="plan-grip" aria-label={`Move ${p.name}`} title="Drag to change the order of your plans" {...reorder.grip(id)}>
+                <button
+                  className="plan-grip"
+                  aria-label={`Move ${p.name}`}
+                  title="Drag to change the order of your plans"
+                  {...reorder.grip(id)}
+                >
                   <Icon name="grip" size={16} />
                 </button>
               )}
@@ -341,7 +400,23 @@ export default function Overview() {
             </div>
           );
         })}
-        <button className="card" onClick={() => go({ name: "plans", isNew: true })} title="Make another plan ⌘N" style={{ height: 56, border: "1.5px dashed var(--line2)", background: "transparent", color: "var(--accent-text)", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexShrink: 0 }}>
+        <button
+          className="card"
+          onClick={() => go({ name: "plans", isNew: true })}
+          title="Make another plan ⌘N"
+          style={{
+            height: 56,
+            border: "1.5px dashed var(--line2)",
+            background: "transparent",
+            color: "var(--accent-text)",
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            flexShrink: 0,
+          }}
+        >
           <Icon name="plus" size={14} stroke={2.4} />
           Add a plan
         </button>
@@ -385,7 +460,7 @@ export default function Overview() {
                 <div className="row" style={{ justifyContent: "space-between" }}>
                   <span style={{ fontWeight: 600 }}>{d.name}</span>
                   <span className="small" style={{ color: d.connection === "missing" ? "var(--amber)" : "var(--ink2)" }}>
-                                        {d.connection === "missing" ? "Not connected" : d.connection === "on demand" ? "connects when needed" : "connected"}
+                    {d.connection === "missing" ? "Not connected" : d.connection === "on demand" ? "connects when needed" : "connected"}
                   </span>
                 </div>
                 {d.total != null && (
@@ -412,15 +487,34 @@ export default function Overview() {
             {recent.length === 0 && <span className="small muted">Nothing yet.</span>}
             {recent.slice(0, fits).map((r) => (
               <div key={r.id} className="row small" style={{ gap: 10, alignItems: "center", height: ROW_HEIGHT, flexShrink: 0 }}>
-              <span className="mono faint nowrap" style={{ width: 104, fontSize: 11, flexShrink: 0 }}>
-                {when(r.started).replace(/^Today /, "")}
-              </span>
-              <span className="grow ellipsis" title={r.message}>
-                {nameOf(r.plan)} · {r.message}
-              </span>
-              <span style={{ color: r.result === "ok" ? "var(--accent-text)" : r.result === "failed" ? "var(--red)" : r.result === "cancelled" ? "var(--ink3)" : "var(--amber)" }}>
-                {r.result === "ok" ? "✓" : r.result === "failed" ? "Failed" : r.result === "cancelled" ? "Stopped" : r.result === "waiting" ? "Waiting" : "!"}
-              </span>
+                <span className="mono faint nowrap" style={{ width: 104, fontSize: 11, flexShrink: 0 }}>
+                  {when(r.started).replace(/^Today /, "")}
+                </span>
+                <span className="grow ellipsis" title={r.message}>
+                  {nameOf(r.plan)} · {r.message}
+                </span>
+                <span
+                  style={{
+                    color:
+                      r.result === "ok"
+                        ? "var(--accent-text)"
+                        : r.result === "failed"
+                          ? "var(--red)"
+                          : r.result === "cancelled"
+                            ? "var(--ink3)"
+                            : "var(--amber)",
+                  }}
+                >
+                  {r.result === "ok"
+                    ? "✓"
+                    : r.result === "failed"
+                      ? "Failed"
+                      : r.result === "cancelled"
+                        ? "Stopped"
+                        : r.result === "waiting"
+                          ? "Waiting"
+                          : "!"}
+                </span>
               </div>
             ))}
           </div>

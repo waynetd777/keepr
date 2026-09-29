@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Renders an HTML file to a PNG with WebKit: snapshot.swift <in.html> <out.png> <width> <height> <scale>
 import AppKit
 import WebKit

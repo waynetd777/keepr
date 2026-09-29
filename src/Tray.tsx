@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The menu-bar window: how things stand, the backup running now, each plan's state, and the
 // few things worth doing from the menu bar.
 
@@ -7,6 +11,19 @@ import { api, on, type JobStatus, type Overview } from "./api";
 import { Mark } from "./icons";
 import { statusDot } from "./context";
 import { next, secondsLeft, when } from "./format";
+
+const Item = ({ label, keys, onClick, strong }: { label: string; keys?: string; onClick: () => void; strong?: boolean }) => (
+  <button
+    className="menu-item"
+    style={strong ? { background: "var(--accent-soft)", color: "var(--accent-text)", fontWeight: 600 } : undefined}
+    onClick={() => (onClick(), hide())}
+  >
+    <span className="grow">{label}</span>
+    {keys && <span className="tiny faint">{keys}</span>}
+  </button>
+);
+
+const hide = () => getCurrentWindow().hide();
 
 export default function Tray() {
   const [ov, setOv] = useState<Overview | null>(null);
@@ -50,7 +67,9 @@ export default function Tray() {
     const el = document.querySelector(".traywin") as HTMLElement | null;
     if (!el) return;
     const ro = new ResizeObserver(() => {
-      import("@tauri-apps/api/dpi").then(({ LogicalSize }) => getCurrentWindow().setSize(new LogicalSize(360, Math.ceil(el.getBoundingClientRect().height))));
+      import("@tauri-apps/api/dpi").then(({ LogicalSize }) =>
+        getCurrentWindow().setSize(new LogicalSize(360, Math.ceil(el.getBoundingClientRect().height))),
+      );
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -58,16 +77,17 @@ export default function Tray() {
   if (!ov) return null;
   const others = ov.plans.filter((p) => p.id !== job?.plan);
   const attention = ov.plans.filter((p) => ["failed", "waiting", "stale"].includes(p.status));
-  const headline = job ? "Keeping your files" : ov.plans.length === 0 ? "Nothing set up yet" : attention.length ? `${attention.length} plan${attention.length === 1 ? " needs" : "s need"} attention` : "Everything is kept";
-  const sub = job ? `One backup running${others.every((p) => p.status === "ok") ? " · everything else is up to date" : ""}` : attention[0]?.message ?? (ov.plans.length ? "All plans are up to date" : "Open Keepr to set up a backup");
+  const headline = job
+    ? "Keeping your files"
+    : ov.plans.length === 0
+      ? "Nothing set up yet"
+      : attention.length
+        ? `${attention.length} plan${attention.length === 1 ? " needs" : "s need"} attention`
+        : "Everything is kept";
+  const sub = job
+    ? `One backup running${others.every((p) => p.status === "ok") ? " · everything else is up to date" : ""}`
+    : (attention[0]?.message ?? (ov.plans.length ? "All plans are up to date" : "Open Keepr to set up a backup"));
   const pct = job && job.bytesToRead ? Math.floor((100 * job.bytesRead) / job.bytesToRead) : 0;
-  const hide = () => getCurrentWindow().hide();
-  const Item = ({ label, keys, onClick, strong }: { label: string; keys?: string; onClick: () => void; strong?: boolean }) => (
-    <button className="menu-item" style={strong ? { background: "var(--accent-soft)", color: "var(--accent-text)", fontWeight: 600 } : undefined} onClick={() => (onClick(), hide())}>
-      <span className="grow">{label}</span>
-      {keys && <span className="tiny faint">{keys}</span>}
-    </button>
-  );
   return (
     <div className="traywin">
       <div style={{ padding: "16px 18px 14px", display: "flex", flexDirection: "column", gap: 3, borderBottom: "1px solid var(--line)" }}>
@@ -108,7 +128,8 @@ export default function Tray() {
                   </span>
                 ) : (
                   <span className="tiny muted ellipsis">
-                    Last: {p.lastSuccess ? when(p.lastSuccess) : "never"} · Next: {!p.enabled ? "off" : p.nextRun ? next(p.nextRun) : "when you ask"}
+                    Last: {p.lastSuccess ? when(p.lastSuccess) : "never"} · Next:{" "}
+                    {!p.enabled ? "off" : p.nextRun ? next(p.nextRun) : "when you ask"}
                   </span>
                 )}
               </span>
@@ -125,7 +146,11 @@ export default function Tray() {
         <Item label="Settings…" keys="⌘," onClick={() => api.showMain("settings")} />
         <Item label="Quit Keepr" keys="⌘Q" onClick={() => api.quit()} />
       </div>
-      <div style={{ padding: "10px 18px", background: "var(--sunk)", borderTop: "1px solid var(--line)", fontSize: 11, color: "var(--ink3)" }}>Backups keep running when the window is closed.</div>
+      <div
+        style={{ padding: "10px 18px", background: "var(--sunk)", borderTop: "1px solid var(--line)", fontSize: 11, color: "var(--ink3)" }}
+      >
+        Backups keep running when the window is closed.
+      </div>
     </div>
   );
 }

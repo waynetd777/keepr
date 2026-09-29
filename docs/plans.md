@@ -23,7 +23,7 @@ Removing a source that has been backed up asks what to do with it: **Keep its ve
 
 ## What to leave out
 
-Rules leave files and folders out of the backup. A new plan leaves out `node_modules/`, `target/`, `.DS_Store`, `*.tmp`, `~/Library/Caches` and `.Trash/`. Type a rule in **+ Rule** and press Return to add one; click × on a rule to remove it.
+Rules leave files and folders out of the backup. A new plan leaves out `node_modules/`, `target/`, `.DS_Store`, `*.tmp`, `~/Library/Caches` and `.Trash/`, and the folders macOS keeps for itself on a drive: `.Spotlight-V100/`, `.fseventsd/`, `.Trashes/`, `.DocumentRevisions-V100/` and `.TemporaryItems/`. Type a rule in **+ Rule** and press Return to add one; click × on a rule to remove it.
 
 | Rule | Leaves out |
 |---|---|
@@ -33,6 +33,7 @@ Rules leave files and folders out of the backup. A new plan leaves out `node_mod
 
 - **Follow .gitignore files in projects** leaves out what a project's `.gitignore` does.
 - **Skip files that are only in the cloud (they aren't downloaded)** leaves out files iCloud Drive, OneDrive and the like have removed from the Mac to save space. Untick it and Keepr downloads them to back them up, and they stay downloaded.
+- **Skip what apps mark as not needing a backup, as Time Machine does** leaves out what apps have marked as not needing a backup, such as their caches and downloaded data they can fetch again. Time Machine skips the same things.
 - **Skip files larger than** leaves out anything bigger than 1, 2, 4, 10 or 50 GB.
 
 ## Versions to keep
@@ -58,11 +59,11 @@ Thinning out happens in a **Tidy up** after a backup, at most once a day. The sp
 
 - **Every 15 min**, **Hourly**, **Daily** or **Weekly** at a time you choose, or **Only when I ask**.
 - **Catch up after sleep or when the destination comes back** runs a backup the Mac missed as soon as it can. Turned off, a missed backup is skipped and the plan waits for the next one.
-- **Wait when battery is below 20%**.
+- **Back up while on battery**. Turned off, a backup waits until the Mac is on mains power. Under it, **Wait when battery is below 20%** holds a backup back once the battery runs low.
 - **Not on a personal hotspot** waits while the Mac is on a hotspot or another connection macOS marks as expensive.
 - **Limit speed to** 5, 10, 20, 50 or 100 MB/s, for writing to the destination.
 
-A backup that's due but can't run, because the drive is unplugged, say, waits and tries again every few minutes. It shows as **Waiting** on its card.
+A backup that's due but can't run, because the drive is unplugged, say, waits and tries again every few minutes. It shows as **Waiting** on its card. These conditions hold back scheduled backups only: **Back up now** runs straight away.
 
 ## Full and incremental
 

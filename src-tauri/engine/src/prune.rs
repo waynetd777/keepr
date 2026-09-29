@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Forgetting old snapshots and reclaiming the space only they used.
 //!
 //! Safe to stop at any point: new packs are written first, then a new index naming them, and only
@@ -95,7 +99,14 @@ fn uncovered(repo: &Repo, tree: Id, others: &[Id], base: &str, out: &mut Vec<Str
 
 /// Keeps, beyond the retention rules, any snapshot holding the last copy of a file that was
 /// deleted less than `days` ago.
-fn keep_deleted(repo: &Repo, snaps: &[crate::repo::Snapshot], times: &[chrono::DateTime<chrono::Local>], kept: &mut HashSet<usize>, days: u32, ctl: &Control) -> Result<()> {
+fn keep_deleted(
+    repo: &Repo,
+    snaps: &[crate::repo::Snapshot],
+    times: &[chrono::DateTime<chrono::Local>],
+    kept: &mut HashSet<usize>,
+    days: u32,
+    ctl: &Control,
+) -> Result<()> {
     let now = chrono::Local::now();
     // Newest first, so a snapshot kept here covers older ones holding the same file.
     for i in (0..snaps.len()).rev() {
@@ -108,7 +119,12 @@ fn keep_deleted(repo: &Repo, snaps: &[crate::repo::Snapshot], times: &[chrono::D
         uncovered(repo, snaps[i].tree, &others, "", &mut files)?;
         let recent_deletion = files.iter().any(|f| {
             // When it went: the first later snapshot without it.
-            snaps.iter().enumerate().skip(i + 1).find(|(_, s)| crate::browse::node_at(repo, s, f).ok().flatten().is_none()).is_some_and(|(j, _)| now.signed_duration_since(times[j]).num_days() < days as i64)
+            snaps
+                .iter()
+                .enumerate()
+                .skip(i + 1)
+                .find(|(_, s)| crate::browse::node_at(repo, s, f).ok().flatten().is_none())
+                .is_some_and(|(j, _)| now.signed_duration_since(times[j]).num_days() < days as i64)
         });
         if recent_deletion {
             kept.insert(i);
@@ -186,7 +202,9 @@ pub fn remove_path(repo: &Arc<Repo>, path: &str, ctl: &Control) -> Result<Pruned
     let mut out = Pruned::default();
     for s in repo.snapshots()? {
         ctl.checkpoint()?;
-        let Some(src) = s.sources.iter().filter(|x| path.starts_with(&format!("{}/", x.trim_end_matches('/')))).max_by_key(|x| x.len()).cloned() else {
+        let Some(src) =
+            s.sources.iter().filter(|x| path.starts_with(&format!("{}/", x.trim_end_matches('/')))).max_by_key(|x| x.len()).cloned()
+        else {
             out.kept += 1;
             continue;
         };
@@ -334,7 +352,6 @@ pub fn reclaim(repo: &Arc<Repo>, ctl: &Control, out: &mut Pruned) -> Result<()> 
     }
     out.packs_deleted -= out.packs_rewritten;
     reload_index(repo)
-
 }
 
 /// Deletes packs no index names: what a backup leaves when it's stopped hard (Keepr quit, the
@@ -400,7 +417,17 @@ mod tests {
         let (a, dst, repo) = setup(None);
         let b = tempfile::tempdir().unwrap();
         fs::write(a.path().join("keep.txt"), b"keep").unwrap();
-        let big: Vec<u8> = { let mut x = 7u64; (0..2_000_000).map(|_| { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x as u8 }).collect() };
+        let big: Vec<u8> = {
+            let mut x = 7u64;
+            (0..2_000_000)
+                .map(|_| {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    x as u8
+                })
+                .collect()
+        };
         fs::write(b.path().join("gone.bin"), &big).unwrap();
         let mut o = opts(a.path());
         o.sources.push(b.path().to_path_buf());
@@ -426,7 +453,17 @@ mod tests {
     fn removes_a_folder_inside_a_source_everywhere() {
         let (a, _dst, repo) = setup(Some("pw"));
         fs::create_dir_all(a.path().join("Pictures/Photos Library.photoslibrary/originals")).unwrap();
-        let big: Vec<u8> = { let mut x = 9u64; (0..2_000_000).map(|_| { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x as u8 }).collect() };
+        let big: Vec<u8> = {
+            let mut x = 9u64;
+            (0..2_000_000)
+                .map(|_| {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    x as u8
+                })
+                .collect()
+        };
         fs::write(a.path().join("Pictures/Photos Library.photoslibrary/originals/IMG.heic"), &big).unwrap();
         fs::write(a.path().join("Pictures/keep.jpg"), b"keep").unwrap();
         let s1 = backup::run(&repo, &opts(a.path()), None, &Control::default()).unwrap();
@@ -451,7 +488,14 @@ mod tests {
         // Incompressible, so the space freed is the data's own size.
         let noise = |seed: u64| {
             let mut x = seed;
-            (0..3_000_000).map(|_| { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x as u8 }).collect::<Vec<u8>>()
+            (0..3_000_000)
+                .map(|_| {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    x as u8
+                })
+                .collect::<Vec<u8>>()
         };
         fs::write(src.path().join("keep.bin"), noise(1)).unwrap();
         fs::write(src.path().join("gone.bin"), noise(2)).unwrap();
@@ -468,7 +512,9 @@ mod tests {
         assert_eq!(p.forgotten, 1);
         assert!(p.bytes_freed > 2_000_000, "{p:?}");
         // Everything the remaining snapshot needs still reads back, also after reopening.
-        let r2 = Arc::new(crate::repo::Repo::open(Arc::new(crate::backend::Folder::new(dst.path())), crate::repo::Secret::Password("pw")).unwrap());
+        let r2 = Arc::new(
+            crate::repo::Repo::open(Arc::new(crate::backend::Folder::new(dst.path())), crate::repo::Secret::Password("pw")).unwrap(),
+        );
         let rep = crate::check::run(&r2, 1.0, &Control::default()).unwrap();
         assert!(rep.problems.is_empty(), "{:?}", rep.problems);
         assert_eq!(r2.snapshots().unwrap().len(), 1);

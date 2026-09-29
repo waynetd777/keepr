@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Sealing and naming blobs.
 //!
 //! An encrypted repository has a random 32-byte master key. Two keys are derived from it: one
@@ -94,6 +98,12 @@ pub struct Kdf {
     pub salt: String,
 }
 
+impl Default for Kdf {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Kdf {
     pub fn new() -> Kdf {
         let mut salt = [0u8; 16];
@@ -178,11 +188,13 @@ impl Encryption {
     }
 
     pub fn open_with_password(&self, password: &str) -> Result<[u8; 32]> {
-        Self::unwrap(&kek_cipher(&self.kdf.derive(password)?), &self.password_key).map_err(|_| Error::new("That password doesn't open this backup."))
+        Self::unwrap(&kek_cipher(&self.kdf.derive(password)?), &self.password_key)
+            .map_err(|_| Error::new("That password doesn't open this backup."))
     }
 
     pub fn open_with_recovery(&self, key: &str) -> Result<[u8; 32]> {
-        Self::unwrap(&kek_cipher(&recovery_kek(key)), &self.recovery_key).map_err(|_| Error::new("That recovery key doesn't open this backup."))
+        Self::unwrap(&kek_cipher(&recovery_kek(key)), &self.recovery_key)
+            .map_err(|_| Error::new("That recovery key doesn't open this backup."))
     }
 
     /// Seals the same master key with a new password; the recovery key keeps working.

@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Prints the window number of the largest on-screen window owned by a process: window_id <pid>.
 // With a second argument ("any"), floating windows count too (the menu-bar window floats).
 // screencapture -l needs it; there is no command-line way to get it otherwise.

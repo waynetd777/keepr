@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Taking a snapshot.
 //!
 //! Three passes:
@@ -37,6 +41,9 @@ pub struct Options {
     /// Leave out files that are only in the cloud (OneDrive, iCloud Drive placeholders), rather
     /// than make macOS download them to read them.
     pub skip_dataless: bool,
+    /// Leave out what apps have marked for backups to skip, as Time Machine does: their caches
+    /// and scratch data carry the `com_apple_backup_excludeItem` attribute.
+    pub skip_marked: bool,
     pub max_file_size: Option<u64>,
     /// Re-read every file instead of trusting unchanged metadata.
     pub full: bool,
@@ -187,6 +194,18 @@ impl Control {
 /// macOS's flag for a file whose contents are in the cloud only.
 const SF_DATALESS: u32 = 0x4000_0000;
 
+/// The attribute an app sets (through `CSBackupSetItemExcluded` or `tmutil addexclusion`) on an
+/// item backups should skip.
+const EXCLUDE_ITEM: &[u8] = b"com.apple.metadata:com_apple_backup_excludeItem\0";
+
+/// Whether an app has marked this item for backups to skip. Only the attribute's presence
+/// matters, so this asks for its size and reads nothing.
+fn marked(p: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(c) = std::ffi::CString::new(p.as_os_str().as_bytes()) else { return false };
+    unsafe { libc::getxattr(c.as_ptr(), EXCLUDE_ITEM.as_ptr().cast(), std::ptr::null_mut(), 0, 0, libc::XATTR_NOFOLLOW) >= 0 }
+}
+
 struct Excluder {
     names: globset::GlobSet,
     dir_names: globset::GlobSet,
@@ -196,8 +215,11 @@ struct Excluder {
 impl Excluder {
     fn new(patterns: &[String]) -> Result<Excluder> {
         let home = std::env::var("HOME").unwrap_or_default();
-        let (mut names, mut dirs, mut paths) = (globset::GlobSetBuilder::new(), globset::GlobSetBuilder::new(), globset::GlobSetBuilder::new());
-        let glob = |p: &str| globset::GlobBuilder::new(p).literal_separator(true).build().map_err(|e| Error::new(format!("The rule {p:?} isn't valid: {e}")));
+        let (mut names, mut dirs, mut paths) =
+            (globset::GlobSetBuilder::new(), globset::GlobSetBuilder::new(), globset::GlobSetBuilder::new());
+        let glob = |p: &str| {
+            globset::GlobBuilder::new(p).literal_separator(true).build().map_err(|e| Error::new(format!("The rule {p:?} isn't valid: {e}")))
+        };
         for p in patterns.iter().map(|p| p.trim()).filter(|p| !p.is_empty()) {
             let p = if let Some(rest) = p.strip_prefix("~/") { format!("{home}/{rest}") } else { p.to_string() };
             if p.starts_with('/') {
@@ -328,7 +350,9 @@ impl Walk<'_> {
         self.stats.files += 1;
         self.stats.bytes += node.size;
         let unchanged = !self.opts.full
-            && prev.is_some_and(|p| p.kind == NodeKind::File && p.size == node.size && p.mtime == node.mtime && p.ctime == node.ctime && p.inode == node.inode)
+            && prev.is_some_and(|p| {
+                p.kind == NodeKind::File && p.size == node.size && p.mtime == node.mtime && p.ctime == node.ctime && p.inode == node.inode
+            })
             && prev.is_some_and(|p| p.content.iter().all(|c| self.repo.has(c)));
         if unchanged {
             node.content = prev.unwrap().content.clone();
@@ -349,7 +373,19 @@ impl Walk<'_> {
     fn remote_dir(&mut self, name: String, shown: &Path, d: RDir, prev: Option<Arc<Tree>>, src: usize) -> Result<ScanDir> {
         self.ctl.checkpoint()?;
         self.stats.dirs += 1;
-        let node = Node { name, kind: NodeKind::Dir, size: 0, files: 0, mtime: 0, ctime: 0, inode: 0, mode: 0o755, content: vec![], subtree: None, target: None };
+        let node = Node {
+            name,
+            kind: NodeKind::Dir,
+            size: 0,
+            files: 0,
+            mtime: 0,
+            ctime: 0,
+            inode: 0,
+            mode: 0o755,
+            content: vec![],
+            subtree: None,
+            target: None,
+        };
         let mut entries = Vec::new();
         let RDir { dirs, files } = d;
         for (n, o) in files {
@@ -363,7 +399,19 @@ impl Walk<'_> {
             }
             self.ctl.progress.files_seen.fetch_add(1, Relaxed);
             let prev_node = prev.as_ref().and_then(|t| t.get(&n)).cloned();
-            let node = Node { name: n, kind: NodeKind::File, size: o.size, files: 0, mtime: o.mtime, ctime: o.mtime, inode: tag_inode(&o.tag), mode: 0o644, content: vec![], subtree: None, target: None };
+            let node = Node {
+                name: n,
+                kind: NodeKind::File,
+                size: o.size,
+                files: 0,
+                mtime: o.mtime,
+                ctime: o.mtime,
+                inode: tag_inode(&o.tag),
+                mode: 0o644,
+                content: vec![],
+                subtree: None,
+                target: None,
+            };
             let job = Job { path: p.clone(), shown: p, size: o.size, previous: prev_node.clone(), remote: Some((src, o.key)) };
             let e = self.consider(node, prev_node.as_ref(), job);
             entries.push(e);
@@ -443,7 +491,10 @@ impl Walk<'_> {
             };
             let ft = m.file_type();
             let is_dir = ft.is_dir();
-            if self.ex.excluded(&lp, &name, is_dir) || (self.opts.gitignore && self.gitignored(&p, is_dir)) {
+            if self.ex.excluded(&lp, &name, is_dir)
+                || (self.opts.gitignore && self.gitignored(&p, is_dir))
+                || (self.opts.skip_marked && marked(&p))
+            {
                 continue;
             }
             self.ctl.progress.files_seen.fetch_add(1, Relaxed);
@@ -512,7 +563,8 @@ pub fn run(repo: &Arc<Repo>, opts: &Options, parent: Option<&Snapshot>, ctl: &Co
         Some(p) => Some(repo.load_tree(&p.tree)?),
         None => None,
     };
-    let mut w = Walk { repo, opts, ctl, ex: Excluder::new(&opts.excludes)?, jobs: vec![], stats: Stats::default(), ignores: vec![], map: None };
+    let mut w =
+        Walk { repo, opts, ctl, ex: Excluder::new(&opts.excludes)?, jobs: vec![], stats: Stats::default(), ignores: vec![], map: None };
     let mut roots = Vec::new();
     for (i, src) in opts.sources.iter().enumerate() {
         let key = src.to_string_lossy().to_string();
@@ -686,7 +738,13 @@ pub(crate) mod tests {
 
     impl Remote for Fake {
         fn objects(&self) -> std::io::Result<Vec<RemoteObject>> {
-            Ok(self.0.lock().unwrap().iter().map(|(k, (d, t))| RemoteObject { key: k.clone(), size: d.len() as u64, mtime: 1, tag: t.clone() }).collect())
+            Ok(self
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(k, (d, t))| RemoteObject { key: k.clone(), size: d.len() as u64, mtime: 1, tag: t.clone() })
+                .collect())
         }
         fn open(&self, key: &str) -> std::io::Result<Box<dyn std::io::Read + Send>> {
             let d = self.0.lock().unwrap().get(key).map(|x| x.0.clone()).ok_or(std::io::ErrorKind::NotFound)?;
@@ -702,7 +760,12 @@ pub(crate) mod tests {
         put("docs/a.txt", b"alpha", "e1");
         put("docs/", b"", "marker");
         put("b.txt", b"beta", "e2");
-        let o = Options { plan: "p".into(), sources: vec![PathBuf::from("s3://bucket/top")], remote: vec![Some(RemoteSource(fake.clone()))], ..Default::default() };
+        let o = Options {
+            plan: "p".into(),
+            sources: vec![PathBuf::from("s3://bucket/top")],
+            remote: vec![Some(RemoteSource(fake.clone()))],
+            ..Default::default()
+        };
         let s1 = run(&repo, &o, None, &Control::default()).unwrap();
         assert_eq!((s1.stats.files, s1.stats.new_files, s1.stats.read_bytes), (2, 2, 9));
         let n = crate::browse::node_at(&repo, &s1, "s3://bucket/top/docs/a.txt").unwrap().unwrap();
@@ -718,7 +781,8 @@ pub(crate) mod tests {
 
         let out = tempfile::tempdir().unwrap();
         let t = crate::restore::Target::Folder(out.path().into());
-        crate::restore::run(&repo, &s3, &["s3://bucket/top/docs".into()], &t, crate::restore::Conflict::Replace, &Control::default()).unwrap();
+        crate::restore::run(&repo, &s3, &["s3://bucket/top/docs".into()], &t, crate::restore::Conflict::Replace, &Control::default())
+            .unwrap();
         assert_eq!(fs::read(out.path().join("top/docs/a.txt")).unwrap(), b"alpha2");
         assert!(crate::restore::destination(&s3, "s3://bucket/top/docs", &crate::restore::Target::Original).is_err());
     }
@@ -782,6 +846,28 @@ pub(crate) mod tests {
         let o = opts(&src.path().join("not-there"));
         let e = run(&repo, &o, None, &Control::default()).unwrap_err();
         assert!(e.0.contains("connected"), "{e}");
+    }
+
+    #[test]
+    fn skips_what_apps_mark() {
+        let (src, _dst, repo) = setup(None);
+        write(&src.path().join("keep.txt"), b"k");
+        write(&src.path().join("cache/c.bin"), b"c");
+        write(&src.path().join("scratch.bin"), b"s");
+        for n in ["cache", "scratch.bin"] {
+            let c = std::ffi::CString::new(src.path().join(n).to_str().unwrap()).unwrap();
+            assert_eq!(unsafe { libc::setxattr(c.as_ptr(), EXCLUDE_ITEM.as_ptr().cast(), b"x".as_ptr().cast(), 1, 0, 0) }, 0);
+        }
+        let names = |o: &Options| {
+            let s = run(&repo, o, None, &Control::default()).unwrap();
+            let root = repo.load_tree(&s.tree).unwrap();
+            let top = repo.load_tree(&root.nodes[0].subtree.unwrap()).unwrap();
+            top.nodes.iter().map(|n| n.name.clone()).collect::<Vec<_>>()
+        };
+        let mut o = opts(src.path());
+        assert_eq!(names(&o), vec!["cache", "keep.txt", "scratch.bin"]);
+        o.skip_marked = true;
+        assert_eq!(names(&o), vec!["keep.txt"]);
     }
 
     #[test]

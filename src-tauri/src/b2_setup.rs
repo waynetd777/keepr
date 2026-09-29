@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Setting up Backblaze B2 for Keepr through B2's own API, from the account's master
 //! application key, which is used for this and then forgotten (never saved).
 //!
@@ -34,7 +38,9 @@ fn explain(e: ureq::Error) -> String {
             let code = v["code"].as_str().unwrap_or_default();
             let msg = v["message"].as_str().unwrap_or_default();
             match code {
-                "bad_auth_token" | "unauthorized" if msg.contains("key") || msg.contains("capab") => format!("That key isn't allowed to do this ({msg}). Use the account's master application key."),
+                "bad_auth_token" | "unauthorized" if msg.contains("key") || msg.contains("capab") => {
+                    format!("That key isn't allowed to do this ({msg}). Use the account's master application key.")
+                }
                 "bad_auth_token" | "unauthorized" => "Backblaze didn't accept that key ID and application key.".into(),
                 "duplicate_bucket_name" => "Another Backblaze account already has a bucket with that name. Choose another.".into(),
                 "too_many_buckets" => "This account has as many buckets as Backblaze allows.".into(),
@@ -49,20 +55,38 @@ fn explain(e: ureq::Error) -> String {
 fn authorize(key_id: &str, key: &str) -> Result<Account, String> {
     let agent = agent()?;
     let basic = base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", key_id.trim(), key.trim()));
-    let v: Value = agent.get("https://api.backblazeb2.com/b2api/v2/b2_authorize_account").set("Authorization", &format!("Basic {basic}")).call().map_err(explain)?.into_json().map_err(|e| e.to_string())?;
+    let v: Value = agent
+        .get("https://api.backblazeb2.com/b2api/v2/b2_authorize_account")
+        .set("Authorization", &format!("Basic {basic}"))
+        .call()
+        .map_err(explain)?
+        .into_json()
+        .map_err(|e| e.to_string())?;
     let s = |k: &str| v[k].as_str().unwrap_or_default().to_string();
     Ok(Account { id: s("accountId"), api: s("apiUrl"), token: s("authorizationToken"), s3: s("s3ApiUrl"), agent })
 }
 
 impl Account {
     fn call(&self, op: &str, body: Value) -> Result<Value, String> {
-        self.agent.post(&format!("{}/b2api/v2/{op}", self.api)).set("Authorization", &self.token).send_json(body).map_err(explain)?.into_json().map_err(|e| e.to_string())
+        self.agent
+            .post(&format!("{}/b2api/v2/{op}", self.api))
+            .set("Authorization", &self.token)
+            .send_json(body)
+            .map_err(explain)?
+            .into_json()
+            .map_err(|e| e.to_string())
     }
 
     /// (name, id) of each bucket in the account.
     fn buckets(&self) -> Result<Vec<(String, String)>, String> {
         let v = self.call("b2_list_buckets", json!({ "accountId": self.id }))?;
-        Ok(v["buckets"].as_array().cloned().unwrap_or_default().iter().map(|b| (b["bucketName"].as_str().unwrap_or_default().to_string(), b["bucketId"].as_str().unwrap_or_default().to_string())).collect())
+        Ok(v["buckets"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .map(|b| (b["bucketName"].as_str().unwrap_or_default().to_string(), b["bucketId"].as_str().unwrap_or_default().to_string()))
+            .collect())
     }
 
     /// "eu-central-003", from the S3 address.
@@ -77,7 +101,9 @@ fn keep_latest() -> Value {
 }
 
 fn check_name(bucket: &str) -> Result<(), String> {
-    let ok = (6..=50).contains(&bucket.len()) && bucket.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') && !bucket.to_lowercase().starts_with("b2-");
+    let ok = (6..=50).contains(&bucket.len())
+        && bucket.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        && !bucket.to_lowercase().starts_with("b2-");
     if ok {
         Ok(())
     } else {
@@ -128,7 +154,10 @@ pub fn setup(key_id: &str, key: &str, bucket: &str, mode: Mode) -> Result<Made, 
         Mode::Source => &["listBuckets", "listFiles", "readFiles"],
     };
     let name = format!("keepr-{}{}", if mode == Mode::Source { "read-" } else { "" }, bucket);
-    let k = a.call("b2_create_key", json!({ "accountId": a.id, "capabilities": caps, "keyName": &name[..name.len().min(100)], "bucketId": bucket_id }))?;
+    let k = a.call(
+        "b2_create_key",
+        json!({ "accountId": a.id, "capabilities": caps, "keyName": &name[..name.len().min(100)], "bucketId": bucket_id }),
+    )?;
     let (id, secret) = (k["applicationKeyId"].as_str().unwrap_or_default(), k["applicationKey"].as_str().unwrap_or_default());
     if id.is_empty() || secret.is_empty() {
         return Err("Backblaze didn't return the new key.".into());
@@ -147,7 +176,13 @@ mod tests {
         assert!(check_name("b2-mine").is_err());
         assert!(check_name("short").is_err());
         assert!(check_name("has_underscore").is_err());
-        let a = Account { id: String::new(), api: String::new(), token: String::new(), s3: "https://s3.eu-central-003.backblazeb2.com".into(), agent: ureq::agent() };
+        let a = Account {
+            id: String::new(),
+            api: String::new(),
+            token: String::new(),
+            s3: "https://s3.eu-central-003.backblazeb2.com".into(),
+            agent: ureq::agent(),
+        };
         assert_eq!(a.region(), "eu-central-003");
         assert_eq!(keep_latest()[0]["daysFromHidingToDeleting"], 1);
     }

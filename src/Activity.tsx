@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Activity: what is running now, step by step, and the history of every backup, check, tidy-up
 // and restore.
 
@@ -26,7 +30,8 @@ function Running() {
   const isBackup = job.kind === "backup" || job.kind === "full";
   const pct = job.bytesToRead > 0 ? Math.min(100, (100 * job.bytesRead) / job.bytesToRead) : job.stage === "Saving" ? 99 : 0;
   const step = stepOf(job.stage);
-  const verb = job.kind === "restore" ? "Restoring from" : job.kind === "check" ? "Checking" : job.kind === "prune" ? "Tidying up" : "Keeping";
+  const verb =
+    job.kind === "restore" ? "Restoring from" : job.kind === "check" ? "Checking" : job.kind === "prune" ? "Tidying up" : "Keeping";
   const skipped = job.dupBytes;
   return (
     <>
@@ -60,7 +65,10 @@ function Running() {
                     <div className="bar">
                       <div style={{ width: done ? "100%" : now ? `${pct}%` : 0 }} />
                     </div>
-                    <div className="row" style={{ gap: 6, fontWeight: 600, color: done ? "var(--ink)" : now ? "var(--accent-text)" : "var(--ink3)" }}>
+                    <div
+                      className="row"
+                      style={{ gap: 6, fontWeight: 600, color: done ? "var(--ink)" : now ? "var(--accent-text)" : "var(--ink3)" }}
+                    >
                       {done && <Icon name="check" size={13} stroke={2.8} />}
                       {name}
                     </div>
@@ -89,8 +97,14 @@ function Running() {
               <StopButton job={job} />
             </div>
             <div className="progress">
-              <div className="soft" style={{ width: `${job.bytesToRead ? (100 * Math.min(skipped, job.bytesRead)) / job.bytesToRead : 0}%` }} />
-              <div className="solid" style={{ width: `${job.bytesToRead ? (100 * Math.max(0, job.bytesRead - skipped)) / job.bytesToRead : 0}%` }} />
+              <div
+                className="soft"
+                style={{ width: `${job.bytesToRead ? (100 * Math.min(skipped, job.bytesRead)) / job.bytesToRead : 0}%` }}
+              />
+              <div
+                className="solid"
+                style={{ width: `${job.bytesToRead ? (100 * Math.max(0, job.bytesRead - skipped)) / job.bytesToRead : 0}%` }}
+              />
             </div>
             {isBackup && (
               <div className="row small muted" style={{ gap: 18 }}>
@@ -112,7 +126,10 @@ function Running() {
           )}
         </section>
         {isBackup && (
-          <aside className="card" style={{ width: 320, flexShrink: 0, padding: "20px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+          <aside
+            className="card"
+            style={{ width: 320, flexShrink: 0, padding: "20px 22px", display: "flex", flexDirection: "column", gap: 14 }}
+          >
             <span className="caps">This backup so far</span>
             <div className="col" style={{ gap: 2 }}>
               <span className="big-number">{bytes(job.sentBytes)}</span>
@@ -153,18 +170,24 @@ export default function Activity() {
   const { ov, job } = useApp();
   const [runs, setRuns] = useState<Run[]>([]);
   const [filter, setFilter] = useState<"all" | "problems" | "restores">("all");
-  // Fifty at a time: the next fifty load when the end of the list scrolls into view.
+  // Fifty at a time: the next fifty load when the end of the list scrolls into view. Always read
+  // from the top, so a refresh keeps what has been scrolled to and a late answer can't clobber a
+  // newer one.
   const [more, setMore] = useState(true);
-  const loading = useRef(false);
+  const count = useRef(0);
+  const gen = useRef(0);
+  const busy = useRef(false);
   const end = useRef<HTMLDivElement>(null);
-  const loadMore = useCallback(
-    async (from: number, reset = false) => {
-      if (loading.current) return;
-      loading.current = true;
-      const page = await api.history(PAGE, from, filter);
-      setRuns((r) => (reset ? page : [...r, ...page]));
-      setMore(page.length === PAGE);
-      loading.current = false;
+  const load = useCallback(
+    async (n: number) => {
+      const g = ++gen.current;
+      busy.current = true;
+      const page = await api.history(n, 0, filter);
+      if (g !== gen.current) return;
+      count.current = page.length;
+      setRuns(page);
+      setMore(page.length === n);
+      busy.current = false;
     },
     [filter],
   );
@@ -179,28 +202,51 @@ export default function Activity() {
     }
     setOpen(s);
   };
-  // The first page again whenever something changes (a run finishes) or the filter does.
+  // The first page when the filter changes; what's already shown, again, whenever something
+  // changes (a run finishes, or the half-minute refresh).
+  const shownFilter = useRef(filter);
   useEffect(() => {
-    loading.current = false;
-    loadMore(0, true);
-  }, [ov, loadMore]);
+    if (shownFilter.current !== filter) {
+      shownFilter.current = filter;
+      count.current = 0;
+    }
+    load(Math.max(PAGE, count.current));
+  }, [ov, filter, load]);
   useEffect(() => {
     const el = end.current;
     if (!el) return;
-    const io = new IntersectionObserver((e) => e[0].isIntersecting && more && loadMore(runs.length), { rootMargin: "200px" });
+    const io = new IntersectionObserver((e) => e[0].isIntersecting && more && !busy.current && load(count.current + PAGE), {
+      rootMargin: "200px",
+    });
     io.observe(el);
     return () => io.disconnect();
-  }, [more, runs.length, loadMore]);
+  }, [more, runs, load]);
   const nameOf = (id: string) => ov?.plans.find((p) => p.id === id)?.name ?? "A deleted plan";
   const shown = runs;
-  const kindName: Record<string, string> = { backup: "Incremental", full: "Full re-read", check: "Check", prune: "Tidy up", restore: "Restore", remove: "Remove a folder" };
+  const kindName: Record<string, string> = {
+    backup: "Incremental",
+    full: "Full re-read",
+    check: "Check",
+    prune: "Tidy up",
+    restore: "Restore",
+    remove: "Remove a folder",
+  };
   return (
     <div className="content col" style={{ gap: 18 }}>
       {job ? <Running /> : <h1>Activity</h1>}
-      <section className="card" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <section className="card" style={{ display: "flex", flexDirection: "column", overflow: "hidden", flexShrink: 0 }}>
         <div className="row" style={{ height: 46, padding: "0 20px", borderBottom: "1px solid var(--line)" }}>
           <h2 className="grow">History</h2>
-          <Seg label="Filter" value={filter} onChange={setFilter} options={[["all", "All"], ["problems", "Problems"], ["restores", "Restores"]]} />
+          <Seg
+            label="Filter"
+            value={filter}
+            onChange={setFilter}
+            options={[
+              ["all", "All"],
+              ["problems", "Problems"],
+              ["restores", "Restores"],
+            ]}
+          />
         </div>
         {shown.length === 0 ? (
           <div className="empty">Nothing here yet.</div>
@@ -224,40 +270,88 @@ export default function Activity() {
                 const isOpen = open.has(r.id);
                 return (
                   <Fragment key={r.id}>
-                  <tr onClick={() => toggle(r.id)} style={{ cursor: "default" }} title={isOpen ? "Hide the log" : "Show the log"}>
-                    <td className="muted nowrap">
-                      <span className="row" style={{ gap: 6 }}>
-                        <button className={`disc${isOpen ? " open" : ""}`} aria-label={isOpen ? "Hide the log" : "Show the log"} aria-expanded={isOpen} onClick={(e) => (e.stopPropagation(), toggle(r.id))}>
-                          <Icon name="forward" size={12} stroke={2.6} />
-                        </button>
-                        {when(r.started)}
-                      </span>
-                    </td>
-                    <td>{nameOf(r.plan)}</td>
-                    <td className="muted">{kindName[r.kind] ?? r.kind}</td>
-                    <td className="muted">{r.result !== "ok" && r.result !== "warning" ? "—" : r.kind === "backup" || r.kind === "full" ? (r.changed ? `${r.changed.toLocaleString()} changed` : "none changed") : r.files ? r.files.toLocaleString() : "—"}</td>
-                    <td className="mono muted" style={{ textAlign: "right", fontSize: 11 }}>
-                      {r.storedBytes ? bytes(r.storedBytes) : "—"}
-                    </td>
-                    <td className="mono muted" style={{ textAlign: "right", fontSize: 11 }}>
-                      {r.result === "waiting" ? "—" : secs >= 1 ? duration(secs) : "<1 s"}
-                    </td>
-                    <td style={{ maxWidth: 420 }}>
-                      <span className={`tag ${tone}`} title={r.message}>
-                        {r.result === "ok" ? (r.kind === "check" ? "All intact" : "Complete") : r.result === "cancelled" ? "Stopped" : r.result === "waiting" ? "Waiting" : r.result === "warning" ? "Done, with problems" : "Failed"}
-                      </span>
-                      {r.message && <div className="small muted" style={{ marginTop: 3 }}>{r.message}</div>}
-                    </td>
-                  </tr>
-                  {isOpen && (
-                    <tr>
-                      <td colSpan={7} style={{ borderTop: 0, paddingTop: 0 }}>
-                        <div className="mono" style={{ fontSize: 11, lineHeight: 1.6, background: "var(--sunk)", borderRadius: 8, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", userSelect: "text", WebkitUserSelect: "text", maxHeight: 360, overflow: "auto" }}>
-                          {!logs[r.id] ? "Loading…" : logs[r.id].length ? logs[r.id].join("\n") : "No log for this run: it ran before Keepr kept logs."}
-                        </div>
+                    <tr onClick={() => toggle(r.id)} style={{ cursor: "default" }} title={isOpen ? "Hide the log" : "Show the log"}>
+                      <td className="muted nowrap">
+                        <span className="row" style={{ gap: 6 }}>
+                          <button
+                            className={`disc${isOpen ? " open" : ""}`}
+                            aria-label={isOpen ? "Hide the log" : "Show the log"}
+                            aria-expanded={isOpen}
+                            onClick={(e) => (e.stopPropagation(), toggle(r.id))}
+                          >
+                            <Icon name="forward" size={12} stroke={2.6} />
+                          </button>
+                          {when(r.started)}
+                        </span>
+                      </td>
+                      <td>{nameOf(r.plan)}</td>
+                      <td className="muted">{kindName[r.kind] ?? r.kind}</td>
+                      <td className="muted">
+                        {r.result !== "ok" && r.result !== "warning"
+                          ? "—"
+                          : r.kind === "backup" || r.kind === "full"
+                            ? r.changed
+                              ? `${r.changed.toLocaleString()} changed`
+                              : "none changed"
+                            : r.files
+                              ? r.files.toLocaleString()
+                              : "—"}
+                      </td>
+                      <td className="mono muted" style={{ textAlign: "right", fontSize: 11 }}>
+                        {r.storedBytes ? bytes(r.storedBytes) : "—"}
+                      </td>
+                      <td className="mono muted" style={{ textAlign: "right", fontSize: 11 }}>
+                        {r.result === "waiting" ? "—" : secs >= 1 ? duration(secs) : "<1 s"}
+                      </td>
+                      <td style={{ maxWidth: 420 }}>
+                        <span className={`tag ${tone}`} title={r.message}>
+                          {r.result === "ok"
+                            ? r.kind === "check"
+                              ? "All intact"
+                              : "Complete"
+                            : r.result === "cancelled"
+                              ? "Stopped"
+                              : r.result === "waiting"
+                                ? "Waiting"
+                                : r.result === "warning"
+                                  ? "Done, with problems"
+                                  : "Failed"}
+                        </span>
+                        {r.message && (
+                          <div className="small muted" style={{ marginTop: 3 }}>
+                            {r.message}
+                          </div>
+                        )}
                       </td>
                     </tr>
-                  )}
+                    {isOpen && (
+                      <tr>
+                        <td colSpan={7} style={{ borderTop: 0, paddingTop: 0 }}>
+                          <div
+                            className="mono"
+                            style={{
+                              fontSize: 11,
+                              lineHeight: 1.6,
+                              background: "var(--sunk)",
+                              borderRadius: 8,
+                              padding: "10px 14px",
+                              whiteSpace: "pre-wrap",
+                              wordBreak: "break-word",
+                              userSelect: "text",
+                              WebkitUserSelect: "text",
+                              maxHeight: 360,
+                              overflow: "auto",
+                            }}
+                          >
+                            {!logs[r.id]
+                              ? "Loading…"
+                              : logs[r.id].length
+                                ? logs[r.id].join("\n")
+                                : "No log for this run: it ran before Keepr kept logs."}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
                   </Fragment>
                 );
               })}
@@ -265,7 +359,10 @@ export default function Activity() {
           </table>
         )}
         <div ref={end} className="small faint" style={{ padding: "12px 20px", textAlign: "center" }}>
-          {shown.length > 0 && (more ? "Loading more…" : `That's everything: ${shown.length.toLocaleString()} ${filter === "all" ? "runs" : filter === "problems" ? "problems" : "restores"}.`)}
+          {shown.length > 0 &&
+            (more
+              ? "Loading more…"
+              : `That's everything: ${shown.length.toLocaleString()} ${filter === "all" ? "runs" : filter === "problems" ? "problems" : "restores"}.`)}
         </div>
       </section>
     </div>

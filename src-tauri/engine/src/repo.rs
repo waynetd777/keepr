@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Opening a repository, and reading and writing its blobs, indexes, snapshots and locks.
 
 use crate::backend::Backend;
@@ -159,7 +163,14 @@ impl Repo {
                 (None, Keys::plain(k.0), Some(k.hex()), None)
             }
         };
-        let config = Config { format: FORMAT, id: Id::random(), created: chrono::Utc::now().to_rfc3339(), chunker: Chunker::default(), encryption, id_key };
+        let config = Config {
+            format: FORMAT,
+            id: Id::random(),
+            created: chrono::Utc::now().to_rfc3339(),
+            chunker: Chunker::default(),
+            encryption,
+            id_key,
+        };
         backend.write(CONFIG, &serde_json::to_vec_pretty(&config)?)?;
         Ok(Created { repo: Repo::with(backend, config, keys), recovery_key: recovery })
     }
@@ -180,7 +191,9 @@ impl Repo {
     pub fn read_config(backend: &dyn Backend) -> Result<Config> {
         let raw = match backend.read(CONFIG) {
             Ok(r) => r,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(Error::new(format!("There's no Keepr backup at {}.", backend.describe()))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(Error::new(format!("There's no Keepr backup at {}.", backend.describe())))
+            }
             Err(e) => return Err(Error::new(format!("Can't read the backup at {}: {e}", backend.describe()))),
         };
         let config: Config = serde_json::from_slice(&raw)?;
@@ -342,7 +355,9 @@ impl Repo {
         buf.extend_from_slice(&header);
         buf.extend_from_slice(&(header.len() as u32).to_le_bytes());
         let pack = Id::random();
-        self.backend.write(&pack_path(&pack), &buf).map_err(|e| Error::new(format!("Couldn't write to {}: {e}", self.backend.describe())))?;
+        self.backend
+            .write(&pack_path(&pack), &buf)
+            .map_err(|e| Error::new(format!("Couldn't write to {}: {e}", self.backend.describe())))?;
         let rec = PackRecord { pack, blobs: entries };
         // Into the in-memory index at once, and only then out of `pending`, so a blob is always
         // findable in one or the other.
@@ -375,7 +390,10 @@ impl Repo {
             let loc = *ix.blobs.get(id).ok_or_else(|| Error::new(format!("missing data {}", id.short())))?;
             (loc, ix.packs[loc.pack as usize])
         };
-        let stored = self.backend.read_at(&pack_path(&pack), loc.offset as u64, loc.len as u64).map_err(|e| Error::new(format!("Can't read {}: {e}", pack_path(&pack))))?;
+        let stored = self
+            .backend
+            .read_at(&pack_path(&pack), loc.offset as u64, loc.len as u64)
+            .map_err(|e| Error::new(format!("Can't read {}: {e}", pack_path(&pack))))?;
         let plain = self.decode(&stored, Some(loc.raw as usize))?;
         if self.keys.id(&plain) != *id {
             return Err(Error::new(format!("damaged data {}: it doesn't match its id", id.short())));
@@ -442,13 +460,19 @@ impl Repo {
             let path = format!("locks/{f}");
             let Ok(raw) = self.backend.read(&path) else { continue };
             let Ok(l) = serde_json::from_slice::<LockFile>(&raw) else { continue };
-            let stale = (l.host == host && !pid_alive(l.pid)) || chrono::DateTime::parse_from_rfc3339(&l.time).is_ok_and(|t| chrono::Utc::now().signed_duration_since(t).num_hours() >= 24);
+            let stale = (l.host == host && !pid_alive(l.pid))
+                || chrono::DateTime::parse_from_rfc3339(&l.time)
+                    .is_ok_and(|t| chrono::Utc::now().signed_duration_since(t).num_hours() >= 24);
             if stale {
                 let _ = self.backend.remove(&path);
                 continue;
             }
             if (exclusive || l.exclusive) && !(l.host == host && l.pid == me) {
-                return Err(Error::new(format!("The backup is in use by {} (since {}).", if l.host == host { "another Keepr on this Mac".to_string() } else { l.host.clone() }, l.time)));
+                return Err(Error::new(format!(
+                    "The backup is in use by {} (since {}).",
+                    if l.host == host { "another Keepr on this Mac".to_string() } else { l.host.clone() },
+                    l.time
+                )));
             }
         }
         let path = format!("locks/{}.lock", Id::random().hex());

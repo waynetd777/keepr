@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+# See LICENSE for the full text.
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Packs the release build into a DMG laid out like other Mac installers: the app on the left,
 an arrow to Applications on the right, on a background with the mark, name and a hint.
 

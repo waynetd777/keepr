@@ -1,3 +1,7 @@
+# Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+# See LICENSE for the full text.
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Keepr — build, sign and install the app.
 
 APP      := src-tauri/target/release/bundle/macos/Keepr.app
@@ -11,12 +15,26 @@ SIGN_ID  := $(APPLE_SIGNING_IDENTITY)
 # "-" is an ad-hoc signature: an empty identity makes the bundler fail instead.
 export APPLE_SIGNING_IDENTITY := $(if $(SIGN_ID),$(SIGN_ID),-)
 
-.PHONY: check test app install-app dmg dev icons sign-check screenshots help
+.PHONY: check test lint fmt app install-app dmg dev icons sign-check screenshots help
 
-## cargo test (the engine and the app) + TypeScript type-check.
+## cargo test (the engine and the app), TypeScript type-check, then make lint.
 check:
 	cd src-tauri && cargo test -p keepr-engine && cargo test --lib -p keepr
 	npx tsc --noEmit -p tsconfig.json
+	@$(MAKE) --no-print-directory lint
+
+## Formatting (rustfmt, Prettier), Clippy, ESLint and the licence headers, all checked, nothing changed.
+lint:
+	cd src-tauri && cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
+	npx prettier --check .
+	npx eslint .
+	python3 tools/license_headers.py --check
+
+## Reformat everything, and add the licence header to any source file without one.
+fmt:
+	cd src-tauri && cargo fmt --all
+	npx prettier --write .
+	python3 tools/license_headers.py
 
 test: check
 

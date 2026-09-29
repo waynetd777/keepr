@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! A directory as a snapshot keeps it: its entries, sorted by name. A tree is itself a blob, named
 //! by its contents, so a folder that didn't change between backups is the same tree and costs
 //! nothing to keep again.

@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The splash index.html paints before React starts. Kept out of main.tsx so that importing it
 // doesn't re-run the entry point on a hot reload.
 

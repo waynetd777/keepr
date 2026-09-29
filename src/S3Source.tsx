@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Adding an S3 bucket as a plan's source: Keepr lists and reads it, never writes to it. For
 // Amazon, signing in lists the buckets and makes a user that may only read the chosen one.
 
@@ -32,8 +36,22 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
   }, []);
   useEffect(() => setMsg(null), [service, region, r2Account, endpoint, bucket, prefix, accessKey, secret]);
 
-  const s3Endpoint = service === "aws" ? `https://s3.${region.trim()}.amazonaws.com` : service === "b2" ? `https://s3.${region.trim()}.backblazeb2.com` : service === "r2" ? `https://${r2Account.trim()}.r2.cloudflarestorage.com` : endpoint.trim();
-  const place: Place = { kind: "s3", endpoint: s3Endpoint, region: service === "r2" ? "auto" : region.trim(), bucket: bucket.trim(), prefix: prefix.trim().replace(/^\/+|\/+$/g, ""), accessKey: accessKey.trim() };
+  const s3Endpoint =
+    service === "aws"
+      ? `https://s3.${region.trim()}.amazonaws.com`
+      : service === "b2"
+        ? `https://s3.${region.trim()}.backblazeb2.com`
+        : service === "r2"
+          ? `https://${r2Account.trim()}.r2.cloudflarestorage.com`
+          : endpoint.trim();
+  const place: Place = {
+    kind: "s3",
+    endpoint: s3Endpoint,
+    region: service === "r2" ? "auto" : region.trim(),
+    bucket: bucket.trim(),
+    prefix: prefix.trim().replace(/^\/+|\/+$/g, ""),
+    accessKey: accessKey.trim(),
+  };
   const ready = !!(bucket.trim() && accessKey.trim() && (secret || secretSaved) && serviceOf(s3Endpoint).service === service);
 
   const step = async (doing: string, f: () => Promise<void>) => {
@@ -59,7 +77,10 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
     step("Listing the bucket…", async () => {
       const size = await api.checkS3Source(place, secret || undefined);
       if (secret) setSecretSaved(true);
-      setMsg({ ok: true, text: `Keepr can read it: ${size}.${service === "aws" ? " Amazon charges for data leaving AWS (about $0.09 a GB), so the first backup costs that for all of it; later ones only for what changed." : ""}` });
+      setMsg({
+        ok: true,
+        text: `Keepr can read it: ${size}.${service === "aws" ? " Amazon charges for data leaving AWS (about $0.09 a GB), so the first backup costs that for all of it; later ones only for what changed." : ""}`,
+      });
     });
 
   return (
@@ -109,7 +130,8 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
           <div className="card col" style={{ padding: 14, gap: 10, background: "var(--sunk)" }}>
             <span style={{ fontWeight: 600 }}>Let Keepr set up read-only access</span>
             <span className="small muted" style={{ lineHeight: 1.5 }}>
-              Sign in with your own AWS login and choose the bucket. Keepr makes a user that may only list and read it, and keeps that user's key in your Keychain.
+              Sign in with your own AWS login and choose the bucket. Keepr makes a user that may only list and read it, and keeps that
+              user's key in your Keychain.
             </span>
             <div className="row" style={{ gap: 8, alignItems: "flex-end" }}>
               <label className="field" style={{ width: 170 }}>
@@ -117,7 +139,13 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
                 <input className="input mono" value={region} onChange={(e) => setRegion(e.target.value)} />
               </label>
               {cli && (
-                <button className="btn primary" disabled={!!busy || !region.trim()} onClick={() => step("Sign in in your browser, then come back here…", async () => setBuckets(await api.awsBuckets(region)))}>
+                <button
+                  className="btn primary"
+                  disabled={!!busy || !region.trim()}
+                  onClick={() =>
+                    step("Sign in in your browser, then come back here…", async () => setBuckets(await api.awsBuckets(region)))
+                  }
+                >
                   Sign in to AWS
                 </button>
               )}
@@ -127,10 +155,19 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
             </div>
             {buckets && (
               <div className="col" style={{ gap: 6 }}>
-                <span className="small muted">{buckets.length ? "Choose the bucket to back up:" : "There are no buckets in this account."}</span>
+                <span className="small muted">
+                  {buckets.length ? "Choose the bucket to back up:" : "There are no buckets in this account."}
+                </span>
                 <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
                   {buckets.map((b) => (
-                    <button key={b} className="btn small" disabled={!!busy} onClick={() => step(`Giving Keepr read-only access to ${b}…`, async () => made(await api.awsSetupRun(region, b, "source")))}>
+                    <button
+                      key={b}
+                      className="btn small"
+                      disabled={!!busy}
+                      onClick={() =>
+                        step(`Giving Keepr read-only access to ${b}…`, async () => made(await api.awsSetupRun(region, b, "source")))
+                      }
+                    >
                       <Icon name="bucket" size={13} />
                       {b}
                     </button>
@@ -141,7 +178,12 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
             {shell && (
               <div className="col" style={{ gap: 6 }}>
                 <div className="row" style={{ gap: 8 }}>
-                  <input className="input mono grow" placeholder="The bucket's name" value={bucket} onChange={(e) => setBucket(e.target.value)} />
+                  <input
+                    className="input mono grow"
+                    placeholder="The bucket's name"
+                    value={bucket}
+                    onChange={(e) => setBucket(e.target.value)}
+                  />
                   <button
                     className="btn"
                     disabled={!bucket.trim()}
@@ -156,11 +198,21 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
                   </button>
                 </div>
                 <span className="small muted">
-                  Paste it in CloudShell (⌘V) and press Return, then copy the line starting <span className="mono">keepr-setup</span> back here:
+                  Paste it in CloudShell (⌘V) and press Return, then copy the line starting <span className="mono">keepr-setup</span> back
+                  here:
                 </span>
                 <div className="row" style={{ gap: 8 }}>
-                  <input className="input mono grow" placeholder="keepr-setup {…}" value={pasted} onChange={(e) => setPasted(e.target.value)} />
-                  <button className="btn" disabled={!!busy || !pasted.includes("keepr-setup")} onClick={() => step("Checking the new key…", async () => made(await api.awsSetupPaste(pasted)))}>
+                  <input
+                    className="input mono grow"
+                    placeholder="keepr-setup {…}"
+                    value={pasted}
+                    onChange={(e) => setPasted(e.target.value)}
+                  />
+                  <button
+                    className="btn"
+                    disabled={!!busy || !pasted.includes("keepr-setup")}
+                    onClick={() => step("Checking the new key…", async () => made(await api.awsSetupPaste(pasted)))}
+                  >
                     Use it
                   </button>
                 </div>
@@ -194,7 +246,12 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
             <>
               <label className="field">
                 <span>Endpoint</span>
-                <input className="input mono" placeholder="https://s3.eu-central-1.wasabisys.com" value={endpoint} onChange={(e) => setEndpoint(e.target.value)} />
+                <input
+                  className="input mono"
+                  placeholder="https://s3.eu-central-1.wasabisys.com"
+                  value={endpoint}
+                  onChange={(e) => setEndpoint(e.target.value)}
+                />
               </label>
               <label className="field">
                 <span>Region</span>
@@ -221,7 +278,13 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
           </label>
           <label className="field">
             <span>Secret access key</span>
-            <input className="input" type="password" placeholder={secretSaved ? "Saved in your Keychain" : ""} value={secret} onChange={(e) => setSecret(e.target.value)} />
+            <input
+              className="input"
+              type="password"
+              placeholder={secretSaved ? "Saved in your Keychain" : ""}
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+            />
           </label>
         </div>
         {msg && (

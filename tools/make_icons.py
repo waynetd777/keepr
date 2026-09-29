@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+# See LICENSE for the full text.
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Draw Keepr's artwork: design/icon.png (the app icon source) and the menu-bar templates in
 src-tauri/icons/ (tray@2x.png, tray-busy@2x.png, tray-alert@2x.png).
 

@@ -1,15 +1,18 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Keepr's app: the window's commands, the menu-bar item, and starting the job runner and the
 //! scheduler. The backup engine itself is the keepr-engine crate (engine/).
 
 mod aws_setup;
 mod b2_setup;
-mod r2_setup;
-mod verify;
 mod browse;
 mod config;
 mod core;
 #[cfg(target_os = "macos")]
 mod folder_panel;
+mod fsevents;
 mod help;
 mod keychain;
 #[cfg(target_os = "macos")]
@@ -17,11 +20,12 @@ mod login_item;
 #[cfg(target_os = "macos")]
 mod login_launch;
 mod places;
+mod r2_setup;
 mod scheduler;
 mod smb;
 mod still;
-mod fsevents;
 mod system;
+mod verify;
 
 use crate::config::{Destination, Place, Plan, Run};
 use crate::core::{Core, Job, JobStatus};
@@ -118,7 +122,11 @@ fn schedule_label(p: &Plan) -> String {
         Minutes15 => "Every 15 min".into(),
         Hourly => "Hourly".into(),
         Daily => format!("Daily at {}", p.schedule.at),
-        Weekly => format!("{}s at {}", ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][p.schedule.weekday as usize % 7], p.schedule.at),
+        Weekly => format!(
+            "{}s at {}",
+            ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][p.schedule.weekday as usize % 7],
+            p.schedule.at
+        ),
         Manual => "Only when asked".into(),
     }
 }
@@ -145,7 +153,11 @@ fn overview_of(core: &Core) -> Overview {
         let runs: Vec<&Run> = st.history.iter().filter(|r| r.plan == p.id).collect();
         let last_backup = runs.iter().rev().find(|r| r.kind == "backup" || r.kind == "full");
         let running = job.as_ref().is_some_and(|j| j.plan == p.id);
-        let stale = ps.last_success.as_deref().and_then(keepr_engine::retention::parse_time).is_some_and(|t| now.signed_duration_since(t).num_days() >= cfg.settings.stale_days as i64);
+        let stale = ps
+            .last_success
+            .as_deref()
+            .and_then(keepr_engine::retention::parse_time)
+            .is_some_and(|t| now.signed_duration_since(t).num_days() >= cfg.settings.stale_days as i64);
         let (status, message) = if !p.enabled {
             ("off", "Turned off".to_string())
         } else if running {
@@ -261,7 +273,9 @@ fn run_log(core: State<Core_>, id: String) -> Vec<String> {
     if !id.chars().all(|c| c.is_ascii_alphanumeric()) {
         return vec![];
     }
-    std::fs::read_to_string(core.dir.join("logs").join(format!("{id}.log"))).map(|t| t.lines().map(str::to_string).collect()).unwrap_or_default()
+    std::fs::read_to_string(core.dir.join("logs").join(format!("{id}.log")))
+        .map(|t| t.lines().map(str::to_string).collect())
+        .unwrap_or_default()
 }
 
 /// Runs newest first: `limit` of them after skipping `offset`, filtered to "all", "problems"
@@ -411,7 +425,9 @@ fn save_destination(core: State<Core_>, mut dest: Destination, password: Option<
     match (&dest.place, password.filter(|p| !p.is_empty())) {
         (Place::Smb(s), Some(pw)) => keychain::set(&keychain::smb_account(&s.user, &s.server), &pw)?,
         (Place::S3(s), Some(pw)) => keychain::set(&keychain::s3_account(&s.access_key), &pw)?,
-        (Place::S3(s), None) if keychain::get(&keychain::s3_account(&s.access_key)).is_none() => return Err("Enter the bucket's secret key.".into()),
+        (Place::S3(s), None) if keychain::get(&keychain::s3_account(&s.access_key)).is_none() => {
+            return Err("Enter the bucket's secret key.".into())
+        }
         _ => {}
     }
     if dest.id.is_empty() {
@@ -437,7 +453,8 @@ fn save_destination(core: State<Core_>, mut dest: Destination, password: Option<
 /// A name for a new destination that says where it is and isn't taken.
 #[tauri::command]
 fn suggest_name(core: State<Core_>, place: Place, except: Option<String>) -> String {
-    let taken: Vec<String> = core.config.lock().unwrap().destinations.iter().filter(|d| Some(&d.id) != except.as_ref()).map(|d| d.name.clone()).collect();
+    let taken: Vec<String> =
+        core.config.lock().unwrap().destinations.iter().filter(|d| Some(&d.id) != except.as_ref()).map(|d| d.name.clone()).collect();
     places::unique_name(&places::default_name(&place), &taken)
 }
 
@@ -472,7 +489,13 @@ async fn test_place(core: State<'_, Core_>, place: Place, password: Option<Strin
         let fail = |m: String| Tested { ok: false, message: m, free: None, total: None, mbps: None };
         if let Place::S3(s) = &place {
             return match test_bucket(s, password) {
-                Ok(mbps) => Tested { ok: true, message: "Connected, and Keepr can write to this bucket.".into(), free: None, total: None, mbps: Some(mbps) },
+                Ok(mbps) => Tested {
+                    ok: true,
+                    message: "Connected, and Keepr can write to this bucket.".into(),
+                    free: None,
+                    total: None,
+                    mbps: Some(mbps),
+                },
                 Err(e) => fail(e),
             };
         }
@@ -482,7 +505,11 @@ async fn test_place(core: State<'_, Core_>, place: Place, password: Option<Strin
                 match smb::find_mount(&s.server, &s.share).map(Ok).unwrap_or_else(|| smb::mount(&s.server, &s.share, &s.user, &pw)) {
                     Ok(m) => {
                         let folder = s.folder.trim_matches('/');
-                        if folder.is_empty() { m } else { m.join(folder) }
+                        if folder.is_empty() {
+                            m
+                        } else {
+                            m.join(folder)
+                        }
                     }
                     Err(e) => return fail(e),
                 }
@@ -498,14 +525,21 @@ async fn test_place(core: State<'_, Core_>, place: Place, password: Option<Strin
         let probe = base.join(format!(".keepr-test-{}", config::new_id()));
         let data = vec![0x5au8; 8 << 20];
         let t = std::time::Instant::now();
-        let res = std::fs::write(&probe, &data).and_then(|_| keepr_engine::backend::sync(&std::fs::OpenOptions::new().write(true).open(&probe)?));
+        let res =
+            std::fs::write(&probe, &data).and_then(|_| keepr_engine::backend::sync(&std::fs::OpenOptions::new().write(true).open(&probe)?));
         let secs = t.elapsed().as_secs_f64();
         let _ = std::fs::remove_file(&probe);
         if let Err(e) = res {
             return fail(format!("Keepr can't write there: {e}"));
         }
         let space = places::space(&base);
-        Tested { ok: true, message: "Connected, and Keepr can write here.".into(), free: space.map(|s| s.0), total: space.map(|s| s.1), mbps: Some(8.0 * 1.048_576 / secs.max(0.001)) }
+        Tested {
+            ok: true,
+            message: "Connected, and Keepr can write here.".into(),
+            free: space.map(|s| s.0),
+            total: space.map(|s| s.1),
+            mbps: Some(8.0 * 1.048_576 / secs.max(0.001)),
+        }
     })
     .await
     .map_err(|e| e.to_string())
@@ -544,7 +578,9 @@ async fn aws_setup_info() -> AwsSetupInfo {
 /// Signs in through the browser and makes the bucket and its user.
 #[tauri::command]
 async fn aws_setup_run(region: String, bucket: String, mode: aws_setup::Mode) -> Result<aws_setup::Made, String> {
-    tauri::async_runtime::spawn_blocking(move || aws_setup::with_cli(region.trim(), bucket.trim(), mode)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || aws_setup::with_cli(region.trim(), bucket.trim(), mode))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Backblaze B2: the buckets a master key can see.
@@ -626,7 +662,12 @@ async fn cloud_folders() -> Vec<places::CloudFolder> {
 async fn discover_servers(core: State<'_, Core_>) -> Result<Vec<String>, String> {
     let mut known: Vec<String> = {
         let c = core.config.lock().unwrap();
-        c.destinations.iter().map(|d| &d.place).chain(c.plans.iter().flat_map(|p| p.sources.iter())).filter_map(|p| if let Place::Smb(s) = p { Some(s.server.clone()) } else { None }).collect()
+        c.destinations
+            .iter()
+            .map(|d| &d.place)
+            .chain(c.plans.iter().flat_map(|p| p.sources.iter()))
+            .filter_map(|p| if let Place::Smb(s) = p { Some(s.server.clone()) } else { None })
+            .collect()
     };
     known.extend(smb::mounted_servers());
     let found = tauri::async_runtime::spawn_blocking(smb::discover).await.unwrap_or_default();
@@ -661,7 +702,12 @@ struct SavedLogin {
 /// A login already saved for this server, so the dialogs can fill it in.
 #[tauri::command]
 async fn saved_smb_login(server: String) -> Option<SavedLogin> {
-    tauri::async_runtime::spawn_blocking(move || keychain::saved_smb_user(&server).map(|(user, source)| SavedLogin { user, source: source.into() })).await.ok().flatten()
+    tauri::async_runtime::spawn_blocking(move || {
+        keychain::saved_smb_user(&server).map(|(user, source)| SavedLogin { user, source: source.into() })
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 #[tauri::command]
@@ -701,9 +747,21 @@ async fn change_password(core: State<'_, Core_>, id: String, current: String, ne
         let backend = repo.backend.clone();
         drop(repo);
         core.forget_repo(&id);
-        let secret = if current.contains('-') && current.len() > 40 { keepr_engine::repo::Secret::RecoveryKey(&current) } else { keepr_engine::repo::Secret::Password(&current) };
+        let secret = if current.contains('-') && current.len() > 40 {
+            keepr_engine::repo::Secret::RecoveryKey(&current)
+        } else {
+            keepr_engine::repo::Secret::Password(&current)
+        };
         let mut r = keepr_engine::repo::Repo::open(backend, secret).map_err(|e| e.0)?;
-        r.change_password(if current.contains('-') && current.len() > 40 { keepr_engine::repo::Secret::RecoveryKey(&current) } else { keepr_engine::repo::Secret::Password(&current) }, &new).map_err(|e| e.0)?;
+        r.change_password(
+            if current.contains('-') && current.len() > 40 {
+                keepr_engine::repo::Secret::RecoveryKey(&current)
+            } else {
+                keepr_engine::repo::Secret::Password(&current)
+            },
+            &new,
+        )
+        .map_err(|e| e.0)?;
         keychain::set(&keychain::plan_account(&id), &new)
     })
     .await
@@ -728,7 +786,14 @@ fn back_up_all(core: State<Core_>) {
 }
 
 #[tauri::command]
-fn restore(core: State<Core_>, plan: String, snapshot: String, items: Vec<String>, target: keepr_engine::restore::Target, conflict: keepr_engine::restore::Conflict) -> String {
+fn restore(
+    core: State<Core_>,
+    plan: String,
+    snapshot: String,
+    items: Vec<String>,
+    target: keepr_engine::restore::Target,
+    conflict: keepr_engine::restore::Conflict,
+) -> String {
     core.enqueue(Job::Restore { plan, snapshot, items, target, conflict })
 }
 
@@ -784,13 +849,23 @@ fn pause_hour(core: State<Core_>) {
 #[tauri::command]
 async fn snapshots(core: State<'_, Core_>, plan: String) -> Result<Vec<browse::SnapInfo>, String> {
     let core = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || Ok(core.snapshots(&plan)?.iter().map(browse::info).collect())).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || Ok(core.snapshots(&plan)?.iter().map(browse::info).collect()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-async fn list_dir(core: State<'_, Core_>, plan: String, snapshot: String, path: String, show_deleted: bool) -> Result<Vec<browse::Entry>, String> {
+async fn list_dir(
+    core: State<'_, Core_>,
+    plan: String,
+    snapshot: String,
+    path: String,
+    show_deleted: bool,
+) -> Result<Vec<browse::Entry>, String> {
     let core = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || browse::list(&core, &plan, &snapshot, &path, show_deleted)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || browse::list(&core, &plan, &snapshot, &path, show_deleted))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -992,7 +1067,11 @@ fn toggle_tray_window(app: &AppHandle, rect: tauri::Rect) {
         pos.x >= p.x as f64 && pos.x < (p.x + s.width as i32) as f64 && pos.y >= p.y as f64 && pos.y < (p.y + s.height as i32) as f64
     });
     let scale = screen.map_or(guess, |m| m.scale_factor());
-    let (pos, size) = if (scale - guess).abs() > f64::EPSILON { (rect.position.to_physical::<f64>(scale), rect.size.to_physical::<f64>(scale)) } else { (pos, size) };
+    let (pos, size) = if (scale - guess).abs() > f64::EPSILON {
+        (rect.position.to_physical::<f64>(scale), rect.size.to_physical::<f64>(scale))
+    } else {
+        (pos, size)
+    };
     let width = 360.0 * scale;
     let mut x = pos.x + size.width / 2.0 - width / 2.0;
     if let Some(m) = screen {

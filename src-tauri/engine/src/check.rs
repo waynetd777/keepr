@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Checking a repository: that every snapshot's trees load, that every chunk they name is in the
 //! index and its pack exists, and (for a share of the packs) that the data reads back and matches
 //! its id.

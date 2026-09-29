@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Destinations: where backups are kept, and the sheet for adding one (a folder or drive, or an
 // SMB share, a cloud service's folder on this Mac, or an S3 bucket).
 
@@ -67,7 +71,8 @@ function AwsSetup({ region, setRegion, onMade }: { region: string; setRegion: (r
     <div className="card col" style={{ padding: 14, gap: 10, background: "var(--sunk)" }}>
       <span style={{ fontWeight: 600 }}>New to this? Let Keepr set it up</span>
       <span className="small muted" style={{ lineHeight: 1.5 }}>
-        Keepr makes a private bucket and a user that can only reach that bucket, and keeps its key in your Keychain. You sign in with your own AWS login; Keepr doesn't keep it.
+        Keepr makes a private bucket and a user that can only reach that bucket, and keeps its key in your Keychain. You sign in with your
+        own AWS login; Keepr doesn't keep it.
       </span>
       <div className="row" style={{ gap: 8 }}>
         <label className="field grow">
@@ -81,7 +86,11 @@ function AwsSetup({ region, setRegion, onMade }: { region: string; setRegion: (r
       </div>
       <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
         {info.cli && (
-          <button className="btn primary" disabled={!!busy || !bucket || !region} onClick={() => run(() => api.awsSetupRun(region, bucket), "Sign in in your browser, then come back here…")}>
+          <button
+            className="btn primary"
+            disabled={!!busy || !bucket || !region}
+            onClick={() => run(() => api.awsSetupRun(region, bucket), "Sign in in your browser, then come back here…")}
+          >
             Sign in to AWS and set up
           </button>
         )}
@@ -93,17 +102,26 @@ function AwsSetup({ region, setRegion, onMade }: { region: string; setRegion: (r
       {shell && (
         <div className="col" style={{ gap: 6 }}>
           <span className="small muted" style={{ lineHeight: 1.5 }}>
-            The setup is copied. In CloudShell, paste it (⌘V) and press Return. When it's done, copy the line starting <span className="mono">keepr-setup</span> and paste it here.
+            The setup is copied. In CloudShell, paste it (⌘V) and press Return. When it's done, copy the line starting{" "}
+            <span className="mono">keepr-setup</span> and paste it here.
           </span>
           <div className="row" style={{ gap: 8 }}>
             <input className="input mono grow" placeholder="keepr-setup {…}" value={pasted} onChange={(e) => setPasted(e.target.value)} />
-            <button className="btn" disabled={!!busy || !pasted.includes("keepr-setup")} onClick={() => run(() => api.awsSetupPaste(pasted), "Checking the new key…")}>
+            <button
+              className="btn"
+              disabled={!!busy || !pasted.includes("keepr-setup")}
+              onClick={() => run(() => api.awsSetupPaste(pasted), "Checking the new key…")}
+            >
               Use it
             </button>
           </div>
         </div>
       )}
-      {error && <span className="small" style={{ color: "var(--red)" }}>{error}</span>}
+      {error && (
+        <span className="small" style={{ color: "var(--red)" }}>
+          {error}
+        </span>
+      )}
     </div>
   );
 }
@@ -140,10 +158,17 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   const [named, setNamed] = useState(!!editing);
   const [tested, setTested] = useState<Tested | null>(null);
   const [busy, setBusy] = useState("");
-  const savedFrom = useSavedLogin(server, user, setUser, setPassword, (s) => {
-    setShares(s);
-    if (!share && s.length) setShare(s.includes("Backups") ? "Backups" : s[0]);
-  }, setBusy);
+  const savedFrom = useSavedLogin(
+    server,
+    user,
+    setUser,
+    setPassword,
+    (s) => {
+      setShares(s);
+      if (!share && s.length) setShare(s.includes("Backups") ? "Backups" : s[0]);
+    },
+    setBusy,
+  );
   // The saved password is used where the field still shows it.
   const pw = kind === "s3" ? secret || undefined : password === SAVED_PASSWORD ? undefined : password;
 
@@ -165,12 +190,64 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  useEffect(() => setTested(null), [kind, server, share, user, password, folder, path, cloud, inCloud, service, r2Account, endpoint, region, bucket, prefix, accessKey, secret]);
+  useEffect(
+    () => setTested(null),
+    [
+      kind,
+      server,
+      share,
+      user,
+      password,
+      folder,
+      path,
+      cloud,
+      inCloud,
+      service,
+      r2Account,
+      endpoint,
+      region,
+      bucket,
+      prefix,
+      accessKey,
+      secret,
+    ],
+  );
 
   const cloudPath = cloud ? `${cloud.root}/${inCloud.trim().replace(/^\/+|\/+$/g, "")}`.replace(/\/$/, "") : "";
-  const s3Endpoint = service === "aws" ? `https://s3.${region.trim()}.amazonaws.com` : service === "b2" ? `https://s3.${region.trim()}.backblazeb2.com` : service === "r2" ? `https://${r2Account.trim()}.r2.cloudflarestorage.com` : endpoint.trim();
-  const place: Place = kind === "s3" ? { kind: "s3", endpoint: s3Endpoint, region: service === "r2" ? "auto" : region.trim(), bucket: bucket.trim(), prefix: prefix.trim().replace(/^\/+|\/+$/g, ""), accessKey: accessKey.trim() } : kind === "smb" ? { kind: "smb", server: server.trim(), share: share.trim(), folder: folder.trim() || "/", user: user.trim() } : { kind: "folder", path: kind === "cloud" ? cloudPath : path };
-  const ready = kind === "s3" ? !!(bucket.trim() && accessKey.trim() && (secret || s3 || secretSaved) && (service === "r2" ? r2Account.trim() : service === "other" ? endpoint.trim() : region.trim())) : kind === "smb" ? !!(server && share) : kind === "cloud" ? !!cloud : !!path;
+  const s3Endpoint =
+    service === "aws"
+      ? `https://s3.${region.trim()}.amazonaws.com`
+      : service === "b2"
+        ? `https://s3.${region.trim()}.backblazeb2.com`
+        : service === "r2"
+          ? `https://${r2Account.trim()}.r2.cloudflarestorage.com`
+          : endpoint.trim();
+  const place: Place =
+    kind === "s3"
+      ? {
+          kind: "s3",
+          endpoint: s3Endpoint,
+          region: service === "r2" ? "auto" : region.trim(),
+          bucket: bucket.trim(),
+          prefix: prefix.trim().replace(/^\/+|\/+$/g, ""),
+          accessKey: accessKey.trim(),
+        }
+      : kind === "smb"
+        ? { kind: "smb", server: server.trim(), share: share.trim(), folder: folder.trim() || "/", user: user.trim() }
+        : { kind: "folder", path: kind === "cloud" ? cloudPath : path };
+  const ready =
+    kind === "s3"
+      ? !!(
+          bucket.trim() &&
+          accessKey.trim() &&
+          (secret || s3 || secretSaved) &&
+          (service === "r2" ? r2Account.trim() : service === "other" ? endpoint.trim() : region.trim())
+        )
+      : kind === "smb"
+        ? !!(server && share)
+        : kind === "cloud"
+          ? !!cloud
+          : !!path;
   useEffect(() => {
     if (named || !ready) return;
     const t = window.setTimeout(() => api.suggestName(place, editing?.id).then(setName), 200);
@@ -199,7 +276,12 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   const add = async () => {
     const t = tested?.ok ? tested : await test();
     if (!t.ok) return;
-    const saved = await act(() => api.saveDestination({ id: editing?.id ?? "", name: name.trim(), place, disconnectAfter: true }, kind === "s3" || keychain ? pw : undefined));
+    const saved = await act(() =>
+      api.saveDestination(
+        { id: editing?.id ?? "", name: name.trim(), place, disconnectAfter: true },
+        kind === "s3" || keychain ? pw : undefined,
+      ),
+    );
     if (saved) {
       await refresh();
       onClose();
@@ -228,7 +310,18 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
       }
     >
       <div style={{ display: "flex", minHeight: 440 }}>
-        <div style={{ width: 240, flexShrink: 0, background: "var(--sunk)", borderRight: "1px solid var(--line)", padding: "14px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
+        <div
+          style={{
+            width: 240,
+            flexShrink: 0,
+            background: "var(--sunk)",
+            borderRight: "1px solid var(--line)",
+            padding: "14px 10px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+          }}
+        >
           {(
             [
               ["folder", "Folder or drive", "This Mac, USB, Thunderbolt", "drive"],
@@ -241,7 +334,19 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
               aria-pressed={kind === k}
               disabled={!!editing && editing.place.kind !== k}
               onClick={() => setKind(k)}
-              style={{ display: "flex", alignItems: "center", gap: 10, height: 44, padding: "0 10px", border: 0, borderRadius: 8, textAlign: "left", background: kind === k ? "var(--surface)" : "transparent", boxShadow: kind === k ? "var(--seg)" : "none", color: kind === k ? "var(--accent-text)" : "inherit" }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                height: 44,
+                padding: "0 10px",
+                border: 0,
+                borderRadius: 8,
+                textAlign: "left",
+                background: kind === k ? "var(--surface)" : "transparent",
+                boxShadow: kind === k ? "var(--seg)" : "none",
+                color: kind === k ? "var(--accent-text)" : "inherit",
+              }}
             >
               <Icon name={icon} size={18} />
               <span className="col" style={{ gap: 0 }}>
@@ -265,7 +370,19 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
                   setKind("cloud");
                   setCloud(c);
                 }}
-                style={{ display: "flex", alignItems: "center", gap: 10, height: 36, padding: "0 10px", border: 0, borderRadius: 8, textAlign: "left", background: on ? "var(--surface)" : "transparent", boxShadow: on ? "var(--seg)" : "none", color: !c.live ? "var(--ink3)" : on ? "var(--accent-text)" : "inherit" }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  height: 36,
+                  padding: "0 10px",
+                  border: 0,
+                  borderRadius: 8,
+                  textAlign: "left",
+                  background: on ? "var(--surface)" : "transparent",
+                  boxShadow: on ? "var(--seg)" : "none",
+                  color: !c.live ? "var(--ink3)" : on ? "var(--accent-text)" : "inherit",
+                }}
               >
                 <Icon name="cloud" size={16} style={{ flexShrink: 0 }} />
                 <span className="col" style={{ gap: 0, minWidth: 0 }}>
@@ -283,7 +400,8 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
           {kind === "s3" ? (
             <>
               <span className="muted" style={{ lineHeight: 1.5 }}>
-                A bucket on Amazon S3 or a service that works like it. Make the bucket and an access key in the service's console first; the key needs to read, write, list and delete in that bucket.
+                A bucket on Amazon S3 or a service that works like it. Make the bucket and an access key in the service's console first; the
+                key needs to read, write, list and delete in that bucket.
               </span>
               <Seg
                 label="Service"
@@ -297,36 +415,49 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
                 ]}
               />
               {service === "aws" && !s3 && !secretSaved && (
-                <AwsSetup region={region} setRegion={setRegion} onMade={(m) => {
-                  setRegion(m.region);
-                  setBucket(m.bucket);
-                  setAccessKey(m.accessKey);
-                  setSecret("");
-                  setSecretSaved(true);
-                }} />
+                <AwsSetup
+                  region={region}
+                  setRegion={setRegion}
+                  onMade={(m) => {
+                    setRegion(m.region);
+                    setBucket(m.bucket);
+                    setAccessKey(m.accessKey);
+                    setSecret("");
+                    setSecretSaved(true);
+                  }}
+                />
               )}
               {service === "b2" && !s3 && !secretSaved && (
-                <B2Setup mode="destination" onMade={(m) => {
-                  setRegion(m.region);
-                  setBucket(m.bucket);
-                  setAccessKey(m.accessKey);
-                  setSecret("");
-                  setSecretSaved(true);
-                }} />
+                <B2Setup
+                  mode="destination"
+                  onMade={(m) => {
+                    setRegion(m.region);
+                    setBucket(m.bucket);
+                    setAccessKey(m.accessKey);
+                    setSecret("");
+                    setSecretSaved(true);
+                  }}
+                />
               )}
               {service === "r2" && !s3 && !secretSaved && (
-                <R2Setup mode="destination" onMade={(m) => {
-                  setR2Account(serviceOf(m.endpoint).r2Account);
-                  setBucket(m.bucket);
-                  setAccessKey(m.accessKey);
-                  setSecret("");
-                  setSecretSaved(true);
-                }} />
+                <R2Setup
+                  mode="destination"
+                  onMade={(m) => {
+                    setR2Account(serviceOf(m.endpoint).r2Account);
+                    setBucket(m.bucket);
+                    setAccessKey(m.accessKey);
+                    setSecret("");
+                    setSecretSaved(true);
+                  }}
+                />
               )}
               {secretSaved && (
                 <div role="status" className="banner good">
                   <Icon name="check" size={18} stroke={2.4} />
-                  <span className="text">Made {bucket}, and {service === "aws" ? "a user" : service === "r2" ? "a token" : "a key"} that can only use it. Its key is in your Keychain. Add the destination to finish.</span>
+                  <span className="text">
+                    Made {bucket}, and {service === "aws" ? "a user" : service === "r2" ? "a token" : "a key"} that can only use it. Its key
+                    is in your Keychain. Add the destination to finish.
+                  </span>
                 </div>
               )}
               {service !== "other" && !s3 && !secretSaved && <span className="small muted">Or use a bucket and key you already have:</span>}
@@ -334,13 +465,23 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
                 {service === "r2" ? (
                   <label className="field" style={{ gridColumn: "span 2" }}>
                     <span>Account ID</span>
-                    <input className="input mono" placeholder="From the R2 page in Cloudflare's dashboard" value={r2Account} onChange={(e) => setR2Account(e.target.value)} />
+                    <input
+                      className="input mono"
+                      placeholder="From the R2 page in Cloudflare's dashboard"
+                      value={r2Account}
+                      onChange={(e) => setR2Account(e.target.value)}
+                    />
                   </label>
                 ) : service === "other" ? (
                   <>
                     <label className="field">
                       <span>Endpoint</span>
-                      <input className="input mono" placeholder="https://s3.eu-central-1.wasabisys.com" value={endpoint} onChange={(e) => setEndpoint(e.target.value)} />
+                      <input
+                        className="input mono"
+                        placeholder="https://s3.eu-central-1.wasabisys.com"
+                        value={endpoint}
+                        onChange={(e) => setEndpoint(e.target.value)}
+                      />
                     </label>
                     <label className="field">
                       <span>Region</span>
@@ -350,8 +491,15 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
                 ) : (
                   <label className="field" style={{ gridColumn: "span 2" }}>
                     <span>Region</span>
-                    <input className="input mono" placeholder={service === "b2" ? "eu-central-003" : "eu-west-1"} value={region} onChange={(e) => setRegion(e.target.value)} />
-                    {service === "b2" && <span className="tiny faint">The part after "s3." in the bucket's S3 endpoint, shown on its page in Backblaze</span>}
+                    <input
+                      className="input mono"
+                      placeholder={service === "b2" ? "eu-central-003" : "eu-west-1"}
+                      value={region}
+                      onChange={(e) => setRegion(e.target.value)}
+                    />
+                    {service === "b2" && (
+                      <span className="tiny faint">The part after "s3." in the bucket's S3 endpoint, shown on its page in Backblaze</span>
+                    )}
                   </label>
                 )}
                 <label className="field">
@@ -368,7 +516,13 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
                 </label>
                 <label className="field">
                   <span>Secret access key</span>
-                  <input className="input" type="password" placeholder={s3 ? "Unchanged" : secretSaved ? "Saved in your Keychain" : ""} value={secret} onChange={(e) => setSecret(e.target.value)} />
+                  <input
+                    className="input"
+                    type="password"
+                    placeholder={s3 ? "Unchanged" : secretSaved ? "Saved in your Keychain" : ""}
+                    value={secret}
+                    onChange={(e) => setSecret(e.target.value)}
+                  />
                 </label>
               </div>
               <span className="small faint">
@@ -378,7 +532,9 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
           ) : kind === "cloud" && cloud ? (
             <>
               <span className="muted" style={{ lineHeight: 1.5 }}>
-                Keepr writes the backup into {cloud.name}'s folder on this Mac, and {cloud.provider === "icloud" ? "iCloud" : cloud.name.split(" ")[0]} uploads it. The Mac keeps a copy until the service offloads it (turn on {cloud.provider === "icloud" ? "Optimise Mac Storage" : "Files On-Demand"} for that).
+                Keepr writes the backup into {cloud.name}'s folder on this Mac, and{" "}
+                {cloud.provider === "icloud" ? "iCloud" : cloud.name.split(" ")[0]} uploads it. The Mac keeps a copy until the service
+                offloads it (turn on {cloud.provider === "icloud" ? "Optimise Mac Storage" : "Files On-Demand"} for that).
               </span>
               <label className="field">
                 <span>Folder inside {cloud.name}</span>
@@ -421,7 +577,18 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
                           key={s}
                           aria-pressed={on}
                           onClick={() => setServer(s)}
-                          style={{ flex: 1, minWidth: 160, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", border: on ? "1.5px solid var(--accent)" : "1px solid var(--line)", borderRadius: 10, background: on ? "var(--accent-soft)" : "var(--surface)", textAlign: "left" }}
+                          style={{
+                            flex: 1,
+                            minWidth: 160,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                            padding: "10px 12px",
+                            border: on ? "1.5px solid var(--accent)" : "1px solid var(--line)",
+                            borderRadius: 10,
+                            background: on ? "var(--accent-soft)" : "var(--surface)",
+                            textAlign: "left",
+                          }}
                         >
                           <Icon name="server" size={18} />
                           <span className="col" style={{ gap: 0 }}>
@@ -437,7 +604,12 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px 14px" }}>
                 <label className="field">
                   <span>Server</span>
-                  <input className="input mono" placeholder="keep-nas.local or 192.168.1.20" value={server} onChange={(e) => setServer(e.target.value)} />
+                  <input
+                    className="input mono"
+                    placeholder="keep-nas.local or 192.168.1.20"
+                    value={server}
+                    onChange={(e) => setServer(e.target.value)}
+                  />
                 </label>
                 <label className="field">
                   <span>Share</span>
@@ -464,8 +636,17 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
                 </label>
                 <label className="field">
                   <span>Password</span>
-                  <input className="input" type="password" placeholder={editing ? "Unchanged" : ""} value={password} onFocus={() => password === SAVED_PASSWORD && setPassword("")} onChange={(e) => setPassword(e.target.value)} />
-                  {savedFrom && password === SAVED_PASSWORD && <span className="tiny faint">Saved {savedFrom === "finder" ? "by Finder" : "by Keepr"} in your Keychain</span>}
+                  <input
+                    className="input"
+                    type="password"
+                    placeholder={editing ? "Unchanged" : ""}
+                    value={password}
+                    onFocus={() => password === SAVED_PASSWORD && setPassword("")}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                  {savedFrom && password === SAVED_PASSWORD && (
+                    <span className="tiny faint">Saved {savedFrom === "finder" ? "by Finder" : "by Keepr"} in your Keychain</span>
+                  )}
                 </label>
                 <label className="field" style={{ gridColumn: "span 2" }}>
                   <span>Folder in the share</span>
@@ -570,7 +751,21 @@ export default function Destinations() {
             </div>
           );
         })}
-        <button className="card" onClick={() => setAdding(true)} style={{ minHeight: 150, border: "1.5px dashed var(--line2)", background: "transparent", color: "var(--accent-text)", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        <button
+          className="card"
+          onClick={() => setAdding(true)}
+          style={{
+            minHeight: 150,
+            border: "1.5px dashed var(--line2)",
+            background: "transparent",
+            color: "var(--accent-text)",
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+          }}
+        >
           <Icon name="plus" size={14} stroke={2.4} />
           Add a destination
         </button>

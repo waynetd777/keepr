@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Setting up an Amazon S3 bucket for Keepr, so nobody has to find their way around IAM: a
 //! private bucket, a user that may only list, read, write and delete in it, and that user's
 //! access key, saved in the Keychain.
@@ -54,7 +58,10 @@ fn check(region: &str, bucket: &str) -> Result<(), String> {
     if region.is_empty() || !region.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
         return Err("Choose a region, such as eu-west-1.".into());
     }
-    let ok = (3..=63).contains(&bucket.len()) && bucket.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.') && !bucket.starts_with('-') && !bucket.ends_with('-');
+    let ok = (3..=63).contains(&bucket.len())
+        && bucket.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.')
+        && !bucket.starts_with('-')
+        && !bucket.ends_with('-');
     if !ok {
         return Err("A bucket name is 3 to 63 lower-case letters, digits, dots and hyphens.".into());
     }
@@ -81,7 +88,8 @@ pub fn script(region: &str, bucket: &str, mode: Mode) -> Result<String, String> 
         Mode::Source => format!("keepr-read-{}", &bucket[..bucket.len().min(52)]),
     };
     let bucket_part = match mode {
-        Mode::Destination => r#"if aws s3api head-bucket --bucket "${B}" --region "${R}" >/dev/null 2>&1; then
+        Mode::Destination => {
+            r#"if aws s3api head-bucket --bucket "${B}" --region "${R}" >/dev/null 2>&1; then
   echo "The bucket ${B} is already there; using it."
 else
   echo "Making the bucket ${B} in ${R}..."
@@ -90,13 +98,16 @@ else
 fi
 aws s3api put-public-access-block --bucket "${B}" --region "${R}" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 A='"s3:GetObject","s3:PutObject","s3:DeleteObject"'
-WHAT="allowed only into that bucket""#,
+WHAT="allowed only into that bucket""#
+        }
         // The bucket is wherever it is; its region is asked rather than assumed.
-        Mode::Source => r#"L=$(aws s3api get-bucket-location --bucket "${B}" --query LocationConstraint --output text)
+        Mode::Source => {
+            r#"L=$(aws s3api get-bucket-location --bucket "${B}" --query LocationConstraint --output text)
 case "${L}" in None|null|"") R=us-east-1 ;; EU) R=eu-west-1 ;; *) R="${L}" ;; esac
 echo "The bucket ${B} is in ${R}."
 A='"s3:GetObject"'
-WHAT="allowed only to list and read that bucket""#,
+WHAT="allowed only to list and read that bucket""#
+        }
     };
     Ok(format!(
         r#"(
@@ -128,7 +139,8 @@ echo "keepr-setup {{\"region\":\"${{R}}\",\"bucket\":\"${{B}}\",\"accessKey\":\"
 
 /// The line the script ends with, from whatever was pasted around it.
 pub fn parse(text: &str) -> Result<Made, String> {
-    let line = text.lines().rev().find_map(|l| l.trim().strip_prefix("keepr-setup ")).ok_or("Paste the line that starts with keepr-setup.")?;
+    let line =
+        text.lines().rev().find_map(|l| l.trim().strip_prefix("keepr-setup ")).ok_or("Paste the line that starts with keepr-setup.")?;
     let m: Made = serde_json::from_str(line.trim()).map_err(|_| "That line is incomplete. Copy all of it.")?;
     check(&m.region, &m.bucket)?;
     if m.access_key.is_empty() || m.secret.is_empty() {
@@ -141,13 +153,22 @@ pub fn parse(text: &str) -> Result<Made, String> {
 pub fn finish(m: Made) -> Result<Made, String> {
     keychain::set(&keychain::s3_account(&m.access_key), &m.secret)?;
     let ep = if m.endpoint.is_empty() { endpoint(&m.region) } else { m.endpoint.clone() };
-    let place = config::S3 { endpoint: ep, region: m.region.clone(), bucket: m.bucket.clone(), prefix: String::new(), access_key: m.access_key.clone(), name: None };
+    let place = config::S3 {
+        endpoint: ep,
+        region: m.region.clone(),
+        bucket: m.bucket.clone(),
+        prefix: String::new(),
+        access_key: m.access_key.clone(),
+        name: None,
+    };
     let b = places::s3_backend(&place, Some(m.secret.clone()), "")?;
     let start = Instant::now();
     loop {
         match b.check_bucket() {
             Ok(()) => return Ok(m),
-            Err(e) if start.elapsed() > Duration::from_secs(90) => return Err(format!("The bucket and key were made, but the key doesn't work yet: {e}")),
+            Err(e) if start.elapsed() > Duration::from_secs(90) => {
+                return Err(format!("The bucket and key were made, but the key doesn't work yet: {e}"))
+            }
             Err(_) => std::thread::sleep(Duration::from_secs(3)),
         }
     }
@@ -325,7 +346,9 @@ mod tests {
         assert!(r.contains("U='keepr-read-photos'") && r.contains(r#"A='"s3:GetObject"'"#) && !r.contains("create-bucket"));
         assert!(script("eu-west-1", "Bad_Name", Mode::Destination).is_err());
         assert!(script("eu-west-1; rm", "keepr", Mode::Source).is_err());
-        let m = parse("Done.\nkeepr-setup {\"region\":\"eu-west-1\",\"bucket\":\"keepr-x1\",\"accessKey\":\"AKIA1\",\"secret\":\"s/+x\"}\n$ ").unwrap();
+        let m =
+            parse("Done.\nkeepr-setup {\"region\":\"eu-west-1\",\"bucket\":\"keepr-x1\",\"accessKey\":\"AKIA1\",\"secret\":\"s/+x\"}\n$ ")
+                .unwrap();
         assert_eq!((m.bucket.as_str(), m.access_key.as_str(), m.secret.as_str()), ("keepr-x1", "AKIA1", "s/+x"));
         assert!(serde_json::to_string(&m).unwrap().find("s/+x").is_none());
         assert!(parse("nothing here").is_err());

@@ -1,0 +1,10 @@
+dist/
+src-tauri/
+node_modules/
+_sift/
+design/
+docs/
+tools/
+*.md
+*.html
+package-lock.json

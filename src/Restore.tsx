@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Restore: pick a moment on the snapshot strip, tick files and folders as they were then, see
 // any file's versions, and put them back where they were or into another folder.
 
@@ -40,7 +44,21 @@ function Strip({ snaps, sel, setSel }: { snaps: SnapInfo[]; sel: number; setSel:
         disabled={olderCount === 0}
         title={olderCount ? `${olderCount} earlier snapshots` : "No earlier snapshots"}
         onClick={() => setSel(days[Math.max(0, start - 1)].items.slice(-1)[0])}
-        style={{ width: 88, flexShrink: 0, border: 0, background: "transparent", display: "flex", flexDirection: "column", alignItems: "flex-start", justifyContent: "flex-end", gap: 6, padding: 0, color: "var(--ink2)", fontSize: 11, textAlign: "left" }}
+        style={{
+          width: 88,
+          flexShrink: 0,
+          border: 0,
+          background: "transparent",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-start",
+          justifyContent: "flex-end",
+          gap: 6,
+          padding: 0,
+          color: "var(--ink2)",
+          fontSize: 11,
+          textAlign: "left",
+        }}
       >
         <span className="mono" style={{ color: "var(--ink)" }}>
           +{olderCount.toLocaleString()}
@@ -54,13 +72,22 @@ function Strip({ snaps, sel, setSel }: { snaps: SnapInfo[]; sel: number; setSel:
               const s = snaps[i];
               const h = 10 + 34 * Math.sqrt(s.addedBytes / max);
               return (
-                <button key={s.id} className={`snapbar${i === sel ? " on" : ""}`} aria-label={longWhen(s.time)} title={`${longWhen(s.time)} · ${s.changed.toLocaleString()} changed`} onClick={() => setSel(i)}>
+                <button
+                  key={s.id}
+                  className={`snapbar${i === sel ? " on" : ""}`}
+                  aria-label={longWhen(s.time)}
+                  title={`${longWhen(s.time)} · ${s.changed.toLocaleString()} changed`}
+                  onClick={() => setSel(i)}
+                >
                   <span style={{ height: h }} />
                 </button>
               );
             })}
           </div>
-          <span className="tiny" style={{ color: d.items.includes(sel) ? "var(--accent-text)" : "var(--ink3)", fontWeight: d.items.includes(sel) ? 600 : 400 }}>
+          <span
+            className="tiny"
+            style={{ color: d.items.includes(sel) ? "var(--accent-text)" : "var(--ink3)", fontWeight: d.items.includes(sel) ? 600 : 400 }}
+          >
             {d.label}
           </span>
         </div>
@@ -77,7 +104,17 @@ function CompareSheet({ plan, snapshot, path, onClose }: { plan: string; snapsho
   }, [plan, snapshot, path]);
   const name = path.split("/").pop();
   return (
-    <Sheet title={`Compare ${name}`} subtitle="The version from the backup against the file on this Mac now." width={820} onClose={onClose} foot={<button className="btn primary" onClick={onClose}>Done</button>}>
+    <Sheet
+      title={`Compare ${name}`}
+      subtitle="The version from the backup against the file on this Mac now."
+      width={820}
+      onClose={onClose}
+      foot={
+        <button className="btn primary" onClick={onClose}>
+          Done
+        </button>
+      }
+    >
       <div className="sheet-body">
         {err && <span style={{ color: "var(--red)" }}>{err}</span>}
         {!c && !err && <span className="muted">Comparing…</span>}
@@ -85,13 +122,15 @@ function CompareSheet({ plan, snapshot, path, onClose }: { plan: string; snapsho
         {c && c.currentExists && c.identical && <span>They're the same: the file hasn't changed since this version.</span>}
         {c && c.currentExists && !c.identical && !c.text && (
           <span>
-            They differ ({bytes(c.backupSize)} in the backup, {bytes(c.currentSize)} now). Only text files can be compared line by line; use Quick Look to see the version from the backup.
+            They differ ({bytes(c.backupSize)} in the backup, {bytes(c.currentSize)} now). Only text files can be compared line by line; use
+            Quick Look to see the version from the backup.
           </span>
         )}
         {c && c.text && !c.identical && (
           <>
             <span className="small muted">
-              <span style={{ color: "var(--red)" }}>{c.removed.toLocaleString()} lines only in the backup</span> · <span style={{ color: "var(--accent-text)" }}>{c.added.toLocaleString()} lines only on this Mac</span>
+              <span style={{ color: "var(--red)" }}>{c.removed.toLocaleString()} lines only in the backup</span> ·{" "}
+              <span style={{ color: "var(--accent-text)" }}>{c.added.toLocaleString()} lines only on this Mac</span>
             </span>
             <div className="diff">
               {c.lines.map((l, i) =>
@@ -153,7 +192,7 @@ export default function Restore() {
       },
       (e) => setErr(String(e)),
     );
-  }, [planId]);
+  }, [planId, focus]);
 
   const snap = snaps?.[sel];
   const load = useCallback(
@@ -165,7 +204,7 @@ export default function Restore() {
       });
       setKids((k) => ({ ...k, [path]: list }));
     },
-    [planId, snap?.id, showDeleted],
+    [planId, snap, showDeleted],
   );
 
   // A new moment or the deleted switch: reload the folders that are open.
@@ -195,21 +234,25 @@ export default function Restore() {
     }
     const t = window.setTimeout(
       () =>
-        api.search(planId, snap.id, query.trim()).then((h) => {
-          setHits(h);
-          const f = focus && h.find((e) => e.path === focus.path);
-          if (f) setPicked(f);
-        }, (e) => setErr(String(e))),
+        api.search(planId, snap.id, query.trim()).then(
+          (h) => {
+            setHits(h);
+            const f = focus && h.find((e) => e.path === focus.path);
+            if (f) setPicked(f);
+          },
+          (e) => setErr(String(e)),
+        ),
       250,
     );
     return () => window.clearTimeout(t);
-  }, [query, planId, snap?.id]);
+  }, [query, planId, snap, focus]);
 
+  const pickedFile = picked?.kind === "file" ? picked.path : undefined;
   useEffect(() => {
     setVersions(null);
     setVer(0);
-    if (picked && picked.kind === "file" && planId) api.versions(planId, picked.path).then(setVersions);
-  }, [picked?.path, planId]);
+    if (pickedFile && planId) api.versions(planId, pickedFile).then(setVersions);
+  }, [pickedFile, planId]);
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
@@ -284,9 +327,17 @@ export default function Restore() {
   const removeFromBackup = async (e: Entry) => {
     const { ask } = await import("@tauri-apps/plugin-dialog");
     const where = tilde(e.path, home);
-    const first = await ask(`Remove ${where} from every snapshot of ${plan.name}? Its space is freed, and none of its versions can be restored afterwards.`, { title: `Remove ${e.name} from the backup`, kind: "warning", okLabel: "Continue", cancelLabel: "Cancel" });
+    const first = await ask(
+      `Remove ${where} from every snapshot of ${plan.name}? Its space is freed, and none of its versions can be restored afterwards.`,
+      { title: `Remove ${e.name} from the backup`, kind: "warning", okLabel: "Continue", cancelLabel: "Cancel" },
+    );
     if (!first) return;
-    const sure = await ask(`Delete every backed-up version of ${where}? This can't be undone.`, { title: "Are you sure?", kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" });
+    const sure = await ask(`Delete every backed-up version of ${where}? This can't be undone.`, {
+      title: "Are you sure?",
+      kind: "warning",
+      okLabel: "Delete",
+      cancelLabel: "Cancel",
+    });
     if (!sure) return;
     await act(() => api.removePathData(plan.id, e.path));
     toast(`Removing ${e.name} from the backup. Activity shows how it's going.`);
@@ -301,7 +352,14 @@ export default function Restore() {
         <div className="row" style={{ gap: 12 }}>
           <div className="tabs" role="tablist" aria-label="Plan to restore from">
             {plans.map((p) => (
-              <button key={p.id} role="tab" aria-selected={p.id === plan.id} className={p.id === plan.id ? "on" : ""} onClick={() => go({ name: "restore", plan: p.id })} title={`${p.snapshots.toLocaleString()} snapshots`}>
+              <button
+                key={p.id}
+                role="tab"
+                aria-selected={p.id === plan.id}
+                className={p.id === plan.id ? "on" : ""}
+                onClick={() => go({ name: "restore", plan: p.id })}
+                title={`${p.snapshots.toLocaleString()} snapshots`}
+              >
                 <span className={statusDot(p.status)} />
                 {p.name}
                 <span className="tiny faint">{p.snapshots.toLocaleString()}</span>
@@ -310,7 +368,12 @@ export default function Restore() {
           </div>
           <label className="search" style={{ width: 360 }}>
             <Icon name="search" size={15} stroke={2} />
-            <input aria-label="Find in this backup" placeholder={`Find in ${plan.name}`} value={query} onChange={(e) => setQuery(e.target.value)} />
+            <input
+              aria-label="Find in this backup"
+              placeholder={`Find in ${plan.name}`}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
             {query && <ClearButton onClick={() => setQuery("")} />}
           </label>
           <span className="grow" />
@@ -333,10 +396,13 @@ export default function Restore() {
             <div className="row" style={{ alignItems: "flex-end", gap: 16 }}>
               <div className="grow col" style={{ gap: 2 }}>
                 <span className="small muted">Your files as they were on</span>
-                <span style={{ fontFamily: "var(--display)", fontWeight: 650, letterSpacing: "-0.02em", fontSize: 26, lineHeight: 1.1 }}>{longWhen(snap.time)}</span>
+                <span style={{ fontFamily: "var(--display)", fontWeight: 650, letterSpacing: "-0.02em", fontSize: 26, lineHeight: 1.1 }}>
+                  {longWhen(snap.time)}
+                </span>
               </div>
               <span className="small muted" style={{ paddingBottom: 6 }}>
-                Snapshot {(sel + 1).toLocaleString()} of {snaps!.length.toLocaleString()} · {snap.kind} · {snap.changed.toLocaleString()} changed
+                Snapshot {(sel + 1).toLocaleString()} of {snaps!.length.toLocaleString()} · {snap.kind} · {snap.changed.toLocaleString()}{" "}
+                changed
               </span>
               <div className="row" style={{ gap: 6 }}>
                 <button className="btn" title="Earlier snapshot ←" disabled={sel === 0} onClick={() => setSel(sel - 1)}>
@@ -347,7 +413,12 @@ export default function Restore() {
                   Later
                   <Icon name="forward" size={14} stroke={2} />
                 </button>
-                <button className="btn" title="Newest snapshot" disabled={sel === snaps!.length - 1} onClick={() => setSel(snaps!.length - 1)}>
+                <button
+                  className="btn"
+                  title="Newest snapshot"
+                  disabled={sel === snaps!.length - 1}
+                  onClick={() => setSel(snaps!.length - 1)}
+                >
                   Latest
                 </button>
               </div>
@@ -373,11 +444,23 @@ export default function Restore() {
                 {rows.map(({ e, depth }) => {
                   const name = e.name.startsWith("/") ? tilde(e.name, home) : hits ? tilde(e.path, home) : e.name;
                   return (
-                    <div key={e.path + e.tag} className={`file-row${picked?.path === e.path ? " sel" : ""}${e.tag === "deleted" ? " gone" : ""}`}>
-                      <input type="checkbox" aria-label={`Choose ${e.name}`} checked={checked.has(e.path)} onChange={() => toggleCheck(e)} />
+                    <div
+                      key={e.path + e.tag}
+                      className={`file-row${picked?.path === e.path ? " sel" : ""}${e.tag === "deleted" ? " gone" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        aria-label={`Choose ${e.name}`}
+                        checked={checked.has(e.path)}
+                        onChange={() => toggleCheck(e)}
+                      />
                       <span style={{ width: depth * 20, flexShrink: 0 }} />
                       {e.kind === "dir" && !hits && e.tag !== "deleted" ? (
-                        <button className={`disc${open.has(e.path) ? " open" : ""}`} aria-label={`${open.has(e.path) ? "Collapse" : "Expand"} ${e.name}`} onClick={() => toggleOpen(e.path)}>
+                        <button
+                          className={`disc${open.has(e.path) ? " open" : ""}`}
+                          aria-label={`${open.has(e.path) ? "Collapse" : "Expand"} ${e.name}`}
+                          onClick={() => toggleOpen(e.path)}
+                        >
                           <Icon name="forward" size={12} stroke={2.6} />
                         </button>
                       ) : (
@@ -385,8 +468,19 @@ export default function Restore() {
                       )}
                       <button className="name" onClick={() => setPicked(e)} onDoubleClick={() => e.kind === "dir" && toggleOpen(e.path)}>
                         <span className="grow row" style={{ gap: 8 }}>
-                          <Icon name={iconFor(e)} style={{ color: e.kind === "dir" ? "var(--accent)" : "var(--ink2)", flexShrink: 0 }} fill={e.kind === "dir" ? "currentColor" : "none"} fillOpacity={e.kind === "dir" ? 0.22 : 0} />
-                          <span className="ellipsis" style={{ textDecoration: e.tag === "deleted" ? "line-through" : "none", fontWeight: picked?.path === e.path ? 600 : 400 }}>
+                          <Icon
+                            name={iconFor(e)}
+                            style={{ color: e.kind === "dir" ? "var(--accent)" : "var(--ink2)", flexShrink: 0 }}
+                            fill={e.kind === "dir" ? "currentColor" : "none"}
+                            fillOpacity={e.kind === "dir" ? 0.22 : 0}
+                          />
+                          <span
+                            className="ellipsis"
+                            style={{
+                              textDecoration: e.tag === "deleted" ? "line-through" : "none",
+                              fontWeight: picked?.path === e.path ? 600 : 400,
+                            }}
+                          >
                             {name}
                           </span>
                           {e.kind === "dir" && e.items > 0 && <span className="tiny faint nowrap">{e.items.toLocaleString()} items</span>}
@@ -400,7 +494,11 @@ export default function Restore() {
                         <span className="mono muted" style={{ width: 70, textAlign: "right", fontSize: 11 }}>
                           {e.kind === "file" && e.versions ? e.versions : ""}
                         </span>
-                        <span style={{ width: 76, display: "flex", justifyContent: "flex-end" }}>{e.tag && <span className={`tag ${e.tag}`}>{e.tag === "new" ? "New" : e.tag === "changed" ? "Changed" : "Deleted"}</span>}</span>
+                        <span style={{ width: 76, display: "flex", justifyContent: "flex-end" }}>
+                          {e.tag && (
+                            <span className={`tag ${e.tag}`}>{e.tag === "new" ? "New" : e.tag === "changed" ? "Changed" : "Deleted"}</span>
+                          )}
+                        </span>
                       </button>
                     </div>
                   );
@@ -409,36 +507,90 @@ export default function Restore() {
               </div>
             </div>
 
-            <aside aria-label="Versions" style={{ width: 340, flexShrink: 0, borderLeft: "1px solid var(--line)", background: "var(--sunk)", display: "flex", flexDirection: "column" }}>
-              <div style={{ padding: "18px 20px 14px", display: "flex", flexDirection: "column", gap: 4, borderBottom: "1px solid var(--line)" }}>
+            <aside
+              aria-label="Versions"
+              style={{
+                width: 340,
+                flexShrink: 0,
+                borderLeft: "1px solid var(--line)",
+                background: "var(--sunk)",
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              <div
+                style={{
+                  padding: "18px 20px 14px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                  borderBottom: "1px solid var(--line)",
+                }}
+              >
                 <span className="caps">{picked?.kind === "dir" ? "Folder" : "Versions"}</span>
-                <span style={{ fontSize: 17, fontWeight: 600, wordBreak: "break-word" }}>{picked ? (picked.name.startsWith("/") ? tilde(picked.name, home) : picked.name) : "Pick a file"}</span>
+                <span style={{ fontSize: 17, fontWeight: 600, wordBreak: "break-word" }}>
+                  {picked ? (picked.name.startsWith("/") ? tilde(picked.name, home) : picked.name) : "Pick a file"}
+                </span>
                 {picked && <span className="small muted">{tilde(picked.path.split("/").slice(0, -1).join("/") || "/", home)}</span>}
               </div>
               {picked?.kind === "file" && (
                 <>
-                  <div style={{ flexGrow: 1, minHeight: 0, overflow: "auto", padding: "8px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
-                    {!versions && <span className="small muted" style={{ padding: 10 }}>Finding versions…</span>}
+                  <div
+                    style={{
+                      flexGrow: 1,
+                      minHeight: 0,
+                      overflow: "auto",
+                      padding: "8px 10px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 2,
+                    }}
+                  >
+                    {!versions && (
+                      <span className="small muted" style={{ padding: 10 }}>
+                        Finding versions…
+                      </span>
+                    )}
                     {versions?.map((v, i) => (
                       <button key={v.snapshot} className={`version${i === ver ? " on" : ""}`} onClick={() => setVer(i)}>
                         <span className="dot" />
                         <span className="grow col" style={{ gap: 1 }}>
                           <span style={{ fontWeight: 600 }}>{when(v.time)}</span>
-                          <span className="tiny muted">{v.snapshot === snap.id ? "In this snapshot" : i === 0 ? "Newest version" : `Kept in ${v.keptIn + 1} snapshot${v.keptIn ? "s" : ""}`}</span>
+                          <span className="tiny muted">
+                            {v.snapshot === snap.id
+                              ? "In this snapshot"
+                              : i === 0
+                                ? "Newest version"
+                                : `Kept in ${v.keptIn + 1} snapshot${v.keptIn ? "s" : ""}`}
+                          </span>
                         </span>
                         <span className="mono muted" style={{ fontSize: 11 }}>
                           {bytes(v.size)}
                         </span>
                       </button>
                     ))}
-                    {versions && <div className="small faint" style={{ padding: "8px 10px" }}>{versions.length === 1 ? "This is the only version." : `${versions.length} versions in all.`}</div>}
+                    {versions && (
+                      <div className="small faint" style={{ padding: "8px 10px" }}>
+                        {versions.length === 1 ? "This is the only version." : `${versions.length} versions in all.`}
+                      </div>
+                    )}
                   </div>
                   <div style={{ padding: "12px 16px", borderTop: "1px solid var(--line)", display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button className="btn" title="Quick Look (Space)" disabled={!version} onClick={() => version && act(() => api.quickLook(plan.id, version.snapshot, picked.path))}>
+                    <button
+                      className="btn"
+                      title="Quick Look (Space)"
+                      disabled={!version}
+                      onClick={() => version && act(() => api.quickLook(plan.id, version.snapshot, picked.path))}
+                    >
                       <Icon name="eye" size={14} stroke={1.9} />
                       Quick Look
                     </button>
-                    <button className="btn" title="Show what changed from the file on your Mac" disabled={!version} onClick={() => version && setComparing({ snapshot: version.snapshot, path: picked.path })}>
+                    <button
+                      className="btn"
+                      title="Show what changed from the file on your Mac"
+                      disabled={!version}
+                      onClick={() => version && setComparing({ snapshot: version.snapshot, path: picked.path })}
+                    >
                       Compare with current
                     </button>
                     <button className="btn" disabled={!version} onClick={() => version && start(version.snapshot, [picked.path])}>
@@ -449,7 +601,11 @@ export default function Restore() {
               )}
               {picked && picked.tag !== "deleted" && (
                 <div style={{ padding: "0 16px 12px", display: picked.kind === "dir" ? "none" : "flex" }}>
-                  <button className="btn small danger" onClick={() => removeFromBackup(picked)} title="Take this out of every snapshot and free its space">
+                  <button
+                    className="btn small danger"
+                    onClick={() => removeFromBackup(picked)}
+                    title="Take this out of every snapshot and free its space"
+                  >
                     <Icon name="trash" size={13} />
                     Remove from backup…
                   </button>
@@ -458,10 +614,16 @@ export default function Restore() {
               {picked?.kind === "dir" && (
                 <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 10, color: "var(--ink2)", lineHeight: 1.5 }}>
                   <span>
-                    {picked.name.startsWith("/") ? tilde(picked.name, home) : picked.name} held {bytes(picked.size)} at this snapshot{picked.items ? `, ${picked.items.toLocaleString()} items at its top` : ""}.
+                    {picked.name.startsWith("/") ? tilde(picked.name, home) : picked.name} held {bytes(picked.size)} at this snapshot
+                    {picked.items ? `, ${picked.items.toLocaleString()} items at its top` : ""}.
                   </span>
                   <span>Tick the folder to restore everything in it as it was then. Pick a file to see its versions.</span>
-                  <button className="btn small danger" style={{ alignSelf: "flex-start" }} onClick={() => removeFromBackup(picked)} title="Take this folder out of every snapshot and free its space">
+                  <button
+                    className="btn small danger"
+                    style={{ alignSelf: "flex-start" }}
+                    onClick={() => removeFromBackup(picked)}
+                    title="Take this folder out of every snapshot and free its space"
+                  >
                     <Icon name="trash" size={13} />
                     Remove from backup…
                   </button>
@@ -473,11 +635,24 @@ export default function Restore() {
       </div>
 
       {snap && (restoring || restoreQueued) && (
-        <footer style={{ height: 72, flexShrink: 0, display: "flex", alignItems: "center", gap: 18, padding: "0 32px", background: "var(--surface)", borderTop: "1px solid var(--line)" }}>
+        <footer
+          style={{
+            height: 72,
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 18,
+            padding: "0 32px",
+            background: "var(--surface)",
+            borderTop: "1px solid var(--line)",
+          }}
+        >
           <div className="col" style={{ gap: 2, minWidth: 150 }}>
             <span style={{ fontWeight: 600 }}>{restoring ? "Restoring" : "Restore waiting"}</span>
             <span className="small muted">
-              {restoring ? `${restoring.filesRead.toLocaleString()} of ${restoring.filesToRead.toLocaleString()} files · ${bytes(restoring.bytesRead)} of ${bytes(restoring.bytesToRead)}` : "Starts when the current job finishes"}
+              {restoring
+                ? `${restoring.filesRead.toLocaleString()} of ${restoring.filesToRead.toLocaleString()} files · ${bytes(restoring.bytesRead)} of ${bytes(restoring.bytesToRead)}`
+                : "Starts when the current job finishes"}
             </span>
           </div>
           <div className="grow">
@@ -486,9 +661,22 @@ export default function Restore() {
         </footer>
       )}
       {snap && !restoring && !restoreQueued && (
-        <footer style={{ height: 72, flexShrink: 0, display: "flex", alignItems: "center", gap: 18, padding: "0 32px", background: "var(--surface)", borderTop: "1px solid var(--line)" }}>
+        <footer
+          style={{
+            height: 72,
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 18,
+            padding: "0 32px",
+            background: "var(--surface)",
+            borderTop: "1px solid var(--line)",
+          }}
+        >
           <div className="col" style={{ gap: 2, minWidth: 150 }}>
-            <span style={{ fontWeight: 600 }}>{items.length === 0 ? "Nothing chosen" : `${items.length} item${items.length === 1 ? "" : "s"} chosen`}</span>
+            <span style={{ fontWeight: 600 }}>
+              {items.length === 0 ? "Nothing chosen" : `${items.length} item${items.length === 1 ? "" : "s"} chosen`}
+            </span>
             <span className="small muted">
               {bytes(total)} · from {when(snap.time)}
             </span>
@@ -500,7 +688,11 @@ export default function Restore() {
               <button className={dest === "original" ? "on" : ""} aria-pressed={dest === "original"} onClick={() => setDest("original")}>
                 Original location
               </button>
-              <button className={dest === "folder" ? "on" : ""} aria-pressed={dest === "folder"} onClick={() => (folder ? setDest("folder") : chooseFolder())}>
+              <button
+                className={dest === "folder" ? "on" : ""}
+                aria-pressed={dest === "folder"}
+                onClick={() => (folder ? setDest("folder") : chooseFolder())}
+              >
                 Another folder…
               </button>
             </div>
@@ -524,7 +716,9 @@ export default function Restore() {
           </label>
           <span className="grow" />
           <span className="small muted" style={{ maxWidth: 230, textAlign: "right", lineHeight: 1.4 }}>
-            {dest === "original" ? "Each item goes back where it was. Folders that no longer exist are made again." : "Items keep their folders inside the folder you choose."}
+            {dest === "original"
+              ? "Each item goes back where it was. Folders that no longer exist are made again."
+              : "Items keep their folders inside the folder you choose."}
           </span>
           <button
             className="btn primary big"

@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+# See LICENSE for the full text.
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Retake the README and docs screenshots, from demo data: docs/images/<scene>-<theme>.png.
 
 Makes a demo in .demo/ (gitignored): sample folders in a demo home, a backup folder as the
@@ -124,9 +128,9 @@ def make_demo():
             "destination": dest, "folder": f"{name.replace(' & ', '-').replace(' ', '-')} {pid[:6]}",
             "schedule": {"every": every, "at": at, "weekday": 0},
             "retention": {"allHours": 24, "dailyDays": 30, "weeklyWeeks": 52, "monthlyMonths": 0, "keepDeletedDays": 90},
-            "excludes": ex, "gitignore": True, "skipCloudOnly": True, "maxFileSize": 0, "encrypted": False,
+            "excludes": ex, "gitignore": True, "skipCloudOnly": True, "skipMarked": True, "maxFileSize": 0, "encrypted": False,
             "fullEvery": "weekly", "checkEvery": "weekly",
-            "conditions": {"catchUp": True, "minBattery": 20, "noHotspot": True, "limitMbps": 0},
+            "conditions": {"catchUp": True, "onBattery": True, "minBattery": 20, "noHotspot": True, "limitMbps": 0},
         }
 
     config = {

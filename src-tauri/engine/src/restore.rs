@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Putting files back, where they were or into another folder.
 //!
 //! Each file is written to a temporary name beside its destination and renamed into place when
@@ -238,7 +242,8 @@ mod tests {
         let snap = backup::run(&repo, &opts(src.path()), None, &Control::default()).unwrap();
 
         let out = tempfile::tempdir().unwrap();
-        let r = run(&repo, &snap, &[base.clone()], &Target::Folder(out.path().into()), Conflict::KeepBoth, &Control::default()).unwrap();
+        let r = run(&repo, &snap, std::slice::from_ref(&base), &Target::Folder(out.path().into()), Conflict::KeepBoth, &Control::default())
+            .unwrap();
         let name = src.path().file_name().unwrap();
         assert_eq!(r.files, 2);
         assert_eq!(fs::read(out.path().join(name).join("docs/a.txt")).unwrap(), vec![9u8; 2_500_000]);
@@ -250,11 +255,11 @@ mod tests {
         // Back to the original place, where the file has since changed.
         fs::write(src.path().join("top.txt"), b"edited").unwrap();
         let item = format!("{base}/top.txt");
-        let r = run(&repo, &snap, &[item.clone()], &Target::Original, Conflict::KeepBoth, &Control::default()).unwrap();
+        let r = run(&repo, &snap, std::slice::from_ref(&item), &Target::Original, Conflict::KeepBoth, &Control::default()).unwrap();
         assert_eq!(r.renamed, 1);
         assert_eq!(fs::read(src.path().join("top (restored).txt")).unwrap(), b"top");
         assert_eq!(fs::read(src.path().join("top.txt")).unwrap(), b"edited");
-        let r = run(&repo, &snap, &[item.clone()], &Target::Original, Conflict::Skip, &Control::default()).unwrap();
+        let r = run(&repo, &snap, std::slice::from_ref(&item), &Target::Original, Conflict::Skip, &Control::default()).unwrap();
         assert_eq!(r.skipped, 1);
         run(&repo, &snap, &[item], &Target::Original, Conflict::Replace, &Control::default()).unwrap();
         assert_eq!(fs::read(src.path().join("top.txt")).unwrap(), b"top");

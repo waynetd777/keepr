@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Which snapshots to keep: every one for a while, then one a day, one a week, one a month.
 
 use chrono::{DateTime, Datelike, Local, TimeZone};

@@ -1,10 +1,14 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! The app's state and the job runner: one backup, restore, check or tidy-up at a time, from a
 //! queue, on its own thread. The scheduler (scheduler.rs) and the window both add jobs; progress
 //! and changes go to the window and the menu bar as events.
 
 use crate::config::{self, Config, Every, Often, Place, Plan, Run, State};
-use crate::places::{self, Mounts};
 use crate::keychain;
+use crate::places::{self, Mounts};
 use keepr_engine::backend::{Backend, Folder};
 use keepr_engine::backup::{Control, Options, PHASE_COMMIT, PHASE_LOOK, PHASE_READ};
 use keepr_engine::repo::{Repo, Secret, Snapshot, CONFIG};
@@ -19,20 +23,45 @@ use std::time::{Duration, Instant};
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum Job {
-    Backup { plan: String, full: bool },
-    Restore { plan: String, snapshot: String, items: Vec<String>, target: Target, conflict: Conflict },
-    Check { plan: String, all: bool },
-    Prune { plan: String },
+    Backup {
+        plan: String,
+        full: bool,
+    },
+    Restore {
+        plan: String,
+        snapshot: String,
+        items: Vec<String>,
+        target: Target,
+        conflict: Conflict,
+    },
+    Check {
+        plan: String,
+        all: bool,
+    },
+    Prune {
+        plan: String,
+    },
     /// Take a source out of every snapshot and free the space only it used.
-    RemoveSource { plan: String, source: Place },
+    RemoveSource {
+        plan: String,
+        source: Place,
+    },
     /// Take a file or folder (by its original path) out of every snapshot.
-    RemovePath { plan: String, path: String },
+    RemovePath {
+        plan: String,
+        path: String,
+    },
 }
 
 impl Job {
     pub fn plan(&self) -> &str {
         match self {
-            Job::Backup { plan, .. } | Job::Restore { plan, .. } | Job::Check { plan, .. } | Job::Prune { plan } | Job::RemoveSource { plan, .. } | Job::RemovePath { plan, .. } => plan,
+            Job::Backup { plan, .. }
+            | Job::Restore { plan, .. }
+            | Job::Check { plan, .. }
+            | Job::Prune { plan }
+            | Job::RemoveSource { plan, .. }
+            | Job::RemovePath { plan, .. } => plan,
         }
     }
     fn kind(&self) -> &'static str {
@@ -87,6 +116,11 @@ pub struct JobStatus {
     pub queued: usize,
 }
 
+/// Sends an event (name, payload) to the window and the menu bar.
+pub type Emit = Box<dyn Fn(&str, serde_json::Value) + Send + Sync>;
+/// Shows a notification (title, body).
+pub type Notify = Box<dyn Fn(&str, &str) + Send + Sync>;
+
 pub struct Core {
     pub dir: PathBuf,
     pub config: Mutex<Config>,
@@ -97,8 +131,8 @@ pub struct Core {
     wake: Condvar,
     current: Mutex<Option<Arc<Current>>>,
     /// To the window and the menu bar: ("job", status) while something runs, ("changed", null) after.
-    pub emit: Box<dyn Fn(&str, serde_json::Value) + Send + Sync>,
-    pub notify: Box<dyn Fn(&str, &str) + Send + Sync>,
+    pub emit: Emit,
+    pub notify: Notify,
     /// Screenshot mode: nothing is saved or run.
     pub frozen: bool,
     /// Read the startup disk through a still copy (off in tests, which mustn't make snapshots of the Mac).
@@ -117,7 +151,11 @@ pub fn human_bytes(b: u64) -> String {
         b if b >= 1 << 10 => (b as f64 / 1024.0, "KB"),
         b => return format!("{b} bytes"),
     };
-    if v >= 100.0 { format!("{v:.0} {u}") } else { format!("{v:.1} {u}") }
+    if v >= 100.0 {
+        format!("{v:.0} {u}")
+    } else {
+        format!("{v:.1} {u}")
+    }
 }
 
 /// A backend that keeps writes under a speed limit.
@@ -165,7 +203,7 @@ impl Backend for Throttle {
 }
 
 impl Core {
-    pub fn new(dir: PathBuf, emit: Box<dyn Fn(&str, serde_json::Value) + Send + Sync>, notify: Box<dyn Fn(&str, &str) + Send + Sync>, frozen: bool) -> Arc<Core> {
+    pub fn new(dir: PathBuf, emit: Emit, notify: Notify, frozen: bool) -> Arc<Core> {
         let mut config: Config = config::read(&dir, "config.json");
         // Destinations made before they could be named may share one ("Keepr" twice): give each a
         // name that says which it is.
@@ -258,7 +296,8 @@ impl Core {
     }
 
     pub fn busy_with(&self, plan: &str) -> bool {
-        self.current.lock().unwrap().as_ref().is_some_and(|c| c.job.plan() == plan) || self.queue.lock().unwrap().iter().any(|(_, j)| j.plan() == plan)
+        self.current.lock().unwrap().as_ref().is_some_and(|c| c.job.plan() == plan)
+            || self.queue.lock().unwrap().iter().any(|(_, j)| j.plan() == plan)
     }
 
     /// Jobs waiting their turn: (job id, plan id, kind).
@@ -355,7 +394,11 @@ impl Core {
             paused,
             stopping: c.ctl.cancel.load(Relaxed),
             rate,
-            eta_secs: if rate > 0.0 && (phase == PHASE_READ || c.job.kind() == "restore") && to_read > read { Some(((to_read - read) as f64 / rate) as u64) } else { None },
+            eta_secs: if rate > 0.0 && (phase == PHASE_READ || c.job.kind() == "restore") && to_read > read {
+                Some(((to_read - read) as f64 / rate) as u64)
+            } else {
+                None
+            },
             queued: self.queue.lock().unwrap().len(),
         };
         Some(status)
@@ -428,7 +471,12 @@ impl Core {
             let cfg = Repo::read_config(backend.as_ref()).map_err(|e| e.0)?;
             let secret = match (&cfg.encryption, &password) {
                 (Some(_), Some(pw)) => Secret::Password(pw),
-                (Some(_), None) => return Err(format!("{}'s backup is encrypted, and its password isn't in the Keychain. Enter it in the plan's settings.", p.name)),
+                (Some(_), None) => {
+                    return Err(format!(
+                        "{}'s backup is encrypted, and its password isn't in the Keychain. Enter it in the plan's settings.",
+                        p.name
+                    ))
+                }
                 (None, _) => Secret::None,
             };
             Repo::open(backend, secret).map_err(|e| e.0)?
@@ -520,10 +568,27 @@ impl Core {
         *self.current.lock().unwrap() = Some(cur.clone());
         self.changed();
         let plan_name = self.config.lock().unwrap().plan(job.plan()).map(|p| p.name.clone()).unwrap_or_default();
-        let mut run = Run { id, plan: job.plan().into(), kind: job.kind().into(), started: cur.started_at.clone(), finished: String::new(), result: "ok".into(), message: String::new(), files: 0, changed: 0, read_bytes: 0, added_bytes: 0, stored_bytes: 0, dup_bytes: 0, log: vec![] };
+        let mut run = Run {
+            id,
+            plan: job.plan().into(),
+            kind: job.kind().into(),
+            started: cur.started_at.clone(),
+            finished: String::new(),
+            result: "ok".into(),
+            message: String::new(),
+            files: 0,
+            changed: 0,
+            read_bytes: 0,
+            added_bytes: 0,
+            stored_bytes: 0,
+            dup_bytes: 0,
+            log: vec![],
+        };
         let outcome = match &job {
             Job::Backup { plan, full } => self.backup(&cur, plan, *full, &mut run),
-            Job::Restore { plan, snapshot, items, target, conflict } => self.restore(&cur, plan, snapshot, items, target, *conflict, &mut run),
+            Job::Restore { plan, snapshot, items, target, conflict } => {
+                self.restore(&cur, plan, snapshot, items, target, *conflict, &mut run)
+            }
             Job::Check { plan, all } => self.check(&cur, plan, *all, &mut run),
             Job::Prune { plan } => self.prune(&cur, plan, &mut run),
             Job::RemoveSource { plan, source } => self.remove_source(&cur, plan, source, &mut run),
@@ -549,7 +614,10 @@ impl Core {
                 run.note(if waiting { format!("Waiting: {e}") } else { format!("Failed: {e}") });
                 run.message = e.clone();
                 if !waiting && self.config.lock().unwrap().settings.notify_failures {
-                    (self.notify)(&format!("{plan_name}: {} didn't finish", if job.kind() == "restore" { "restore" } else { "backup" }), &e);
+                    (self.notify)(
+                        &format!("{plan_name}: {} didn't finish", if job.kind() == "restore" { "restore" } else { "backup" }),
+                        &e,
+                    );
                 }
                 if waiting && was_waiting {
                     // Still waiting: nothing new to tell anyone.
@@ -615,7 +683,11 @@ impl Core {
 
         match keepr_engine::prune::remove_leftovers(&repo) {
             Ok((0, _)) => {}
-            Ok((n, bytes)) => run.note(format!("Removed {n} leftover pack{} ({}) from a backup that didn't finish", if n == 1 { "" } else { "s" }, human_bytes(bytes))),
+            Ok((n, bytes)) => run.note(format!(
+                "Removed {n} leftover pack{} ({}) from a backup that didn't finish",
+                if n == 1 { "" } else { "s" },
+                human_bytes(bytes)
+            )),
             Err(e) => run.note(format!("Couldn't clear leftovers from an unfinished backup: {}", e.0)),
         }
         let snaps = repo.snapshots().map_err(|e| e.0)?;
@@ -629,7 +701,10 @@ impl Core {
         };
         match (&changes, full) {
             (_, true) => run.note("Reading every file (a full backup)"),
-            (Some(c), _) => run.note(format!("macOS's change record: {} folders changed since the last backup; the rest are taken as they were", c.touched.len())),
+            (Some(c), _) => run.note(format!(
+                "macOS's change record: {} folders changed since the last backup; the rest are taken as they were",
+                c.touched.len()
+            )),
             (None, _) if parent.is_some() => run.note("Comparing every file with the last snapshot"),
             (None, _) => run.note("First backup: reading everything"),
         }
@@ -653,13 +728,18 @@ impl Core {
         Self::set_stage(cur, "");
         // A cloud folder is read live: a still copy can't download a file that's only in the
         // cloud, since it's read-only.
-        let read_from = sources.iter().zip(&remote).map(|(s, r)| if r.is_some() || places::in_cloud(s) { None } else { still.as_ref().map(|st| crate::still::inside(st, s)) }).collect();
+        let read_from = sources
+            .iter()
+            .zip(&remote)
+            .map(|(s, r)| if r.is_some() || places::in_cloud(s) { None } else { still.as_ref().map(|st| crate::still::inside(st, s)) })
+            .collect();
         let opts = Options {
             plan: plan_id.to_string(),
             sources,
             excludes: plan.excludes.clone(),
             gitignore: plan.gitignore,
             skip_dataless: plan.skip_cloud_only,
+            skip_marked: plan.skip_marked,
             max_file_size: (plan.max_file_size > 0).then_some(plan.max_file_size),
             full,
             skip_paths: repo_path.into_iter().collect(),
@@ -672,8 +752,19 @@ impl Core {
         let snap = snap?;
         let st = &snap.stats;
         run.note(format!("Looked at {} files in {} folders ({})", st.files, st.dirs, human_bytes(st.bytes)));
-        run.note(format!("{} new, {} changed, {} removed; read {}", st.new_files, st.changed_files, st.removed_files, human_bytes(st.read_bytes)));
-        run.note(format!("Stored {} of new data as {}; {} was already kept", human_bytes(st.added_bytes), human_bytes(st.stored_bytes), human_bytes(st.dup_bytes)));
+        run.note(format!(
+            "{} new, {} changed, {} removed; read {}",
+            st.new_files,
+            st.changed_files,
+            st.removed_files,
+            human_bytes(st.read_bytes)
+        ));
+        run.note(format!(
+            "Stored {} of new data as {}; {} was already kept",
+            human_bytes(st.added_bytes),
+            human_bytes(st.stored_bytes),
+            human_bytes(st.dup_bytes)
+        ));
         for e in &st.errors {
             run.note(format!("Couldn't read {}", places::tilde(e)));
         }
@@ -694,14 +785,22 @@ impl Core {
         if st.removed_files > 0 {
             parts.push(format!("{} removed", st.removed_files));
         }
-        run.message = if parts.is_empty() { "Nothing changed".into() } else { format!("{} · {} sent", parts.join(" · "), human_bytes(st.stored_bytes)) };
+        run.message = if parts.is_empty() {
+            "Nothing changed".into()
+        } else {
+            format!("{} · {} sent", parts.join(" · "), human_bytes(st.stored_bytes))
+        };
         if let Some(why) = &before_failed {
             run.result = "warning".into();
             run.message = format!("{} · the command before it failed ({why})", run.message);
         }
         if st.error_count > 0 {
             run.result = "warning".into();
-            run.message = format!("{} · {} couldn't be read", run.message, if st.error_count == 1 { "1 file".to_string() } else { format!("{} files", st.error_count) });
+            run.message = format!(
+                "{} · {} couldn't be read",
+                run.message,
+                if st.error_count == 1 { "1 file".to_string() } else { format!("{} files", st.error_count) }
+            );
             if let Some(first) = st.errors.first() {
                 run.message = format!("{} (first: {})", run.message, places::tilde(first));
             }
@@ -723,7 +822,11 @@ impl Core {
         }
 
         // Tidy up once a day, and check when due, as part of the same visit to the destination.
-        let due = |last: &Option<String>, hours: i64| last.as_deref().and_then(keepr_engine::retention::parse_time).is_none_or(|t| chrono::Local::now().signed_duration_since(t).num_hours() >= hours);
+        let due = |last: &Option<String>, hours: i64| {
+            last.as_deref()
+                .and_then(keepr_engine::retention::parse_time)
+                .is_none_or(|t| chrono::Local::now().signed_duration_since(t).num_hours() >= hours)
+        };
         let ps = self.state.lock().unwrap().plans.get(plan_id).cloned().unwrap_or_default();
         if due(&ps.last_prune, 20) && snaps.len() > 1 {
             self.enqueue(Job::Prune { plan: plan_id.into() });
@@ -812,7 +915,10 @@ impl Core {
         let snaps = repo.snapshots().unwrap_or_default();
         // From each snapshot's top-level folders, which carry their totals: right even for
         // snapshots rewritten since they were taken.
-        let versions = snaps.iter().map(|s| repo.load_tree(&s.tree).map(|t| t.nodes.iter().map(|n| n.size).sum::<u64>()).unwrap_or(s.stats.bytes)).sum();
+        let versions = snaps
+            .iter()
+            .map(|s| repo.load_tree(&s.tree).map(|t| t.nodes.iter().map(|n| n.size).sum::<u64>()).unwrap_or(s.stats.bytes))
+            .sum();
         let mut s = self.state.lock().unwrap();
         let ps = s.plan(plan_id);
         ps.repo_bytes = bytes;
@@ -822,9 +928,23 @@ impl Core {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn restore(&self, cur: &Arc<Current>, plan_id: &str, snapshot: &str, items: &[String], target: &Target, conflict: Conflict, run: &mut Run) -> Result<(), String> {
+    fn restore(
+        &self,
+        cur: &Arc<Current>,
+        plan_id: &str,
+        snapshot: &str,
+        items: &[String],
+        target: &Target,
+        conflict: Conflict,
+        run: &mut Run,
+    ) -> Result<(), String> {
         let repo = self.repo(plan_id, false)?;
-        let snap = repo.snapshots().map_err(|e| e.0)?.into_iter().find(|s| s.id.hex() == snapshot).ok_or("That snapshot is no longer in the backup.")?;
+        let snap = repo
+            .snapshots()
+            .map_err(|e| e.0)?
+            .into_iter()
+            .find(|s| s.id.hex() == snapshot)
+            .ok_or("That snapshot is no longer in the backup.")?;
         *cur.repo.lock().unwrap() = Some(repo.clone());
         Self::set_stage(cur, "Restoring");
         run.note(format!("Restoring {} item{} from the snapshot of {}", items.len(), if items.len() == 1 { "" } else { "s" }, snap.time));
@@ -836,7 +956,13 @@ impl Core {
             Target::Folder(f) => format!("Into {}", places::tilde(&f.to_string_lossy())),
         });
         let r = keepr_engine::restore::run(&repo, &snap, items, target, conflict, &cur.ctl).map_err(|e| e.0)?;
-        run.note(format!("{} files ({}) written; {} kept beside an existing file; {} skipped", r.files, human_bytes(r.bytes), r.renamed, r.skipped));
+        run.note(format!(
+            "{} files ({}) written; {} kept beside an existing file; {} skipped",
+            r.files,
+            human_bytes(r.bytes),
+            r.renamed,
+            r.skipped
+        ));
         for e in &r.errors {
             run.note(format!("Couldn't write {}", places::tilde(e)));
         }
@@ -860,16 +986,33 @@ impl Core {
     fn check(&self, cur: &Arc<Current>, plan_id: &str, all: bool, run: &mut Run) -> Result<(), String> {
         let repo = self.repo(plan_id, false)?;
         Self::set_stage(cur, "Checking");
-        run.note(if all { "Checking every snapshot and reading all the data back" } else { "Checking every snapshot and reading a sample of the data back" });
+        run.note(if all {
+            "Checking every snapshot and reading all the data back"
+        } else {
+            "Checking every snapshot and reading a sample of the data back"
+        });
         let rep = keepr_engine::check::run(&repo, if all { 1.0 } else { 0.05 }, &cur.ctl).map_err(|e| e.0)?;
-        run.note(format!("{} snapshots, {} folders, {} chunks in {} packs; {} packs ({}) read back", rep.snapshots, rep.trees, rep.chunks, rep.packs, rep.packs_read, human_bytes(rep.bytes_read)));
+        run.note(format!(
+            "{} snapshots, {} folders, {} chunks in {} packs; {} packs ({}) read back",
+            rep.snapshots,
+            rep.trees,
+            rep.chunks,
+            rep.packs,
+            rep.packs_read,
+            human_bytes(rep.bytes_read)
+        ));
         for p in &rep.problems {
             run.note(format!("Problem: {p}"));
         }
         self.state.lock().unwrap().plan(plan_id).last_check = Some(now());
         run.read_bytes = rep.bytes_read;
         if rep.problems.is_empty() {
-            run.message = format!("All intact · {} snapshot{}{}", rep.snapshots, if rep.snapshots == 1 { "" } else { "s" }, if all { ", all data read back".to_string() } else { format!(", {} of {} packs read back", rep.packs_read, rep.packs) });
+            run.message = format!(
+                "All intact · {} snapshot{}{}",
+                rep.snapshots,
+                if rep.snapshots == 1 { "" } else { "s" },
+                if all { ", all data read back".to_string() } else { format!(", {} of {} packs read back", rep.packs_read, rep.packs) }
+            );
         } else {
             run.result = "failed".into();
             run.message = format!("{} problem{}: {}", rep.problems.len(), if rep.problems.len() == 1 { "" } else { "s" }, rep.problems[0]);
@@ -885,13 +1028,25 @@ impl Core {
         Self::set_stage(cur, "Tidying up");
         run.note("Applying the version rules");
         let p = keepr_engine::prune::run(&repo, &plan.retention, &cur.ctl).map_err(|e| e.0)?;
-        run.note(format!("{} snapshots kept, {} removed; {} packs deleted, {} rewritten; {} freed", p.kept, p.forgotten, p.packs_deleted, p.packs_rewritten, human_bytes(p.bytes_freed)));
+        run.note(format!(
+            "{} snapshots kept, {} removed; {} packs deleted, {} rewritten; {} freed",
+            p.kept,
+            p.forgotten,
+            p.packs_deleted,
+            p.packs_rewritten,
+            human_bytes(p.bytes_freed)
+        ));
         self.state.lock().unwrap().plan(plan_id).last_prune = Some(now());
         self.refresh_stats(plan_id, &repo);
         run.message = if p.forgotten == 0 && p.bytes_freed == 0 {
             "Nothing to remove".into()
         } else {
-            format!("{} old snapshot{} removed · {} freed", p.forgotten, if p.forgotten == 1 { "" } else { "s" }, human_bytes(p.bytes_freed))
+            format!(
+                "{} old snapshot{} removed · {} freed",
+                p.forgotten,
+                if p.forgotten == 1 { "" } else { "s" },
+                human_bytes(p.bytes_freed)
+            )
         };
         Ok(())
     }
@@ -927,7 +1082,13 @@ impl Core {
             ps.last_prune = Some(now());
         }
         self.refresh_stats(plan_id, &repo);
-        run.message = format!("{} removed from {} snapshot{} · {} freed", places::tilde(key), p.forgotten, if p.forgotten == 1 { "" } else { "s" }, human_bytes(p.bytes_freed));
+        run.message = format!(
+            "{} removed from {} snapshot{} · {} freed",
+            places::tilde(key),
+            p.forgotten,
+            if p.forgotten == 1 { "" } else { "s" },
+            human_bytes(p.bytes_freed)
+        );
         Ok(())
     }
 
@@ -949,7 +1110,8 @@ impl Core {
                 let mut date = last.map_or(now, |l| l).date_naive();
                 for _ in 0..16 {
                     if let Some(s) = slot(date) {
-                        let weekday_ok = plan.schedule.every == Every::Daily || s.weekday().num_days_from_sunday() == plan.schedule.weekday % 7;
+                        let weekday_ok =
+                            plan.schedule.every == Every::Daily || s.weekday().num_days_from_sunday() == plan.schedule.weekday % 7;
                         if weekday_ok && last.is_none_or(|l| s > l) {
                             return Some(s);
                         }
@@ -967,7 +1129,9 @@ impl Core {
             Often::Monthly => 30,
             Often::Never => return false,
         };
-        last_full.and_then(keepr_engine::retention::parse_time).is_none_or(|t| chrono::Local::now().signed_duration_since(t).num_days() >= days)
+        last_full
+            .and_then(keepr_engine::retention::parse_time)
+            .is_none_or(|t| chrono::Local::now().signed_duration_since(t).num_days() >= days)
     }
 }
 
@@ -980,12 +1144,13 @@ pub fn source_names(plan: &Plan) -> Vec<String> {
     plan.sources
         .iter()
         .map(|s| match s {
-            Place::Folder { path, name } => name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.clone())),
+            Place::Folder { path, name } => name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| {
+                std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.clone())
+            }),
             _ => places::name_of(s),
         })
         .collect()
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1011,6 +1176,7 @@ mod tests {
             excludes: vec![],
             gitignore: true,
             skip_cloud_only: true,
+            skip_marked: true,
             max_file_size: 0,
             encrypted: false,
             full_every: Often::Weekly,
@@ -1040,7 +1206,12 @@ mod tests {
         let c = core(data.path());
         {
             let mut cfg = c.config.lock().unwrap();
-            cfg.destinations.push(Destination { id: "d1".into(), name: "Disk".into(), place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None }, disconnect_after: true });
+            cfg.destinations.push(Destination {
+                id: "d1".into(),
+                name: "Disk".into(),
+                place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None },
+                disconnect_after: true,
+            });
             cfg.plans.push(plan(src.path()));
         }
         c.start();
@@ -1054,7 +1225,13 @@ mod tests {
         // Restore into another folder.
         let out = tempfile::tempdir().unwrap();
         let snap = c.snapshots("p1").unwrap()[0].id.hex();
-        c.enqueue(Job::Restore { plan: "p1".into(), snapshot: snap, items: vec![src.path().join("a.txt").to_string_lossy().into()], target: Target::Folder(out.path().into()), conflict: Conflict::KeepBoth });
+        c.enqueue(Job::Restore {
+            plan: "p1".into(),
+            snapshot: snap,
+            items: vec![src.path().join("a.txt").to_string_lossy().into()],
+            target: Target::Folder(out.path().into()),
+            conflict: Conflict::KeepBoth,
+        });
         wait(&c);
         let name = src.path().file_name().unwrap();
         assert_eq!(std::fs::read(out.path().join(name).join("a.txt")).unwrap(), b"hello");
@@ -1080,7 +1257,12 @@ mod tests {
         p.before = format!("echo fetched > '{}/fetched.txt'; echo hello from before; exit 3", src.path().display());
         {
             let mut cfg = c.config.lock().unwrap();
-            cfg.destinations.push(Destination { id: "d1".into(), name: "Disk".into(), place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None }, disconnect_after: true });
+            cfg.destinations.push(Destination {
+                id: "d1".into(),
+                name: "Disk".into(),
+                place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None },
+                disconnect_after: true,
+            });
             cfg.plans.push(p.clone());
         }
         c.start();

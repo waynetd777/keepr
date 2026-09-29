@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Backblaze B2 setup from the account's master application key, which Keepr uses once and
 // doesn't keep. For a destination: a new private bucket that keeps only the latest version of
 // each file. For a source: a bucket that's already there. Either way, a key for that bucket alone.
@@ -36,7 +40,9 @@ export function B2Setup({ mode, onMade }: { mode: "destination" | "source"; onMa
   const haveKey = !!(keyId.trim() && key.trim());
   return (
     <div className="card col" style={{ padding: 14, gap: 10, background: "var(--sunk)" }}>
-      <span style={{ fontWeight: 600 }}>{mode === "source" ? "Let Keepr set up read-only access" : "New to this? Let Keepr set it up"}</span>
+      <span style={{ fontWeight: 600 }}>
+        {mode === "source" ? "Let Keepr set up read-only access" : "New to this? Let Keepr set it up"}
+      </span>
       <span className="small muted" style={{ lineHeight: 1.5 }}>
         {mode === "source"
           ? "Enter your account's master application key. Keepr uses it once to make a key that may only list and read the bucket you choose, and doesn't keep it."
@@ -70,7 +76,11 @@ export function B2Setup({ mode, onMade }: { mode: "destination" | "source"; onMa
             Set up
           </button>
         ) : (
-          <button className="btn primary" disabled={!haveKey || !!busy} onClick={() => run("Asking for the buckets…", async () => setBuckets(await api.b2Buckets(keyId, key)))}>
+          <button
+            className="btn primary"
+            disabled={!haveKey || !!busy}
+            onClick={() => run("Asking for the buckets…", async () => setBuckets(await api.b2Buckets(keyId, key)))}
+          >
             List my buckets
           </button>
         )}
@@ -89,7 +99,11 @@ export function B2Setup({ mode, onMade }: { mode: "destination" | "source"; onMa
           </div>
         </div>
       )}
-      {error && <span className="small" style={{ color: "var(--red)" }}>{error}</span>}
+      {error && (
+        <span className="small" style={{ color: "var(--red)" }}>
+          {error}
+        </span>
+      )}
     </div>
   );
 }

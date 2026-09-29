@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Passwords, in one login-Keychain item: service "Keepr", account "secrets", holding a JSON map of
 //! `smb:<user>@<server>` (a share's password), `plan:<id>` (a backup's password) and
 //! `recovery:<id>` (its recovery key, until the user has saved it elsewhere too).
@@ -18,7 +22,9 @@ const ACCOUNT: &str = "secrets";
 static CACHE: Mutex<Option<BTreeMap<String, String>>> = Mutex::new(None);
 
 fn load(cache: &mut Option<BTreeMap<String, String>>) -> &mut BTreeMap<String, String> {
-    cache.get_or_insert_with(|| get_generic_password(SERVICE, ACCOUNT).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default())
+    cache.get_or_insert_with(|| {
+        get_generic_password(SERVICE, ACCOUNT).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    })
 }
 
 fn store(map: &BTreeMap<String, String>) -> Result<(), String> {
@@ -79,7 +85,9 @@ pub fn saved_smb_user(server: &str) -> Option<(String, &'static str)> {
     {
         let mut c = CACHE.lock().unwrap();
         let map = load(&mut c);
-        if let Some(user) = map.keys().find_map(|k| k.strip_prefix("smb:").and_then(|r| r.strip_suffix(&format!("@{host}"))).map(str::to_string)) {
+        if let Some(user) =
+            map.keys().find_map(|k| k.strip_prefix("smb:").and_then(|r| r.strip_suffix(&format!("@{host}"))).map(str::to_string))
+        {
             return Some((user, "keepr"));
         }
     }

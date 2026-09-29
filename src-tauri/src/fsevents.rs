@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! What changed since the last backup, from macOS's own record of file-system events
 //! (FSEvents). Replaying the record since the event id noted at the last backup gives the folders
 //! that changed; every other folder is taken from the last snapshot without being looked at,
@@ -28,7 +32,15 @@ type Callback = extern "C" fn(stream: *mut c_void, info: *mut c_void, n: usize, 
 
 #[link(name = "CoreServices", kind = "framework")]
 extern "C" {
-    fn FSEventStreamCreate(alloc: *const c_void, cb: Callback, ctx: *const Context, paths: *const c_void, since: u64, latency: f64, flags: u32) -> *mut c_void;
+    fn FSEventStreamCreate(
+        alloc: *const c_void,
+        cb: Callback,
+        ctx: *const Context,
+        paths: *const c_void,
+        since: u64,
+        latency: f64,
+        flags: u32,
+    ) -> *mut c_void;
     fn FSEventStreamSetDispatchQueue(stream: *mut c_void, queue: *mut c_void);
     fn FSEventStreamStart(stream: *mut c_void) -> bool;
     fn FSEventStreamStop(stream: *mut c_void);
@@ -102,10 +114,17 @@ pub fn since(roots: &[PathBuf], since: u64) -> Option<keepr_engine::backup::Chan
         return None;
     }
     let shared = Box::new(Shared { c: Mutex::new(Collected::default()), cv: Condvar::new() });
-    let ctx = Context { version: 0, info: &*shared as *const Shared as *mut c_void, retain: std::ptr::null(), release: std::ptr::null(), copy_description: std::ptr::null() };
+    let ctx = Context {
+        version: 0,
+        info: &*shared as *const Shared as *mut c_void,
+        retain: std::ptr::null(),
+        release: std::ptr::null(),
+        copy_description: std::ptr::null(),
+    };
     let arr = CFArray::from_CFTypes(&roots.iter().map(|r| CFString::new(&r.to_string_lossy())).collect::<Vec<_>>());
     let result = unsafe {
-        let stream = FSEventStreamCreate(std::ptr::null(), callback, &ctx, arr.as_concrete_TypeRef() as *const c_void, since, 0.0, NO_DEFER);
+        let stream =
+            FSEventStreamCreate(std::ptr::null(), callback, &ctx, arr.as_concrete_TypeRef() as *const c_void, since, 0.0, NO_DEFER);
         if stream.is_null() {
             return None;
         }
@@ -144,7 +163,7 @@ mod tests {
         let start = now_id();
         std::fs::write(dir.join("b/new.txt"), b"x").unwrap();
         std::thread::sleep(Duration::from_millis(1500));
-        let Some(ch) = since(&[dir.clone()], start) else { return }; // no record on this volume
+        let Some(ch) = since(std::slice::from_ref(&dir), start) else { return }; // no record on this volume
         assert!(!ch.unchanged(&dir.join("b")), "{:?}", ch);
         assert!(ch.unchanged(&dir.join("a")));
         assert_eq!(clean("/System/Volumes/Data/Users/w/"), PathBuf::from("/Users/w"));

@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Shared controls: the app's own tooltip (never macOS's), switches, segmented controls, sheets,
 // pop-up menus and a toast for passing messages.
 
@@ -53,7 +57,9 @@ export function Tooltips() {
   }, []);
   if (!tip) return null;
   const style: React.CSSProperties =
-    tip.side === "right" ? { left: tip.x, top: tip.y, transform: "translateY(-50%)" } : { left: tip.x, top: tip.y, transform: tip.side === "above" ? "translate(-50%, -100%)" : "translateX(-50%)" };
+    tip.side === "right"
+      ? { left: tip.x, top: tip.y, transform: "translateY(-50%)" }
+      : { left: tip.x, top: tip.y, transform: tip.side === "above" ? "translate(-50%, -100%)" : "translateX(-50%)" };
   return (
     <div className="tip" role="tooltip" style={style}>
       {tip.text}
@@ -61,11 +67,41 @@ export function Tooltips() {
   );
 }
 
-export function Switch({ on, onChange, label, disabled }: { on: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
-  return <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={disabled} className={`switch${on ? " on" : ""}`} onClick={() => onChange(!on)} />;
+export function Switch({
+  on,
+  onChange,
+  label,
+  disabled,
+}: {
+  on: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      disabled={disabled}
+      className={`switch${on ? " on" : ""}`}
+      onClick={() => onChange(!on)}
+    />
+  );
 }
 
-export function Seg<T extends string>({ value, options, onChange, label }: { value: T; options: [T, string][]; onChange: (v: T) => void; label: string }) {
+export function Seg<T extends string>({
+  value,
+  options,
+  onChange,
+  label,
+}: {
+  value: T;
+  options: [T, string][];
+  onChange: (v: T) => void;
+  label: string;
+}) {
   return (
     <div className="seg" role="group" aria-label={label}>
       {options.map(([v, text]) => (
@@ -77,7 +113,21 @@ export function Seg<T extends string>({ value, options, onChange, label }: { val
   );
 }
 
-export function Sheet({ title, subtitle, width = 620, onClose, children, foot }: { title: string; subtitle?: ReactNode; width?: number; onClose: () => void; children: ReactNode; foot?: ReactNode }) {
+export function Sheet({
+  title,
+  subtitle,
+  width = 620,
+  onClose,
+  children,
+  foot,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  width?: number;
+  onClose: () => void;
+  children: ReactNode;
+  foot?: ReactNode;
+}) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", k);
@@ -118,7 +168,13 @@ export function useMenu() {
   };
   const Menu = ({ children, width = 260 }: { children: ReactNode; width?: number }) =>
     at ? (
-      <div ref={ref} className="menu" role="menu" style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - width - 12), top: at.y, width }} onClick={() => setAt(null)}>
+      <div
+        ref={ref}
+        className="menu"
+        role="menu"
+        style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - width - 12), top: at.y, width }}
+        onClick={() => setAt(null)}
+      >
         {children}
       </div>
     ) : null;
@@ -186,7 +242,16 @@ export function PlanProgress({ job, queued, compact }: { job?: JobStatus | null;
   }
   const j = job!;
   const p = pct(j);
-  const what = j.kind === "check" ? "Checking" : j.kind === "prune" ? "Tidying up" : j.kind === "remove" ? "Removing a folder's data" : j.kind === "restore" ? "Restoring" : j.stage || "Starting";
+  const what =
+    j.kind === "check"
+      ? "Checking"
+      : j.kind === "prune"
+        ? "Tidying up"
+        : j.kind === "remove"
+          ? "Removing a folder's data"
+          : j.kind === "restore"
+            ? "Restoring"
+            : j.stage || "Starting";
   return (
     <div className="col" style={{ gap: 6 }}>
       <div className="row" style={{ gap: 10 }}>
@@ -214,7 +279,17 @@ export const STOPPING = "Stopping: finishing the current file…";
 
 /** Stop for a running job. Greys out and says Stopping… from the click until the job has ended,
  *  because it only stops at a safe point: after the chunk or file it is on. */
-export function StopButton({ job, small, iconOnly, label = "Stop" }: { job: JobStatus; small?: boolean; iconOnly?: boolean; label?: string }) {
+export function StopButton({
+  job,
+  small,
+  iconOnly,
+  label = "Stop",
+}: {
+  job: JobStatus;
+  small?: boolean;
+  iconOnly?: boolean;
+  label?: string;
+}) {
   const [asked, setAsked] = useState<string | null>(null);
   const stopping = job.stopping || asked === job.id;
   const title = stopping ? "Finishing the current file, then stopping" : "Stop. Nothing half-done is kept as a snapshot.";
@@ -261,7 +336,14 @@ export const SAVED_PASSWORD = "••••••••";
 
 /** When a server is chosen, fill in a login already saved for it (Keepr's or Finder's) and list
  *  its shares. `password` shows SAVED_PASSWORD until someone types a new one. */
-export function useSavedLogin(server: string, user: string, setUser: (u: string) => void, setPassword: (p: string) => void, onShares: (s: string[]) => void, onMessage: (m: string) => void) {
+export function useSavedLogin(
+  server: string,
+  user: string,
+  setUser: (u: string) => void,
+  setPassword: (p: string) => void,
+  onShares: (s: string[]) => void,
+  onMessage: (m: string) => void,
+) {
   const [source, setSource] = useState<"keepr" | "finder" | null>(null);
   useEffect(() => {
     const host = server.trim();

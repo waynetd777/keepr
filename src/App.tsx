@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The window: sidebar, toolbar, one history of places for back and forward, and the screens.
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -14,8 +18,6 @@ import Settings from "./Settings";
 import Search from "./Search";
 import { hideSplash } from "./splash";
 
-
-
 // Backup Plans is the overview of every plan; a plan's settings open from its card.
 const NAV: [Screen["name"], string, string, string][] = [
   ["overview", "Backup Plans", "plans", "⌘1"],
@@ -23,7 +25,6 @@ const NAV: [Screen["name"], string, string, string][] = [
   ["activity", "Activity", "activity", "⌘3"],
   ["destinations", "Destinations", "server", "⌘4"],
 ];
-
 
 function Sidebar() {
   const { screen, go } = useApp();
@@ -35,7 +36,12 @@ function Sidebar() {
       </div>
       <div className="nav">
         {NAV.map(([name, label, icon, key]) => (
-          <button key={name} className={screen.name === name || (name === "overview" && screen.name === "plans") ? "on" : ""} onClick={() => go({ name } as Screen)} title={`${label} ${key}`}>
+          <button
+            key={name}
+            className={screen.name === name || (name === "overview" && screen.name === "plans") ? "on" : ""}
+            onClick={() => go({ name } as Screen)}
+            title={`${label} ${key}`}
+          >
             <Icon name={icon} />
             <span className="grow">{label}</span>
             <span className="key">{key}</span>
@@ -43,7 +49,12 @@ function Sidebar() {
         ))}
       </div>
       <div className="grow" />
-      <button className={`navlink${screen.name === "settings" ? " on" : ""}`} style={{ marginTop: 10 }} onClick={() => go({ name: "settings" })} title="Settings ⌘,">
+      <button
+        className={`navlink${screen.name === "settings" ? " on" : ""}`}
+        style={{ marginTop: 10 }}
+        onClick={() => go({ name: "settings" })}
+        title="Settings ⌘,"
+      >
         <Icon name="settings" />
         <span className="grow">Settings</span>
         <span className="key">⌘,</span>
@@ -51,7 +62,6 @@ function Sidebar() {
     </nav>
   );
 }
-
 
 function Toolbar({ back, forward, canBack, canForward }: { back: () => void; forward: () => void; canBack: boolean; canForward: boolean }) {
   const { ov, go, screen } = useApp();
@@ -87,7 +97,14 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
         }}
       >
         <Icon name="search" size={15} stroke={2} />
-        <input ref={input} aria-label="Find a file in any backup" placeholder="Find a file in any backup" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQ("")} />
+        <input
+          ref={input}
+          aria-label="Find a file in any backup"
+          placeholder="Find a file in any backup"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === "Escape" && setQ("")}
+        />
         {q ? (
           <ClearButton
             onClick={() => {
@@ -103,11 +120,19 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
       {watching > 0 && (
         <span className="row small muted" style={{ gap: 6 }}>
           <span className={running ? "dot spin" : "dot"} />
-          {running ? (ov?.job?.stopping ? `Stopping ${ov?.job?.planName}…` : `Backing up ${ov?.job?.planName}`) : `Watching ${watching} plan${watching === 1 ? "" : "s"}`}
+          {running
+            ? ov?.job?.stopping
+              ? `Stopping ${ov?.job?.planName}…`
+              : `Backing up ${ov?.job?.planName}`
+            : `Watching ${watching} plan${watching === 1 ? "" : "s"}`}
         </span>
       )}
       {screen.name === "destinations" && (
-        <button className="btn" onClick={() => window.dispatchEvent(new Event("keepr:add-destination"))} title="Add somewhere to keep backups">
+        <button
+          className="btn"
+          onClick={() => window.dispatchEvent(new Event("keepr:add-destination"))}
+          title="Add somewhere to keep backups"
+        >
           <Icon name="plus" size={13} stroke={2.4} />
           Add destination
         </button>
@@ -154,6 +179,15 @@ export default function App() {
     hideSplash();
   }, []);
 
+  const go = useCallback((s: Screen) => {
+    setScreen((cur) => {
+      if (JSON.stringify(cur) === JSON.stringify(s)) return cur;
+      setPast((p) => [...p.slice(-50), cur]);
+      setFuture([]);
+      return s;
+    });
+  }, []);
+
   useEffect(() => {
     api.home().then(setHome);
     // Screenshot mode: open the screen the scene names. Read before the first load, so a scene
@@ -178,19 +212,8 @@ export default function App() {
       un3();
       window.clearInterval(t);
     };
-  }, [refresh]);
+  }, [refresh, go]);
 
-  const go = useCallback(
-    (s: Screen) => {
-      setScreen((cur) => {
-        if (JSON.stringify(cur) === JSON.stringify(s)) return cur;
-        setPast((p) => [...p.slice(-50), cur]);
-        setFuture([]);
-        return s;
-      });
-    },
-    [],
-  );
   const back = () => {
     const prev = past[past.length - 1];
     if (!prev) return;

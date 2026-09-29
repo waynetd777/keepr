@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Search: a name in any backup, every plan and every snapshot. Each result opens in Restore at
 // the newest snapshot that has it, deleted files included.
 
@@ -30,7 +34,11 @@ export default function Search() {
       <div className="col" style={{ gap: 4 }}>
         <h1>“{query}”</h1>
         <span className="muted" style={{ fontSize: 14 }}>
-          {found === null ? "Looking in every backup…" : found.length === 0 ? "Nothing by that name in any backup." : `${found.length.toLocaleString()} found in your backups${found.length >= 300 ? " (the first 300 per plan)" : ""}. Pick one to see its versions and restore it.`}
+          {found === null
+            ? "Looking in every backup…"
+            : found.length === 0
+              ? "Nothing by that name in any backup."
+              : `${found.length.toLocaleString()} found in your backups${found.length >= 300 ? " (the first 300 per plan)" : ""}. Pick one to see its versions and restore it.`}
         </span>
       </div>
       {missed.length > 0 && (
@@ -54,9 +62,16 @@ export default function Search() {
             const parent = f.entry.path.split("/").slice(0, -1).join("/");
             return (
               <div key={f.plan + f.entry.path} className={`file-row${f.gone ? " gone" : ""}`} style={{ height: 44 }}>
-                <button className="name" style={{ height: 44 }} onClick={() => go({ name: "restore", plan: f.plan, focus: { snapshot: f.snapshot, path: f.entry.path } })}>
+                <button
+                  className="name"
+                  style={{ height: 44 }}
+                  onClick={() => go({ name: "restore", plan: f.plan, focus: { snapshot: f.snapshot, path: f.entry.path } })}
+                >
                   <span className="grow row" style={{ gap: 10 }}>
-                    <Icon name={f.entry.kind === "dir" ? "folder" : "file"} style={{ color: f.entry.kind === "dir" ? "var(--accent)" : "var(--ink2)", flexShrink: 0 }} />
+                    <Icon
+                      name={f.entry.kind === "dir" ? "folder" : "file"}
+                      style={{ color: f.entry.kind === "dir" ? "var(--accent)" : "var(--ink2)", flexShrink: 0 }}
+                    />
                     <span className="col" style={{ gap: 0, minWidth: 0 }}>
                       <span className="ellipsis" style={{ fontWeight: 600, textDecoration: f.gone ? "line-through" : "none" }}>
                         {f.entry.name}
@@ -73,7 +88,9 @@ export default function Search() {
                   <span className="mono muted" style={{ width: 76, textAlign: "right", fontSize: 11 }}>
                     {f.entry.kind === "file" ? bytes(f.entry.size) : ""}
                   </span>
-                  <span style={{ width: 76, display: "flex", justifyContent: "flex-end" }}>{f.gone && <span className="tag deleted">Deleted</span>}</span>
+                  <span style={{ width: 76, display: "flex", justifyContent: "flex-end" }}>
+                    {f.gone && <span className="tag deleted">Deleted</span>}
+                  </span>
                 </button>
               </div>
             );

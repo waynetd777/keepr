@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Connecting to SMB shares, through NetFS: the framework Finder's Connect to Server uses.
 //!
 //! A share someone already has mounted is used where it is and left mounted. One Keepr mounts
@@ -148,12 +152,18 @@ pub fn mount(server: &str, share: &str, user: &str, password: &str) -> Result<Pa
         return Err(match rc {
             libc::EAUTH | libc::EACCES | libc::EPERM => format!("{server} didn't accept the name and password."),
             libc::ENOENT => format!("{server} has no share called {share}."),
-            libc::EHOSTUNREACH | libc::ETIMEDOUT | libc::ENETUNREACH | 64 | -6600 | -6602 => format!("{server} can't be reached. Is it on and on this network?"),
+            libc::EHOSTUNREACH | libc::ETIMEDOUT | libc::ENETUNREACH | 64 | -6600 | -6602 => {
+                format!("{server} can't be reached. Is it on and on this network?")
+            }
             _ => format!("Couldn't connect to {server}/{share} (error {rc})."),
         });
     }
     let arr: CFArray<CFString> = unsafe { CFArray::wrap_under_create_rule(points) };
-    arr.iter().next().map(|s| PathBuf::from(s.to_string())).or_else(|| find_mount(server, share)).ok_or_else(|| format!("{server}/{share} mounted but can't be found"))
+    arr.iter()
+        .next()
+        .map(|s| PathBuf::from(s.to_string()))
+        .or_else(|| find_mount(server, share))
+        .ok_or_else(|| format!("{server}/{share} mounted but can't be found"))
 }
 
 pub fn unmount(path: &std::path::Path) {
@@ -168,14 +178,40 @@ pub fn unmount(path: &std::path::Path) {
 /// a terminal, so reading it for a second gets nothing.
 pub fn discover() -> Vec<String> {
     use std::ffi::{c_char, c_void, CStr};
-    type BrowseReply = extern "C" fn(sd: *mut c_void, flags: u32, iface: u32, err: i32, name: *const c_char, regtype: *const c_char, domain: *const c_char, ctx: *mut c_void);
+    type BrowseReply = extern "C" fn(
+        sd: *mut c_void,
+        flags: u32,
+        iface: u32,
+        err: i32,
+        name: *const c_char,
+        regtype: *const c_char,
+        domain: *const c_char,
+        ctx: *mut c_void,
+    );
     extern "C" {
-        fn DNSServiceBrowse(sd: *mut *mut c_void, flags: u32, iface: u32, regtype: *const c_char, domain: *const c_char, cb: BrowseReply, ctx: *mut c_void) -> i32;
+        fn DNSServiceBrowse(
+            sd: *mut *mut c_void,
+            flags: u32,
+            iface: u32,
+            regtype: *const c_char,
+            domain: *const c_char,
+            cb: BrowseReply,
+            ctx: *mut c_void,
+        ) -> i32;
         fn DNSServiceRefSockFD(sd: *mut c_void) -> i32;
         fn DNSServiceProcessResult(sd: *mut c_void) -> i32;
         fn DNSServiceRefDeallocate(sd: *mut c_void);
     }
-    extern "C" fn reply(_sd: *mut c_void, flags: u32, _i: u32, err: i32, name: *const c_char, _t: *const c_char, _d: *const c_char, ctx: *mut c_void) {
+    extern "C" fn reply(
+        _sd: *mut c_void,
+        flags: u32,
+        _i: u32,
+        err: i32,
+        name: *const c_char,
+        _t: *const c_char,
+        _d: *const c_char,
+        ctx: *mut c_void,
+    ) {
         const ADD: u32 = 0x2;
         if err == 0 && flags & ADD != 0 && !name.is_null() {
             let names = unsafe { &mut *(ctx as *mut Vec<String>) };
@@ -185,7 +221,9 @@ pub fn discover() -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     unsafe {
         let mut sd: *mut c_void = std::ptr::null_mut();
-        if DNSServiceBrowse(&mut sd, 0, 0, c"_smb._tcp".as_ptr(), c"local.".as_ptr(), reply, &mut names as *mut Vec<String> as *mut c_void) != 0 {
+        if DNSServiceBrowse(&mut sd, 0, 0, c"_smb._tcp".as_ptr(), c"local.".as_ptr(), reply, &mut names as *mut Vec<String> as *mut c_void)
+            != 0
+        {
             return vec![];
         }
         let fd = DNSServiceRefSockFD(sd);

@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Setting up Cloudflare R2 for Keepr through Cloudflare's API, from a short-lived setup token
 //! the person makes in the dashboard (R2 edit, and API tokens edit). Keepr uses it to make (or,
 //! for a source, find) the bucket, then makes a new token scoped to that one bucket and turns it
@@ -24,7 +28,10 @@ fn explain(e: ureq::Error) -> String {
             let msg = v["errors"].as_array().and_then(|a| a.first()).and_then(|e| e["message"].as_str()).unwrap_or_default().to_string();
             match code {
                 401 => "Cloudflare didn't accept that token.".into(),
-                403 => format!("That token isn't allowed to do this{}. It needs R2 Storage: Edit and API Tokens: Edit.", if msg.is_empty() { String::new() } else { format!(" ({msg})") }),
+                403 => format!(
+                    "That token isn't allowed to do this{}. It needs R2 Storage: Edit and API Tokens: Edit.",
+                    if msg.is_empty() { String::new() } else { format!(" ({msg})") }
+                ),
                 _ if msg.contains("already exists") => "You already have a bucket with that name. Choose another.".into(),
                 _ if !msg.is_empty() => format!("Cloudflare said: {msg}"),
                 _ => format!("Cloudflare answered {code}."),
@@ -37,7 +44,10 @@ fn explain(e: ureq::Error) -> String {
 impl Cf {
     fn new(token: &str) -> Result<Cf, String> {
         let tls = native_tls::TlsConnector::new().map_err(|e| e.to_string())?;
-        Ok(Cf { token: token.trim().to_string(), agent: ureq::AgentBuilder::new().tls_connector(std::sync::Arc::new(tls)).timeout(Duration::from_secs(60)).build() })
+        Ok(Cf {
+            token: token.trim().to_string(),
+            agent: ureq::AgentBuilder::new().tls_connector(std::sync::Arc::new(tls)).timeout(Duration::from_secs(60)).build(),
+        })
     }
 
     fn call(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value, String> {
@@ -53,16 +63,28 @@ impl Cf {
     /// The accounts this token can see: (id, name).
     fn accounts(&self) -> Result<Vec<(String, String)>, String> {
         let v = self.call("GET", "/accounts", None)?;
-        Ok(v.as_array().cloned().unwrap_or_default().iter().map(|a| (a["id"].as_str().unwrap_or_default().to_string(), a["name"].as_str().unwrap_or_default().to_string())).collect())
+        Ok(v.as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .map(|a| (a["id"].as_str().unwrap_or_default().to_string(), a["name"].as_str().unwrap_or_default().to_string()))
+            .collect())
     }
 
     fn account(&self, want: &str) -> Result<String, String> {
         let all = self.accounts()?;
         match (want.trim(), all.len()) {
-            (w, _) if !w.is_empty() => all.iter().find(|(id, name)| id == w || name == w).map(|a| a.0.clone()).ok_or_else(|| "That token can't see that account.".to_string()),
+            (w, _) if !w.is_empty() => all
+                .iter()
+                .find(|(id, name)| id == w || name == w)
+                .map(|a| a.0.clone())
+                .ok_or_else(|| "That token can't see that account.".to_string()),
             (_, 1) => Ok(all[0].0.clone()),
             (_, 0) => Err("That token can't see any Cloudflare account. Give it R2 Storage: Edit on your account.".into()),
-            _ => Err(format!("That token can see several accounts ({}). Enter the account ID too.", all.iter().map(|a| a.1.as_str()).collect::<Vec<_>>().join(", "))),
+            _ => Err(format!(
+                "That token can see several accounts ({}). Enter the account ID too.",
+                all.iter().map(|a| a.1.as_str()).collect::<Vec<_>>().join(", ")
+            )),
         }
     }
 
@@ -73,12 +95,21 @@ impl Cf {
 
     fn permission_group(&self, name: &str) -> Result<String, String> {
         let v = self.call("GET", "/user/tokens/permission_groups", None)?;
-        v.as_array().cloned().unwrap_or_default().iter().find(|g| g["name"].as_str() == Some(name)).and_then(|g| g["id"].as_str().map(str::to_string)).ok_or_else(|| format!("Cloudflare has no \"{name}\" permission any more; set the bucket up by hand."))
+        v.as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .find(|g| g["name"].as_str() == Some(name))
+            .and_then(|g| g["id"].as_str().map(str::to_string))
+            .ok_or_else(|| format!("Cloudflare has no \"{name}\" permission any more; set the bucket up by hand."))
     }
 }
 
 fn check_name(bucket: &str) -> Result<(), String> {
-    let ok = (3..=63).contains(&bucket.len()) && bucket.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') && !bucket.starts_with('-') && !bucket.ends_with('-');
+    let ok = (3..=63).contains(&bucket.len())
+        && bucket.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        && !bucket.starts_with('-')
+        && !bucket.ends_with('-');
     if ok {
         Ok(())
     } else {
@@ -132,7 +163,8 @@ pub fn setup(token: &str, account: &str, bucket: &str, mode: Mode) -> Result<Mad
     if id.is_empty() || value.is_empty() {
         return Err("Cloudflare didn't return the new token.".into());
     }
-    let made = Made::new("auto".into(), bucket.to_string(), id.to_string(), s3_secret(value), format!("https://{acc}.r2.cloudflarestorage.com"));
+    let made =
+        Made::new("auto".into(), bucket.to_string(), id.to_string(), s3_secret(value), format!("https://{acc}.r2.cloudflarestorage.com"));
     let res = crate::aws_setup::finish(made);
     // The setup token has done its job; it could do far more than Keepr needs, so it goes.
     if res.is_ok() {

@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! A repository in an S3 bucket: Amazon S3, or anything that speaks its API (Cloudflare R2,
 //! Wasabi, MinIO, a NAS's S3 server). Plain blocking HTTPS with AWS Signature Version 4, signed
 //! over each body's SHA-256 so the server refuses a body that changed on the way.
@@ -52,8 +56,18 @@ impl S3 {
         // Amazon wants the bucket in the host name; a dotted name would break its certificate.
         let path_style = !host.ends_with(".amazonaws.com") || cfg.bucket.contains('.');
         let tls = native_tls::TlsConnector::new().map_err(io::Error::other)?;
-        let agent = ureq::AgentBuilder::new().tls_connector(std::sync::Arc::new(tls)).timeout_connect(Duration::from_secs(20)).timeout_read(Duration::from_secs(120)).timeout_write(Duration::from_secs(120)).build();
-        let cfg = Config { prefix: cfg.prefix.trim_matches('/').to_string(), bucket: cfg.bucket.trim().to_string(), region: if cfg.region.trim().is_empty() { "us-east-1".into() } else { cfg.region.trim().to_string() }, ..cfg };
+        let agent = ureq::AgentBuilder::new()
+            .tls_connector(std::sync::Arc::new(tls))
+            .timeout_connect(Duration::from_secs(20))
+            .timeout_read(Duration::from_secs(120))
+            .timeout_write(Duration::from_secs(120))
+            .build();
+        let cfg = Config {
+            prefix: cfg.prefix.trim_matches('/').to_string(),
+            bucket: cfg.bucket.trim().to_string(),
+            region: if cfg.region.trim().is_empty() { "us-east-1".into() } else { cfg.region.trim().to_string() },
+            ..cfg
+        };
         Ok(S3 { cfg, scheme: scheme.to_string(), host, path_style, agent })
     }
 
@@ -65,7 +79,13 @@ impl S3 {
             (true, false) => sub.to_string(),
             (false, false) => format!("{}/{sub}", self.cfg.prefix),
         };
-        S3 { cfg: Config { prefix, ..self.cfg.clone() }, scheme: self.scheme.clone(), host: self.host.clone(), path_style: self.path_style, agent: self.agent.clone() }
+        S3 {
+            cfg: Config { prefix, ..self.cfg.clone() },
+            scheme: self.scheme.clone(),
+            host: self.host.clone(),
+            path_style: self.path_style,
+            agent: self.agent.clone(),
+        }
     }
 
     fn key(&self, rel: &str) -> io::Result<String> {
@@ -84,15 +104,28 @@ impl S3 {
     pub fn check_bucket(&self) -> io::Result<()> {
         match self.send("HEAD", "", &[], &[], None) {
             Ok(_) => Ok(()),
-            Err(Fail::Status(301, _, Some(region), _)) | Err(Fail::Status(400, _, Some(region), _)) if region != self.cfg.region => Err(bad(&format!("That bucket is in the {region} region. Choose {region} and try again."))),
-            Err(Fail::Status(404, ..)) => Err(bad(&format!("There's no bucket called {} there. Make it first, in the service's own console.", self.cfg.bucket))),
-            Err(Fail::Status(403, ..)) => Err(bad("The keys were refused for this bucket. Check the access key, the secret, and that the key may read and write the bucket.")),
+            Err(Fail::Status(301, _, Some(region), _)) | Err(Fail::Status(400, _, Some(region), _)) if region != self.cfg.region => {
+                Err(bad(&format!("That bucket is in the {region} region. Choose {region} and try again.")))
+            }
+            Err(Fail::Status(404, ..)) => {
+                Err(bad(&format!("There's no bucket called {} there. Make it first, in the service's own console.", self.cfg.bucket)))
+            }
+            Err(Fail::Status(403, ..)) => Err(bad(
+                "The keys were refused for this bucket. Check the access key, the secret, and that the key may read and write the bucket.",
+            )),
             Err(e) => Err(e.into_io(&self.cfg)),
         }
     }
 
     /// One signed request, tried again after a pause if the network or the server stumbled.
-    fn send(&self, method: &str, key: &str, query: &[(&str, &str)], body: &[u8], range: Option<(u64, u64)>) -> Result<ureq::Response, Fail> {
+    fn send(
+        &self,
+        method: &str,
+        key: &str,
+        query: &[(&str, &str)],
+        body: &[u8],
+        range: Option<(u64, u64)>,
+    ) -> Result<ureq::Response, Fail> {
         let mut last = None;
         for attempt in 0..TRIES {
             if attempt > 0 {
@@ -107,7 +140,14 @@ impl S3 {
         Err(last.unwrap())
     }
 
-    fn send_once(&self, method: &str, key: &str, query: &[(&str, &str)], body: &[u8], range: Option<(u64, u64)>) -> Result<ureq::Response, Fail> {
+    fn send_once(
+        &self,
+        method: &str,
+        key: &str,
+        query: &[(&str, &str)],
+        body: &[u8],
+        range: Option<(u64, u64)>,
+    ) -> Result<ureq::Response, Fail> {
         let (host, path) = if self.path_style {
             (self.host.clone(), format!("/{}/{}", uri_encode(&self.cfg.bucket, true), uri_encode(key, false)))
         } else {
@@ -129,9 +169,13 @@ impl S3 {
             k = hmac(&k, part);
         }
         let sig = hex::encode(hmac(&k, to_sign.as_bytes()));
-        let auth = format!("AWS4-HMAC-SHA256 Credential={}/{scope}, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature={sig}", self.cfg.access_key);
+        let auth = format!(
+            "AWS4-HMAC-SHA256 Credential={}/{scope}, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature={sig}",
+            self.cfg.access_key
+        );
         let url = format!("{}://{host}{path}{}{qs}", self.scheme, if qs.is_empty() { "" } else { "?" });
-        let mut req = self.agent.request(method, &url).set("x-amz-date", &amz_date).set("x-amz-content-sha256", &payload).set("authorization", &auth);
+        let mut req =
+            self.agent.request(method, &url).set("x-amz-date", &amz_date).set("x-amz-content-sha256", &payload).set("authorization", &auth);
         if let Some((from, len)) = range {
             req = req.set("range", &format!("bytes={from}-{}", from + len - 1));
         }
@@ -162,7 +206,10 @@ impl S3 {
             for c in text.split("<Contents>").skip(1) {
                 let Some(k) = tag(c, "Key") else { continue };
                 let size = tag(c, "Size").and_then(|s| s.parse().ok()).unwrap_or(0);
-                let mtime = tag(c, "LastModified").and_then(|t| chrono::DateTime::parse_from_rfc3339(&t).ok()).and_then(|t| t.timestamp_nanos_opt()).unwrap_or(0);
+                let mtime = tag(c, "LastModified")
+                    .and_then(|t| chrono::DateTime::parse_from_rfc3339(&t).ok())
+                    .and_then(|t| t.timestamp_nanos_opt())
+                    .unwrap_or(0);
                 let etag = tag(c, "ETag").unwrap_or_default().trim_matches('"').to_string();
                 out.push((k, size, mtime, etag));
             }
@@ -213,7 +260,11 @@ impl Backend for S3 {
     fn list(&self, dir: &str) -> io::Result<Vec<String>> {
         let base = self.key(dir)?;
         let prefix = if base.is_empty() { String::new() } else { format!("{base}/") };
-        Ok(self.list_objects(&prefix)?.into_iter().filter_map(|(k, ..)| k.strip_prefix(&prefix).filter(|r| !r.is_empty() && !r.ends_with('/')).map(str::to_string)).collect())
+        Ok(self
+            .list_objects(&prefix)?
+            .into_iter()
+            .filter_map(|(k, ..)| k.strip_prefix(&prefix).filter(|r| !r.is_empty() && !r.ends_with('/')).map(str::to_string))
+            .collect())
     }
 
     fn remove(&self, path: &str) -> io::Result<()> {
@@ -247,7 +298,13 @@ impl Backend for S3 {
 impl crate::backup::Remote for S3 {
     fn objects(&self) -> io::Result<Vec<crate::backup::RemoteObject>> {
         let prefix = if self.cfg.prefix.is_empty() { String::new() } else { format!("{}/", self.cfg.prefix) };
-        Ok(self.list_objects(&prefix)?.into_iter().filter_map(|(k, size, mtime, tag)| Some(crate::backup::RemoteObject { key: k.strip_prefix(&prefix)?.to_string(), size, mtime, tag })).collect())
+        Ok(self
+            .list_objects(&prefix)?
+            .into_iter()
+            .filter_map(|(k, size, mtime, tag)| {
+                Some(crate::backup::RemoteObject { key: k.strip_prefix(&prefix)?.to_string(), size, mtime, tag })
+            })
+            .collect())
     }
 
     fn open(&self, key: &str) -> io::Result<Box<dyn io::Read + Send>> {
@@ -282,8 +339,12 @@ impl Fail {
                     "InvalidAccessKeyId" => "The access key isn't known to this service.".into(),
                     "SignatureDoesNotMatch" => "The secret key doesn't match the access key.".into(),
                     "AccessDenied" => "These keys may not do that in this bucket.".into(),
-                    "RequestTimeTooSkewed" => "This Mac's clock is too far out for the service. Set the date and time automatically in System Settings.".into(),
-                    "PermanentRedirect" | "AuthorizationHeaderMalformed" if region.is_some() => format!("The bucket is in the {} region.", region.unwrap()),
+                    "RequestTimeTooSkewed" => {
+                        "This Mac's clock is too far out for the service. Set the date and time automatically in System Settings.".into()
+                    }
+                    "PermanentRedirect" | "AuthorizationHeaderMalformed" if region.is_some() => {
+                        format!("The bucket is in the {} region.", region.unwrap())
+                    }
                     _ if !msg.is_empty() => format!("{msg} ({s3})"),
                     _ => format!("The service answered {code}."),
                 };
@@ -343,13 +404,32 @@ mod tests {
 
     #[test]
     fn keys_sit_under_the_prefix() {
-        let s = S3::new(Config { endpoint: "s3.eu-west-1.amazonaws.com".into(), region: "eu-west-1".into(), bucket: "b".into(), prefix: "/keepr/".into(), access_key: "a".into(), secret_key: "s".into() }).unwrap();
+        let s = S3::new(Config {
+            endpoint: "s3.eu-west-1.amazonaws.com".into(),
+            region: "eu-west-1".into(),
+            bucket: "b".into(),
+            prefix: "/keepr/".into(),
+            access_key: "a".into(),
+            secret_key: "s".into(),
+        })
+        .unwrap();
         assert!(!s.path_style);
         let p = s.within("Docs 1c9b7f");
         assert_eq!(p.key("packs/ab/x.pack").unwrap(), "keepr/Docs 1c9b7f/packs/ab/x.pack");
         assert_eq!(p.describe(), "s3://b/keepr/Docs 1c9b7f");
         assert!(p.key("../x").is_err());
-        assert!(S3::new(Config { endpoint: "http://nas.local:9000".into(), region: "".into(), bucket: "b".into(), prefix: "".into(), access_key: "a".into(), secret_key: "s".into() }).unwrap().path_style);
+        assert!(
+            S3::new(Config {
+                endpoint: "http://nas.local:9000".into(),
+                region: "".into(),
+                bucket: "b".into(),
+                prefix: "".into(),
+                access_key: "a".into(),
+                secret_key: "s".into()
+            })
+            .unwrap()
+            .path_style
+        );
     }
 
     /// Against a real bucket: KEEPR_S3_TEST="endpoint region bucket access secret" cargo test -- --ignored s3
@@ -358,7 +438,15 @@ mod tests {
     fn round_trip_on_a_real_bucket() {
         let v = std::env::var("KEEPR_S3_TEST").expect("KEEPR_S3_TEST");
         let p: Vec<&str> = v.split_whitespace().collect();
-        let s = S3::new(Config { endpoint: p[0].into(), region: p[1].into(), bucket: p[2].into(), prefix: format!("keepr-test-{}", crate::Id::random().short()), access_key: p[3].into(), secret_key: p[4].into() }).unwrap();
+        let s = S3::new(Config {
+            endpoint: p[0].into(),
+            region: p[1].into(),
+            bucket: p[2].into(),
+            prefix: format!("keepr-test-{}", crate::Id::random().short()),
+            access_key: p[3].into(),
+            secret_key: p[4].into(),
+        })
+        .unwrap();
         s.check_bucket().unwrap();
         s.write("packs/ab/one.pack", b"123456").unwrap();
         s.write("index/x.idx", b"i").unwrap();

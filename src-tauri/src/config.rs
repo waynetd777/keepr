@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! What Keepr is set up to do (destinations and plans, in config.json) and what it has done
 //! (state.json: each plan's last runs, and the history). Both live in
 //! ~/Library/Application Support/Keepr/ and are written whole, atomically.
@@ -105,7 +109,10 @@ pub struct Conditions {
     /// Run a missed backup as soon as the Mac wakes or the destination comes back.
     #[serde(default = "yes")]
     pub catch_up: bool,
-    /// Wait while on battery below this percentage (0: never wait).
+    /// Back up while on battery power at all; off, a backup waits for mains power.
+    #[serde(default = "yes")]
+    pub on_battery: bool,
+    /// On battery, wait while it's below this percentage (0: never wait).
     #[serde(default = "twenty")]
     pub min_battery: u32,
     /// Wait while on a network macOS calls expensive (a personal hotspot).
@@ -122,7 +129,7 @@ fn twenty() -> u32 {
 
 impl Default for Conditions {
     fn default() -> Conditions {
-        Conditions { catch_up: true, min_battery: 20, no_hotspot: true, limit_mbps: 0 }
+        Conditions { catch_up: true, on_battery: true, min_battery: 20, no_hotspot: true, limit_mbps: 0 }
     }
 }
 
@@ -154,6 +161,9 @@ pub struct Plan {
     pub gitignore: bool,
     #[serde(default = "yes")]
     pub skip_cloud_only: bool,
+    /// Leave out what apps have marked for backups to skip, as Time Machine does.
+    #[serde(default = "yes")]
+    pub skip_marked: bool,
     /// Bytes, 0 for no limit.
     #[serde(default)]
     pub max_file_size: u64,
@@ -181,7 +191,22 @@ fn weekly() -> Often {
 }
 
 pub fn default_excludes() -> Vec<String> {
-    ["node_modules/", "target/", ".DS_Store", "*.tmp", "~/Library/Caches", ".Trash/"].iter().map(|s| s.to_string()).collect()
+    [
+        "node_modules/",
+        "target/",
+        ".DS_Store",
+        "*.tmp",
+        "~/Library/Caches",
+        ".Trash/",
+        ".Spotlight-V100/",
+        ".fseventsd/",
+        ".Trashes/",
+        ".DocumentRevisions-V100/",
+        ".TemporaryItems/",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -384,7 +409,18 @@ mod tests {
     fn reads_what_it_writes_and_survives_junk() {
         let t = tempfile::tempdir().unwrap();
         let mut c = Config::default();
-        c.destinations.push(Destination { id: "d".into(), name: "keep-nas".into(), place: Place::Smb(Smb { server: "keep-nas.local".into(), share: "Backups".into(), folder: "/Keepr".into(), user: "wayne".into(), name: None }), disconnect_after: true });
+        c.destinations.push(Destination {
+            id: "d".into(),
+            name: "keep-nas".into(),
+            place: Place::Smb(Smb {
+                server: "keep-nas.local".into(),
+                share: "Backups".into(),
+                folder: "/Keepr".into(),
+                user: "wayne".into(),
+                name: None,
+            }),
+            disconnect_after: true,
+        });
         write(t.path(), "config.json", &c).unwrap();
         let back: Config = read(t.path(), "config.json");
         assert_eq!(back.destinations[0].place, c.destinations[0].place);

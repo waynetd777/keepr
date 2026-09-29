@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! "Open at Login", through SMAppService.
 //!
 //! SMAppService is the same mechanism System Settings > General > Login Items drives, so a
@@ -16,8 +20,8 @@
 
 #![cfg(target_os = "macos")]
 
-use objc2::runtime::{AnyClass, AnyObject};
 use objc2::msg_send;
+use objc2::runtime::{AnyClass, AnyObject};
 
 /// SMAppServiceStatus, as documented. Anything unrecognised is treated as NotFound.
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -81,7 +85,5 @@ pub fn set(on: bool) -> Status {
 
 /// System Settings > General > Login Items, for when macOS says the user has to approve.
 pub fn open_settings() {
-    let _ = std::process::Command::new("/usr/bin/open")
-        .arg("x-apple.systempreferences:com.apple.LoginItems-Settings.extension")
-        .status();
+    let _ = std::process::Command::new("/usr/bin/open").arg("x-apple.systempreferences:com.apple.LoginItems-Settings.extension").status();
 }

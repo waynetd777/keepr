@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Choosing folders, with one macOS open panel kept for the life of the app.
 //!
 //! On this Mac (macOS 27), making a second NSOpenPanel in a process takes about 26 seconds: the

@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! `Keepr --verify-restore <plan> <folder>`: restores a plan's latest snapshot into a folder
 //! with the real restore, then compares every file byte for byte with its source. A difference
 //! is only a fault when the source still looks as it did at the backup (same size and modified
@@ -35,8 +39,15 @@ pub fn run(plan: &str, dir: &Path) -> Result<bool, String> {
     println!("{name}: snapshot {} from {}, {} sources", snap.id.short(), snap.time, snap.sources.len());
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let t = std::time::Instant::now();
-    let r = restore::run(&repo, &snap, &snap.sources, &Target::Folder(dir.to_path_buf()), Conflict::Replace, &Control::default()).map_err(|e| e.0)?;
-    println!("{name}: restored {} files, {} in {:.0} s; {} errors", r.files, human_bytes(r.bytes), t.elapsed().as_secs_f64(), r.errors.len());
+    let r = restore::run(&repo, &snap, &snap.sources, &Target::Folder(dir.to_path_buf()), Conflict::Replace, &Control::default())
+        .map_err(|e| e.0)?;
+    println!(
+        "{name}: restored {} files, {} in {:.0} s; {} errors",
+        r.files,
+        human_bytes(r.bytes),
+        t.elapsed().as_secs_f64(),
+        r.errors.len()
+    );
     let mut tally = Tally::default();
     for e in &r.errors {
         tally.faults.push(format!("restore error: {e}"));

@@ -7,7 +7,9 @@ Tauri 2, with a React and TypeScript frontend (Vite) and a Rust backend. The bac
 | Command | What it does |
 |---|---|
 | `make dev` | Build the help, then run the app with hot reload |
-| `make check` | The engine's and the app's Rust tests, and the TypeScript check |
+| `make check` | The engine's and the app's Rust tests, the TypeScript check, then `make lint` |
+| `make lint` | rustfmt, Clippy (warnings are errors), Prettier and ESLint, and a licence header on every source file; checks only |
+| `make fmt` | Reformat the Rust and TypeScript, and add the licence header where it's missing |
 | `make app` | Bump the version (1.0.0 → 1.0.1) and build the .app, signed with the identity in `signing.local` if there is one |
 | `make install-app` | Build it and replace the copy in /Applications |
 | `make dmg` | Pack the built app into `Keepr.dmg` for a release |

@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Starting backups when they're due, twice a minute. Timed here rather than in the page, which
 //! is throttled once the window is closed.
 //!
@@ -16,8 +20,11 @@ use std::time::Duration;
 
 /// Why a due backup should wait, if it should.
 fn blocked(c: &crate::config::Conditions) -> Option<String> {
-    if c.min_battery > 0 {
+    if !c.on_battery || c.min_battery > 0 {
         if let Some(pct) = system::battery_percent() {
+            if !c.on_battery {
+                return Some("Waiting for power (on battery)".into());
+            }
             if pct < c.min_battery {
                 return Some(format!("Waiting for power (battery at {pct}%)"));
             }
@@ -49,7 +56,10 @@ pub fn tick(core: &Arc<Core>) {
                 let days = now.signed_duration_since(t).num_days();
                 if days >= settings.stale_days as i64 && ps.stale_warned.as_deref() != Some(&today) {
                     let when = t.format("%A %-d %B").to_string();
-                    (core.notify)(&format!("{} hasn't backed up since {when}", plan.name), ps.waiting.as_deref().unwrap_or("Open Keepr to see why."));
+                    (core.notify)(
+                        &format!("{} hasn't backed up since {when}", plan.name),
+                        ps.waiting.as_deref().unwrap_or("Open Keepr to see why."),
+                    );
                     core.state.lock().unwrap().plan(&plan.id).stale_warned = Some(today.clone());
                     core.save_state();
                 }

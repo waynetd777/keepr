@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // A backup plan: what to keep, what to leave out, which versions to keep, where, when, full and
 // incremental, and encryption. Changes to an existing plan are saved as they are made; a new
 // plan is saved with Create.
@@ -26,11 +30,12 @@ function blankPlan(dest: string, excludes: string[]): Plan {
     excludes,
     gitignore: true,
     skipCloudOnly: true,
+    skipMarked: true,
     maxFileSize: 0,
     encrypted: true,
     fullEvery: "weekly",
     checkEvery: "weekly",
-    conditions: { catchUp: true, minBattery: 20, noHotspot: true, limitMbps: 0 },
+    conditions: { catchUp: true, onBattery: true, minBattery: 20, noHotspot: true, limitMbps: 0 },
     before: "",
     beforeMustSucceed: false,
   };
@@ -45,11 +50,21 @@ function placeLabel(p: Place, home: string): { title: string; sub: string } {
   if (p.kind === "folder") {
     const name = p.path.split("/").filter(Boolean).pop() ?? p.path;
     const vol = p.path.startsWith("/Volumes/") ? p.path.split("/")[2] : null;
-    return { title: p.name?.trim() || name, sub: `${tilde(p.path, home)} · ${vol ? `on ${vol}` : isCloud(p.path) ? "cloud folder" : "folder on this Mac"}` };
+    return {
+      title: p.name?.trim() || name,
+      sub: `${tilde(p.path, home)} · ${vol ? `on ${vol}` : isCloud(p.path) ? "cloud folder" : "folder on this Mac"}`,
+    };
   }
-  if (p.kind === "s3") return { title: p.name?.trim() || (p.prefix ? p.prefix.split("/").pop()! : p.bucket), sub: `s3://${p.bucket}${p.prefix ? `/${p.prefix}` : ""} · S3 bucket` };
+  if (p.kind === "s3")
+    return {
+      title: p.name?.trim() || (p.prefix ? p.prefix.split("/").pop()! : p.bucket),
+      sub: `s3://${p.bucket}${p.prefix ? `/${p.prefix}` : ""} · S3 bucket`,
+    };
   const folder = p.folder.replace(/^\/+|\/+$/g, "");
-  return { title: p.name?.trim() || (folder ? folder.split("/").pop()! : p.share), sub: `smb://${p.server}/${p.share}${folder ? `/${folder}` : ""} · SMB share` };
+  return {
+    title: p.name?.trim() || (folder ? folder.split("/").pop()! : p.share),
+    sub: `smb://${p.server}/${p.share}${folder ? `/${folder}` : ""} · SMB share`,
+  };
 }
 
 /** A default name for each source that tells same-named folders apart: "Notes (Work)", "Notes (Home)". */
@@ -57,7 +72,9 @@ function defaultNames(sources: Place[], home: string): string[] {
   const base = sources.map((s) => placeLabel({ ...s, name: null }, home).title);
   return sources.map((s, i) => {
     if (base.filter((b) => b.toLowerCase() === base[i].toLowerCase()).length < 2) return base[i];
-    const parts = (s.kind === "folder" ? s.path : s.kind === "smb" ? `${s.server}/${s.share}/${s.folder}` : `${s.bucket}/${s.prefix}`).split("/").filter(Boolean);
+    const parts = (s.kind === "folder" ? s.path : s.kind === "smb" ? `${s.server}/${s.share}/${s.folder}` : `${s.bucket}/${s.prefix}`)
+      .split("/")
+      .filter(Boolean);
     return `${base[i]} (${parts[parts.length - 2] ?? (s.kind === "smb" ? s.server : "")})`;
   });
 }
@@ -90,7 +107,17 @@ function Ticks({ r }: { r: Retention }) {
   );
 }
 
-function KeepBox({ label, value, options, onChange }: { label: string; value: number; options: [number, string][]; onChange: (v: number) => void }) {
+function KeepBox({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  options: [number, string][];
+  onChange: (v: number) => void;
+}) {
   return (
     <label className="keep-box">
       <span className="tiny faint">{label}</span>
@@ -120,7 +147,11 @@ export function RecoverySheet({ plan, name, onClose }: { plan: string; name: str
       onClose={onClose}
       foot={
         <>
-          <button className="btn" disabled={!key} onClick={() => key && navigator.clipboard.writeText(key).then(() => toast("Recovery key copied."))}>
+          <button
+            className="btn"
+            disabled={!key}
+            onClick={() => key && navigator.clipboard.writeText(key).then(() => toast("Recovery key copied."))}
+          >
             Copy
           </button>
           <span className="grow" />
@@ -141,7 +172,19 @@ export function RecoverySheet({ plan, name, onClose }: { plan: string; name: str
     >
       <div className="sheet-body">
         {key ? (
-          <div className="mono" style={{ fontSize: 18, letterSpacing: "0.04em", padding: "18px 16px", background: "var(--sunk)", borderRadius: 10, textAlign: "center", userSelect: "text", wordBreak: "break-all" }}>
+          <div
+            className="mono"
+            style={{
+              fontSize: 18,
+              letterSpacing: "0.04em",
+              padding: "18px 16px",
+              background: "var(--sunk)",
+              borderRadius: 10,
+              textAlign: "center",
+              userSelect: "text",
+              wordBreak: "break-all",
+            }}
+          >
             {key}
           </div>
         ) : (
@@ -224,10 +267,17 @@ export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; 
   useEffect(() => {
     api.discoverServers().then(setServers);
   }, []);
-  const savedFrom = useSavedLogin(server, user, setUser, setPassword, (s) => {
-    setShares(s);
-    if (!share && s[0]) setShare(s[0]);
-  }, setMsg);
+  const savedFrom = useSavedLogin(
+    server,
+    user,
+    setUser,
+    setPassword,
+    (s) => {
+      setShares(s);
+      if (!share && s[0]) setShare(s[0]);
+    },
+    setMsg,
+  );
   const pw = password === SAVED_PASSWORD ? undefined : password;
   const place: Place = { kind: "smb", server: server.trim(), share: share.trim(), folder: folder.trim(), user: user.trim() };
   return (
@@ -282,8 +332,16 @@ export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; 
           </label>
           <label className="field">
             <span>Password</span>
-            <input className="input" type="password" value={password} onFocus={() => password === SAVED_PASSWORD && setPassword("")} onChange={(e) => setPassword(e.target.value)} />
-            {savedFrom && password === SAVED_PASSWORD && <span className="tiny faint">Saved {savedFrom === "finder" ? "by Finder" : "by Keepr"} in your Keychain</span>}
+            <input
+              className="input"
+              type="password"
+              value={password}
+              onFocus={() => password === SAVED_PASSWORD && setPassword("")}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            {savedFrom && password === SAVED_PASSWORD && (
+              <span className="tiny faint">Saved {savedFrom === "finder" ? "by Finder" : "by Keepr"} in your Keychain</span>
+            )}
           </label>
           <label className="field">
             <span>Share</span>
@@ -329,7 +387,21 @@ export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; 
 }
 
 /** Removing a source that has been backed up: keep its versions, or delete them (confirmed twice). */
-function RemoveSourceSheet({ name, where, dest, onClose, onKeep, onDelete }: { name: string; where: string; dest: string; onClose: () => void; onKeep: () => void; onDelete: () => void }) {
+function RemoveSourceSheet({
+  name,
+  where,
+  dest,
+  onClose,
+  onKeep,
+  onDelete,
+}: {
+  name: string;
+  where: string;
+  dest: string;
+  onClose: () => void;
+  onKeep: () => void;
+  onDelete: () => void;
+}) {
   return (
     <Sheet
       title={`Remove ${name} from this plan?`}
@@ -346,7 +418,10 @@ function RemoveSourceSheet({ name, where, dest, onClose, onKeep, onDelete }: { n
             className="btn danger"
             onClick={async () => {
               const { ask } = await import("@tauri-apps/plugin-dialog");
-              const sure = await ask(`Delete every backed-up version of ${where} from ${dest}? This can't be undone: those files can no longer be restored.`, { title: `Delete ${name}'s backed-up data`, kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" });
+              const sure = await ask(
+                `Delete every backed-up version of ${where} from ${dest}? This can't be undone: those files can no longer be restored.`,
+                { title: `Delete ${name}'s backed-up data`, kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" },
+              );
               if (sure) onDelete();
             }}
           >
@@ -457,7 +532,12 @@ export default function Plans() {
       toast(newPassword.length < 8 ? "Use a password of at least 8 characters." : "The two passwords aren't the same.");
       return;
     }
-    const saved = await act(() => api.savePlan({ ...plan, name: plan.name.trim() || placeLabel(plan.sources[0] ?? { kind: "folder", path: "Plan" }, home).title }, plan.encrypted ? newPassword : undefined));
+    const saved = await act(() =>
+      api.savePlan(
+        { ...plan, name: plan.name.trim() || placeLabel(plan.sources[0] ?? { kind: "folder", path: "Plan" }, home).title },
+        plan.encrypted ? newPassword : undefined,
+      ),
+    );
     if (saved) {
       await refresh();
       go({ name: "plans", plan: saved.id });
@@ -468,7 +548,17 @@ export default function Plans() {
 
   const addFolders = async (from?: string) => {
     const paths = await api.chooseFolders(from ? "Choose folders in the cloud folder to back up" : "Choose folders to back up", true, from);
-    if (paths.length) update((p) => ({ ...p, sources: [...p.sources, ...paths.filter((x) => !p.sources.some((s) => s.kind === "folder" && s.path === x)).map((path) => ({ kind: "folder" as const, path }))], name: p.name || (paths[0].split("/").pop() ?? "") }));
+    if (paths.length)
+      update((p) => ({
+        ...p,
+        sources: [
+          ...p.sources,
+          ...paths
+            .filter((x) => !p.sources.some((s) => s.kind === "folder" && s.path === x))
+            .map((path) => ({ kind: "folder" as const, path })),
+        ],
+        name: p.name || (paths[0].split("/").pop() ?? ""),
+      }));
   };
 
   const r = plan.retention;
@@ -495,7 +585,11 @@ export default function Plans() {
             <Icon name="pencil" size={16} />
           </label>
           <span className="small muted">
-            {!plan.id ? "A new plan. It's saved when you create it." : summary?.lastSuccess ? `Last backup ${ago(summary.lastSuccess)}. ${plan.enabled && summary.nextRun ? `Next ${next(summary.nextRun)}.` : ""} Changes are saved as you make them.` : "Changes are saved as you make them."}
+            {!plan.id
+              ? "A new plan. It's saved when you create it."
+              : summary?.lastSuccess
+                ? `Last backup ${ago(summary.lastSuccess)}. ${plan.enabled && summary.nextRun ? `Next ${next(summary.nextRun)}.` : ""} Changes are saved as you make them.`
+                : "Changes are saved as you make them."}
           </span>
         </div>
         {plan.id ? (
@@ -508,7 +602,10 @@ export default function Plans() {
                 onChange={async (v) => {
                   if (!v) {
                     const { ask } = await import("@tauri-apps/plugin-dialog");
-                    const sure = await ask(`Turn off ${plan.name}? It won't back up until you turn it on again. Its backups so far stay as they are.`, { title: "Turn off this plan", kind: "warning", okLabel: "Turn Off", cancelLabel: "Cancel" });
+                    const sure = await ask(
+                      `Turn off ${plan.name}? It won't back up until you turn it on again. Its backups so far stay as they are.`,
+                      { title: "Turn off this plan", kind: "warning", okLabel: "Turn Off", cancelLabel: "Cancel" },
+                    );
                     if (!sure) return;
                   }
                   update((p) => ({ ...p, enabled: v }));
@@ -526,7 +623,13 @@ export default function Plans() {
               <button
                 onClick={async () => {
                   const { ask } = await import("@tauri-apps/plugin-dialog");
-                  if (await ask(`Start a new backup for ${plan.name}? Use this only if the old one is gone for good: Keepr makes a new, empty backup at ${dest?.name}.`, { title: "Start a new backup", kind: "warning" })) act(() => api.startNewBackup(plan.id));
+                  if (
+                    await ask(
+                      `Start a new backup for ${plan.name}? Use this only if the old one is gone for good: Keepr makes a new, empty backup at ${dest?.name}.`,
+                      { title: "Start a new backup", kind: "warning" },
+                    )
+                  )
+                    act(() => api.startNewBackup(plan.id));
                 }}
               >
                 Start a new backup…
@@ -535,7 +638,12 @@ export default function Plans() {
                 style={{ color: "var(--red)" }}
                 onClick={async () => {
                   const { ask } = await import("@tauri-apps/plugin-dialog");
-                  if (await ask(`Delete the plan ${plan.name}? Its backup stays at ${dest?.name} and isn't deleted.`, { title: "Delete plan", kind: "warning" })) {
+                  if (
+                    await ask(`Delete the plan ${plan.name}? Its backup stays at ${dest?.name} and isn't deleted.`, {
+                      title: "Delete plan",
+                      kind: "warning",
+                    })
+                  ) {
                     await act(() => api.deletePlan(plan.id));
                     await refresh();
                     go({ name: "overview" });
@@ -574,14 +682,20 @@ export default function Plans() {
           <section className="card section">
             <div className="row" style={{ alignItems: "baseline" }}>
               <h2>What to keep</h2>
-              <span className="muted grow">{plan.sources.length === 0 ? "Nothing yet" : `${plan.sources.length} source${plan.sources.length === 1 ? "" : "s"}`}</span>
+              <span className="muted grow">
+                {plan.sources.length === 0 ? "Nothing yet" : `${plan.sources.length} source${plan.sources.length === 1 ? "" : "s"}`}
+              </span>
             </div>
             {plan.sources.map((s, i) => {
               const l = placeLabel(s, home);
               const fallback = defaultNames(plan.sources, home)[i];
               return (
                 <div key={i} className="source-row">
-                  <Icon name={s.kind === "smb" ? "server" : s.kind === "s3" ? "bucket" : isCloud(s.path) ? "cloud" : "folder"} size={20} style={{ color: "var(--accent)" }} />
+                  <Icon
+                    name={s.kind === "smb" ? "server" : s.kind === "s3" ? "bucket" : isCloud(s.path) ? "cloud" : "folder"}
+                    size={20}
+                    style={{ color: "var(--accent)" }}
+                  />
                   <div className="grow col" style={{ gap: 1 }}>
                     <input
                       aria-label="Source name"
@@ -589,12 +703,19 @@ export default function Plans() {
                       className="input source-name"
                       value={s.name ?? ""}
                       placeholder={fallback}
-                      onChange={(e) => update((p) => ({ ...p, sources: p.sources.map((x, j) => (j === i ? { ...x, name: e.target.value || null } : x)) }))}
+                      onChange={(e) =>
+                        update((p) => ({ ...p, sources: p.sources.map((x, j) => (j === i ? { ...x, name: e.target.value || null } : x)) }))
+                      }
                       style={{ border: 0, padding: 0, height: 20, fontWeight: 600, background: "transparent" }}
                     />
                     <span className="small muted ellipsis">{l.sub}</span>
                   </div>
-                  <button className="iconbtn" aria-label={`Remove ${l.title}`} title="Remove source" onClick={() => (created ? setRemoving(i) : update((p) => ({ ...p, sources: p.sources.filter((_, j) => j !== i) })))}>
+                  <button
+                    className="iconbtn"
+                    aria-label={`Remove ${l.title}`}
+                    title="Remove source"
+                    onClick={() => (created ? setRemoving(i) : update((p) => ({ ...p, sources: p.sources.filter((_, j) => j !== i) })))}
+                  >
                     <Icon name="close" size={14} stroke={2} />
                   </button>
                 </div>
@@ -635,7 +756,10 @@ export default function Plans() {
               {plan.excludes.map((x, i) => (
                 <span key={i} className="rule">
                   {x}
-                  <button aria-label={`Remove rule ${x}`} onClick={() => update((p) => ({ ...p, excludes: p.excludes.filter((_, j) => j !== i) }))}>
+                  <button
+                    aria-label={`Remove rule ${x}`}
+                    onClick={() => update((p) => ({ ...p, excludes: p.excludes.filter((_, j) => j !== i) }))}
+                  >
                     <Icon name="close" size={10} stroke={2.6} />
                   </button>
                 </span>
@@ -648,7 +772,14 @@ export default function Plans() {
                   setRuleText("");
                 }}
               >
-                <input className="input mono" style={{ height: 26, width: 150, borderStyle: "dashed", borderRadius: 13 }} placeholder="+ Rule, e.g. *.iso" value={ruleText} onChange={(e) => setRuleText(e.target.value)} title="A name (*.tmp), a folder name ending in / (build/), or a path starting ~/ or /" />
+                <input
+                  className="input mono"
+                  style={{ height: 26, width: 150, borderStyle: "dashed", borderRadius: 13 }}
+                  placeholder="+ Rule, e.g. *.iso"
+                  value={ruleText}
+                  onChange={(e) => setRuleText(e.target.value)}
+                  title="A name (*.tmp), a folder name ending in / (build/), or a path starting ~/ or /"
+                />
               </form>
             </div>
             <label className="check">
@@ -656,18 +787,37 @@ export default function Plans() {
               Follow .gitignore files in projects
             </label>
             <label className="check">
-              <input type="checkbox" checked={plan.skipCloudOnly} onChange={(e) => update((p) => ({ ...p, skipCloudOnly: e.target.checked }))} />
+              <input
+                type="checkbox"
+                checked={plan.skipCloudOnly}
+                onChange={(e) => update((p) => ({ ...p, skipCloudOnly: e.target.checked }))}
+              />
               Skip files that are only in the cloud (they aren't downloaded)
             </label>
             {plan.skipCloudOnly && plan.sources.some((s) => s.kind === "folder" && isCloud(s.path)) && (
               <span className="small muted" style={{ marginTop: -4, paddingLeft: 24, lineHeight: 1.5 }}>
-                This plan backs up a cloud folder: files that are only online there won't be backed up. Untick this to download and back them up too (they stay downloaded afterwards).
+                This plan backs up a cloud folder: files that are only online there won't be backed up. Untick this to download and back
+                them up too (they stay downloaded afterwards).
               </span>
             )}
             <label className="check">
-              <input type="checkbox" checked={plan.maxFileSize > 0} onChange={(e) => update((p) => ({ ...p, maxFileSize: e.target.checked ? 4 * 1024 ** 3 : 0 }))} />
+              <input type="checkbox" checked={plan.skipMarked} onChange={(e) => update((p) => ({ ...p, skipMarked: e.target.checked }))} />
+              Skip what apps mark as not needing a backup, as Time Machine does
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={plan.maxFileSize > 0}
+                onChange={(e) => update((p) => ({ ...p, maxFileSize: e.target.checked ? 4 * 1024 ** 3 : 0 }))}
+              />
               Skip files larger than
-              <select className="input" style={{ height: 24, fontSize: 12 }} disabled={plan.maxFileSize === 0} value={plan.maxFileSize || 4 * 1024 ** 3} onChange={(e) => update((p) => ({ ...p, maxFileSize: Number(e.target.value) }))}>
+              <select
+                className="input"
+                style={{ height: 24, fontSize: 12 }}
+                disabled={plan.maxFileSize === 0}
+                value={plan.maxFileSize || 4 * 1024 ** 3}
+                onChange={(e) => update((p) => ({ ...p, maxFileSize: Number(e.target.value) }))}
+              >
                 {[1, 2, 4, 10, 50].map((g) => (
                   <option key={g} value={g * 1024 ** 3}>
                     {g} GB
@@ -691,10 +841,52 @@ export default function Plans() {
               <span>{r.monthlyMonths === 0 ? "Forever" : `${r.monthlyMonths / 12} years`}</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
-              <KeepBox label="Every backup" value={r.allHours} onChange={(v) => setR("allHours", v)} options={[[0, "not kept"], [24, "for 24 hours"], [48, "for 2 days"], [168, "for a week"]]} />
-              <KeepBox label="One a day" value={r.dailyDays} onChange={(v) => setR("dailyDays", v)} options={[[0, "not kept"], [7, "for 7 days"], [14, "for 14 days"], [30, "for 30 days"], [90, "for 90 days"]]} />
-              <KeepBox label="One a week" value={r.weeklyWeeks} onChange={(v) => setR("weeklyWeeks", v)} options={[[0, "not kept"], [4, "for 4 weeks"], [12, "for 3 months"], [26, "for 6 months"], [52, "for 12 months"]]} />
-              <KeepBox label="One a month" value={r.monthlyMonths} onChange={(v) => setR("monthlyMonths", v)} options={[[12, "for a year"], [24, "for 2 years"], [60, "for 5 years"], [0, "forever"]]} />
+              <KeepBox
+                label="Every backup"
+                value={r.allHours}
+                onChange={(v) => setR("allHours", v)}
+                options={[
+                  [0, "not kept"],
+                  [24, "for 24 hours"],
+                  [48, "for 2 days"],
+                  [168, "for a week"],
+                ]}
+              />
+              <KeepBox
+                label="One a day"
+                value={r.dailyDays}
+                onChange={(v) => setR("dailyDays", v)}
+                options={[
+                  [0, "not kept"],
+                  [7, "for 7 days"],
+                  [14, "for 14 days"],
+                  [30, "for 30 days"],
+                  [90, "for 90 days"],
+                ]}
+              />
+              <KeepBox
+                label="One a week"
+                value={r.weeklyWeeks}
+                onChange={(v) => setR("weeklyWeeks", v)}
+                options={[
+                  [0, "not kept"],
+                  [4, "for 4 weeks"],
+                  [12, "for 3 months"],
+                  [26, "for 6 months"],
+                  [52, "for 12 months"],
+                ]}
+              />
+              <KeepBox
+                label="One a month"
+                value={r.monthlyMonths}
+                onChange={(v) => setR("monthlyMonths", v)}
+                options={[
+                  [12, "for a year"],
+                  [24, "for 2 years"],
+                  [60, "for 5 years"],
+                  [0, "forever"],
+                ]}
+              />
             </div>
             <label className="check muted">
               <input type="checkbox" checked={r.keepDeletedDays > 0} onChange={(e) => setR("keepDeletedDays", e.target.checked ? 90 : 0)} />
@@ -713,10 +905,20 @@ export default function Plans() {
             ) : (
               <div className="row" style={{ gap: 12 }}>
                 <div className="tile" style={{ width: 38, height: 38 }}>
-                  <DestIcon kind={ov?.destinations.find((d) => d.id === plan.destination)?.kind} label={ov?.destinations.find((d) => d.id === plan.destination)?.kindLabel} />
+                  <DestIcon
+                    kind={ov?.destinations.find((d) => d.id === plan.destination)?.kind}
+                    label={ov?.destinations.find((d) => d.id === plan.destination)?.kindLabel}
+                  />
                 </div>
                 <div className="grow col" style={{ gap: 2 }}>
-                  <select className="input" value={plan.destination} disabled={created} title={created ? "A backup stays where it was made. Make a new plan to keep one elsewhere." : undefined} onChange={(e) => update((p) => ({ ...p, destination: e.target.value }))} style={{ fontWeight: 600 }}>
+                  <select
+                    className="input"
+                    value={plan.destination}
+                    disabled={created}
+                    title={created ? "A backup stays where it was made. Make a new plan to keep one elsewhere." : undefined}
+                    onChange={(e) => update((p) => ({ ...p, destination: e.target.value }))}
+                    style={{ fontWeight: 600 }}
+                  >
                     {cfg.destinations.map((d) => (
                       <option key={d.id} value={d.id}>
                         {d.name}
@@ -724,7 +926,13 @@ export default function Plans() {
                     ))}
                   </select>
                   <span className="small muted ellipsis">
-                    {dest?.place.kind === "smb" ? `smb://${dest.place.server}/${dest.place.share}${dest.place.folder && dest.place.folder !== "/" ? dest.place.folder : ""}` : dest?.place.kind === "folder" ? tilde(dest.place.path, home) : dest?.place.kind === "s3" ? `s3://${dest.place.bucket}${dest.place.prefix ? `/${dest.place.prefix}` : ""}` : ""}
+                    {dest?.place.kind === "smb"
+                      ? `smb://${dest.place.server}/${dest.place.share}${dest.place.folder && dest.place.folder !== "/" ? dest.place.folder : ""}`
+                      : dest?.place.kind === "folder"
+                        ? tilde(dest.place.path, home)
+                        : dest?.place.kind === "s3"
+                          ? `s3://${dest.place.bucket}${dest.place.prefix ? `/${dest.place.prefix}` : ""}`
+                          : ""}
                     {plan.folder ? ` / ${plan.folder}` : ""}
                   </span>
                   {created && plan.name.trim() && folderFor && folderFor !== plan.folder && dest?.place.kind !== "s3" && (
@@ -758,11 +966,20 @@ export default function Plans() {
 
           <section className="card section">
             <h2>When</h2>
-            <Seg label="Schedule" value={plan.schedule.every} options={everyOptions} onChange={(v) => update((p) => ({ ...p, schedule: { ...p.schedule, every: v } }))} />
+            <Seg
+              label="Schedule"
+              value={plan.schedule.every}
+              options={everyOptions}
+              onChange={(v) => update((p) => ({ ...p, schedule: { ...p.schedule, every: v } }))}
+            />
             {(plan.schedule.every === "daily" || plan.schedule.every === "weekly") && (
               <div className="row small">
                 {plan.schedule.every === "weekly" && (
-                  <select className="input" value={plan.schedule.weekday} onChange={(e) => update((p) => ({ ...p, schedule: { ...p.schedule, weekday: Number(e.target.value) } }))}>
+                  <select
+                    className="input"
+                    value={plan.schedule.weekday}
+                    onChange={(e) => update((p) => ({ ...p, schedule: { ...p.schedule, weekday: Number(e.target.value) } }))}
+                  >
                     {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => (
                       <option key={d} value={i}>
                         {d}s
@@ -771,26 +988,64 @@ export default function Plans() {
                   </select>
                 )}
                 at
-                <input className="input mono" type="time" value={plan.schedule.at} onChange={(e) => update((p) => ({ ...p, schedule: { ...p.schedule, at: e.target.value } }))} />
+                <input
+                  className="input mono"
+                  type="time"
+                  value={plan.schedule.at}
+                  onChange={(e) => update((p) => ({ ...p, schedule: { ...p.schedule, at: e.target.value } }))}
+                />
               </div>
             )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "8px 16px" }}>
               <label className="check">
-                <input type="checkbox" checked={plan.conditions.catchUp} onChange={(e) => update((p) => ({ ...p, conditions: { ...p.conditions, catchUp: e.target.checked } }))} />
+                <input
+                  type="checkbox"
+                  checked={plan.conditions.catchUp}
+                  onChange={(e) => update((p) => ({ ...p, conditions: { ...p.conditions, catchUp: e.target.checked } }))}
+                />
                 Catch up after sleep or when the destination comes back
               </label>
+              <div style={{ display: "grid", gap: 8 }}>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={plan.conditions.onBattery}
+                    onChange={(e) => update((p) => ({ ...p, conditions: { ...p.conditions, onBattery: e.target.checked } }))}
+                  />
+                  Back up while on battery
+                </label>
+                <label className="check" style={{ paddingLeft: 22, opacity: plan.conditions.onBattery ? 1 : 0.5 }}>
+                  <input
+                    type="checkbox"
+                    disabled={!plan.conditions.onBattery}
+                    checked={plan.conditions.minBattery > 0}
+                    onChange={(e) => update((p) => ({ ...p, conditions: { ...p.conditions, minBattery: e.target.checked ? 20 : 0 } }))}
+                  />
+                  Wait when battery is below 20%
+                </label>
+              </div>
               <label className="check">
-                <input type="checkbox" checked={plan.conditions.minBattery > 0} onChange={(e) => update((p) => ({ ...p, conditions: { ...p.conditions, minBattery: e.target.checked ? 20 : 0 } }))} />
-                Wait when battery is below 20%
-              </label>
-              <label className="check">
-                <input type="checkbox" checked={plan.conditions.noHotspot} onChange={(e) => update((p) => ({ ...p, conditions: { ...p.conditions, noHotspot: e.target.checked } }))} />
+                <input
+                  type="checkbox"
+                  checked={plan.conditions.noHotspot}
+                  onChange={(e) => update((p) => ({ ...p, conditions: { ...p.conditions, noHotspot: e.target.checked } }))}
+                />
                 Not on a personal hotspot
               </label>
               <label className="check">
-                <input type="checkbox" checked={plan.conditions.limitMbps > 0} onChange={(e) => update((p) => ({ ...p, conditions: { ...p.conditions, limitMbps: e.target.checked ? 20 : 0 } }))} />
+                <input
+                  type="checkbox"
+                  checked={plan.conditions.limitMbps > 0}
+                  onChange={(e) => update((p) => ({ ...p, conditions: { ...p.conditions, limitMbps: e.target.checked ? 20 : 0 } }))}
+                />
                 Limit speed to
-                <select className="input" style={{ height: 24, fontSize: 12 }} disabled={plan.conditions.limitMbps === 0} value={plan.conditions.limitMbps || 20} onChange={(e) => update((p) => ({ ...p, conditions: { ...p.conditions, limitMbps: Number(e.target.value) } }))}>
+                <select
+                  className="input"
+                  style={{ height: 24, fontSize: 12 }}
+                  disabled={plan.conditions.limitMbps === 0}
+                  value={plan.conditions.limitMbps || 20}
+                  onChange={(e) => update((p) => ({ ...p, conditions: { ...p.conditions, limitMbps: Number(e.target.value) } }))}
+                >
                   {[5, 10, 20, 50, 100].map((v) => (
                     <option key={v} value={v}>
                       {v} MB/s
@@ -804,12 +1059,17 @@ export default function Plans() {
           <section className="card section" style={{ gap: 10 }}>
             <h2>Full and incremental</h2>
             <p className="muted" style={{ lineHeight: 1.5 }}>
-              The first backup copies everything. After that, each backup stores only what changed, but every snapshot restores as a complete copy.
+              The first backup copies everything. After that, each backup stores only what changed, but every snapshot restores as a
+              complete copy.
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
               <label className="field">
                 <span className="tiny faint">Re-read every file, not just changed ones</span>
-                <select className="input" value={plan.fullEvery} onChange={(e) => update((p) => ({ ...p, fullEvery: e.target.value as Often }))}>
+                <select
+                  className="input"
+                  value={plan.fullEvery}
+                  onChange={(e) => update((p) => ({ ...p, fullEvery: e.target.value as Often }))}
+                >
                   <option value="weekly">Every week</option>
                   <option value="monthly">Every month</option>
                   <option value="never">Never</option>
@@ -817,7 +1077,11 @@ export default function Plans() {
               </label>
               <label className="field">
                 <span className="tiny faint">Check stored data can be read back</span>
-                <select className="input" value={plan.checkEvery} onChange={(e) => update((p) => ({ ...p, checkEvery: e.target.value as Often }))}>
+                <select
+                  className="input"
+                  value={plan.checkEvery}
+                  onChange={(e) => update((p) => ({ ...p, checkEvery: e.target.value as Often }))}
+                >
                   <option value="weekly">A sample each week</option>
                   <option value="monthly">All of it each month</option>
                   <option value="never">Never</option>
@@ -829,7 +1093,8 @@ export default function Plans() {
           <section className="card section" style={{ gap: 10 }}>
             <h2>Before each backup</h2>
             <p className="muted" style={{ lineHeight: 1.5 }}>
-              A command to run first, for example one that downloads a device's own backups into a folder this plan backs up. Its output goes into the backup's log.
+              A command to run first, for example one that downloads a device's own backups into a folder this plan backs up. Its output
+              goes into the backup's log.
             </p>
             <input
               className="input mono"
@@ -841,7 +1106,11 @@ export default function Plans() {
             {(plan.before ?? "").trim() !== "" && (
               <label className="field">
                 <span className="tiny faint">If it fails</span>
-                <select className="input" value={plan.beforeMustSucceed ? "stop" : "carry"} onChange={(e) => update((p) => ({ ...p, beforeMustSucceed: e.target.value === "stop" }))}>
+                <select
+                  className="input"
+                  value={plan.beforeMustSucceed ? "stop" : "carry"}
+                  onChange={(e) => update((p) => ({ ...p, beforeMustSucceed: e.target.value === "stop" }))}
+                >
                   <option value="carry">Back up anyway, and mark the backup with a warning</option>
                   <option value="stop">Don't back up</option>
                 </select>
@@ -853,7 +1122,10 @@ export default function Plans() {
             <div className="row">
               <h2 className="grow">Encryption</h2>
               {created || plan.id ? (
-                <span className="row small" style={{ gap: 5, fontWeight: 600, color: plan.encrypted ? "var(--accent-text)" : "var(--ink3)" }}>
+                <span
+                  className="row small"
+                  style={{ gap: 5, fontWeight: 600, color: plan.encrypted ? "var(--accent-text)" : "var(--ink3)" }}
+                >
                   {plan.encrypted && <Icon name="lock" size={13} stroke={2.2} />}
                   {plan.encrypted ? "On" : "Off"}
                 </span>
@@ -862,7 +1134,9 @@ export default function Plans() {
               )}
             </div>
             <p className="muted" style={{ lineHeight: 1.5 }}>
-              {plan.encrypted ? `Files are encrypted on this Mac before they leave it. The password is in your Keychain; ${dest?.name ?? "the destination"} only ever sees scrambled data.` : "Files are stored as they are, compressed. Anyone who can open the destination can read them."}
+              {plan.encrypted
+                ? `Files are encrypted on this Mac before they leave it. The password is in your Keychain; ${dest?.name ?? "the destination"} only ever sees scrambled data.`
+                : "Files are stored as they are, compressed. Anyone who can open the destination can read them."}
             </p>
             {!plan.id && plan.encrypted && (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
@@ -894,7 +1168,11 @@ export default function Plans() {
               </div>
             )}
           </section>
-          {summary && summary.repoBytes > 0 && <span className="small faint">This backup takes {bytes(summary.repoBytes)} at {summary.destination}.</span>}
+          {summary && summary.repoBytes > 0 && (
+            <span className="small faint">
+              This backup takes {bytes(summary.repoBytes)} at {summary.destination}.
+            </span>
+          )}
         </div>
       </div>
 
@@ -919,8 +1197,18 @@ export default function Plans() {
           }}
         />
       )}
-      {sheet === "smb" && <SmbSourceSheet onClose={() => setSheet("")} onAdd={(s) => update((p) => ({ ...p, sources: [...p.sources, s], name: p.name || (s.kind === "smb" ? s.share : "") }))} />}
-      {sheet === "s3" && <S3SourceSheet onClose={() => setSheet("")} onAdd={(s) => update((p) => ({ ...p, sources: [...p.sources, s], name: p.name || (s.kind === "s3" ? s.bucket : "") }))} />}
+      {sheet === "smb" && (
+        <SmbSourceSheet
+          onClose={() => setSheet("")}
+          onAdd={(s) => update((p) => ({ ...p, sources: [...p.sources, s], name: p.name || (s.kind === "smb" ? s.share : "") }))}
+        />
+      )}
+      {sheet === "s3" && (
+        <S3SourceSheet
+          onClose={() => setSheet("")}
+          onAdd={(s) => update((p) => ({ ...p, sources: [...p.sources, s], name: p.name || (s.kind === "s3" ? s.bucket : "") }))}
+        />
+      )}
       {sheet === "password" && <PasswordSheet plan={plan} onClose={() => setSheet("")} />}
       {sheet === "recovery" && <RecoverySheet plan={plan.id} name={plan.name} onClose={() => setSheet("")} />}
     </div>

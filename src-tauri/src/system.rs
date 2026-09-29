@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! What the Mac is doing that decides whether a backup should wait: the battery, and whether the
 //! network is one macOS calls expensive (a personal hotspot).
 
@@ -63,8 +67,14 @@ mod tests {
 
     #[test]
     fn reads_pmset() {
-        assert_eq!(parse_pmset("Now drawing from 'AC Power'\n -InternalBattery-0 (id=1)\t100%; charged; 0:00 remaining present: true"), None);
-        assert_eq!(parse_pmset("Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1)\t18%; discharging; 1:02 remaining present: true"), Some(18));
+        assert_eq!(
+            parse_pmset("Now drawing from 'AC Power'\n -InternalBattery-0 (id=1)\t100%; charged; 0:00 remaining present: true"),
+            None
+        );
+        assert_eq!(
+            parse_pmset("Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1)\t18%; discharging; 1:02 remaining present: true"),
+            Some(18)
+        );
     }
 }
 

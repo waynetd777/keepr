@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Looking inside snapshots: a folder's contents, a file's versions across snapshots, and search.
 //!
 //! Paths are the files' original absolute paths ("/Users/wayne/Documents/Budget.numbers"). The
@@ -15,10 +19,8 @@ fn split<'a>(snap: &Snapshot, path: &'a str) -> Option<(String, Vec<&'a str>)> {
     let mut best: Option<&String> = None;
     for s in &snap.sources {
         let s_trim = s.trim_end_matches('/');
-        if path == s_trim || path.starts_with(&format!("{s_trim}/")) {
-            if best.is_none_or(|b| s.len() > b.len()) {
-                best = Some(s);
-            }
+        if (path == s_trim || path.starts_with(&format!("{s_trim}/"))) && best.is_none_or(|b| s.len() > b.len()) {
+            best = Some(s);
         }
     }
     let src = best?;
@@ -167,7 +169,16 @@ pub fn search_all(repo: &Repo, snaps: &[Snapshot], query: &str, limit: usize) ->
             for n in &repo.load_tree(&t)?.nodes {
                 let path = if base.is_empty() { n.name.clone() } else { format!("{base}/{}", n.name) };
                 if !base.is_empty() && n.name.to_lowercase().contains(&q) && !found.contains_key(&path) && found.len() < limit {
-                    found.insert(path.clone(), FoundAnywhere { path: path.clone(), node: n.clone(), snapshot: s.id, time: s.time.clone(), gone: Some(s.id) != newest });
+                    found.insert(
+                        path.clone(),
+                        FoundAnywhere {
+                            path: path.clone(),
+                            node: n.clone(),
+                            snapshot: s.id,
+                            time: s.time.clone(),
+                            gone: Some(s.id) != newest,
+                        },
+                    );
                 }
                 if let Some(sub) = n.subtree {
                     stack.push((sub, path));

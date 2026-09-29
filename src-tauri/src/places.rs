@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Turning a source or destination into a folder on this Mac: checking a drive is really
 //! connected, and connecting a share when it isn't.
 
@@ -188,8 +192,19 @@ pub fn kind_of(p: &Place) -> (&'static str, String) {
 
 /// A bucket's storage, `within` a plan's folder in it.
 pub fn s3_backend(s: &crate::config::S3, secret: Option<String>, within: &str) -> Result<keepr_engine::s3::S3, String> {
-    let secret = secret.filter(|x| !x.is_empty()).or_else(|| keychain::get(&keychain::s3_account(&s.access_key))).ok_or("The secret key for this bucket isn't in the Keychain. Enter it in the destination.")?;
-    let b = keepr_engine::s3::S3::new(keepr_engine::s3::Config { endpoint: s.endpoint.clone(), region: s.region.clone(), bucket: s.bucket.clone(), prefix: s.prefix.clone(), access_key: s.access_key.trim().to_string(), secret_key: secret }).map_err(|e| e.to_string())?;
+    let secret = secret
+        .filter(|x| !x.is_empty())
+        .or_else(|| keychain::get(&keychain::s3_account(&s.access_key)))
+        .ok_or("The secret key for this bucket isn't in the Keychain. Enter it in the destination.")?;
+    let b = keepr_engine::s3::S3::new(keepr_engine::s3::Config {
+        endpoint: s.endpoint.clone(),
+        region: s.region.clone(),
+        bucket: s.bucket.clone(),
+        prefix: s.prefix.clone(),
+        access_key: s.access_key.trim().to_string(),
+        secret_key: secret,
+    })
+    .map_err(|e| e.to_string())?;
     Ok(b.within(within))
 }
 
@@ -230,7 +245,17 @@ pub struct CloudFolder {
 
 fn provider_of(root: &str) -> &'static str {
     let r = root.to_lowercase();
-    if r.starts_with("onedrive") { "onedrive" } else if r.starts_with("googledrive") { "google" } else if r.starts_with("dropbox") { "dropbox" } else if r.starts_with("icloud") { "icloud" } else { "other" }
+    if r.starts_with("onedrive") {
+        "onedrive"
+    } else if r.starts_with("googledrive") {
+        "google"
+    } else if r.starts_with("dropbox") {
+        "dropbox"
+    } else if r.starts_with("icloud") {
+        "icloud"
+    } else {
+        "other"
+    }
 }
 
 /// The cloud services' sync folders on this Mac: everything in ~/Library/CloudStorage that macOS
@@ -245,7 +270,11 @@ pub fn cloud_folders() -> Vec<CloudFolder> {
         provider: "icloud".into(),
         root: icloud.to_string_lossy().to_string(),
         live: icloud.is_dir(),
-        why: if icloud.is_dir() { String::new() } else { "iCloud Drive is turned off (System Settings › Apple Account › iCloud)".into() },
+        why: if icloud.is_dir() {
+            String::new()
+        } else {
+            "iCloud Drive is turned off (System Settings › Apple Account › iCloud)".into()
+        },
         free: space(&icloud).map(|s| s.0),
     });
     if let Ok(rd) = std::fs::read_dir(Path::new(&home).join("Library/CloudStorage")) {
@@ -260,7 +289,14 @@ pub fn cloud_folders() -> Vec<CloudFolder> {
                     return None;
                 }
                 let (_, live) = cloud_root(&e.path().join("x"))?;
-                (live).then(|| CloudFolder { name: cloud_name(&dir), provider: provider.into(), root: e.path().to_string_lossy().to_string(), live, why: String::new(), free: space(&e.path()).map(|s| s.0) })
+                (live).then(|| CloudFolder {
+                    name: cloud_name(&dir),
+                    provider: provider.into(),
+                    root: e.path().to_string_lossy().to_string(),
+                    live,
+                    why: String::new(),
+                    free: space(&e.path()).map(|s| s.0),
+                })
             })
             .collect();
         found.sort_by(|a, b| a.name.cmp(&b.name));
@@ -276,8 +312,17 @@ pub fn smb_password(s: &Smb) -> Option<String> {
 pub fn describe(p: &Place) -> String {
     match p {
         Place::Folder { path, .. } => tilde(path),
-        Place::Smb(s) => format!("smb://{}/{}{}", s.server, s.share, if s.folder.trim_matches('/').is_empty() { String::new() } else { format!("/{}", s.folder.trim_matches('/')) }),
-        Place::S3(s) => format!("s3://{}{}", s.bucket.trim(), if s.prefix.trim_matches('/').is_empty() { String::new() } else { format!("/{}", s.prefix.trim_matches('/')) }),
+        Place::Smb(s) => format!(
+            "smb://{}/{}{}",
+            s.server,
+            s.share,
+            if s.folder.trim_matches('/').is_empty() { String::new() } else { format!("/{}", s.folder.trim_matches('/')) }
+        ),
+        Place::S3(s) => format!(
+            "s3://{}{}",
+            s.bucket.trim(),
+            if s.prefix.trim_matches('/').is_empty() { String::new() } else { format!("/{}", s.prefix.trim_matches('/')) }
+        ),
     }
 }
 
@@ -345,7 +390,8 @@ mod tests {
         assert_eq!(volume_of(Path::new("/Volumes/Archive SSD/Keepr")).as_deref(), Some("Archive SSD"));
         assert_eq!(volume_of(Path::new("/Users/w")), None);
         let m = Mounts::default();
-        let e = resolve(&Place::Folder { path: "/Volumes/Keepr Test Drive That Isn't There/x".into(), name: None }, &m, true, true).unwrap_err();
+        let e = resolve(&Place::Folder { path: "/Volumes/Keepr Test Drive That Isn't There/x".into(), name: None }, &m, true, true)
+            .unwrap_err();
         assert!(e.contains("isn't connected"), "{e}");
         let t = tempfile::tempdir().unwrap();
         assert!(resolve(&Place::Folder { path: t.path().to_string_lossy().into(), name: None }, &m, true, true).is_ok());
@@ -356,11 +402,17 @@ mod tests {
         assert_eq!(cloud_name("iCloudDrive-iCloudDrive (2024-03-26 10:00)"), "iCloud Drive");
         assert_eq!(cloud_name("GoogleDrive-me@gmail.com"), "Google Drive me@gmail.com");
         let home = std::env::var("HOME").unwrap();
-        assert_eq!(default_name(&Place::Folder { path: format!("{home}/Library/CloudStorage/OneDrive-Personal/Keepr"), name: None }), "OneDrive Personal: Keepr");
+        assert_eq!(
+            default_name(&Place::Folder { path: format!("{home}/Library/CloudStorage/OneDrive-Personal/Keepr"), name: None }),
+            "OneDrive Personal: Keepr"
+        );
         assert_eq!(default_name(&Place::Folder { path: "/Volumes/Archive SSD/Keepr".into(), name: None }), "Archive SSD: Keepr");
         assert_eq!(default_name(&Place::Folder { path: "/Volumes/Archive SSD".into(), name: None }), "Archive SSD");
         assert_eq!(unique_name("Keepr", &["keepr".into(), "Keepr 2".into()]), "Keepr 3");
-        assert_eq!(default_name(&Place::Folder { path: format!("{home}/Library/Mobile Documents/com~apple~CloudDocs/Keepr"), name: None }), "iCloud Drive: Keepr");
+        assert_eq!(
+            default_name(&Place::Folder { path: format!("{home}/Library/Mobile Documents/com~apple~CloudDocs/Keepr"), name: None }),
+            "iCloud Drive: Keepr"
+        );
         let found = cloud_folders();
         assert_eq!(found[0].provider, "icloud");
         assert!(found.iter().skip(1).all(|c| c.live && c.provider != "icloud"));
@@ -368,7 +420,8 @@ mod tests {
         let home = std::env::var("HOME").unwrap();
         let (root, _) = cloud_root(&Path::new(&home).join("Library/CloudStorage/Some-Cloud/Backups/Keepr")).unwrap();
         assert!(root.ends_with("Library/CloudStorage/Some-Cloud"));
-        let e = resolve(&Place::Folder { path: format!("{home}/Library/CloudStorage/Keepr-Test-Not-There/x"), name: None }, &m, true, true).unwrap_err();
+        let e = resolve(&Place::Folder { path: format!("{home}/Library/CloudStorage/Keepr-Test-Not-There/x"), name: None }, &m, true, true)
+            .unwrap_err();
         assert!(e.contains("sync folder"), "{e}");
     }
 }

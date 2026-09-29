@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! A still copy of the startup disk for the length of a backup: an APFS local snapshot, taken
 //! with `tmutil localsnapshot` and mounted read-only (hidden from Finder). Every file is read as
 //! it was at one moment, so a document saved halfway through a backup can't be half old, half new.

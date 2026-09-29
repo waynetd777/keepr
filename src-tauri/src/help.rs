@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! The Help menu's "Keepr Help" (⌘?), opening the Help Book tools/helpbook.py builds from docs/.
 //! The app's Info.plist names the book, so macOS also searches it from the Help menu's search
 //! field. A dev build has no bundle to hold the book, so there it opens the built pages in the browser.
@@ -37,7 +41,8 @@ fn set_shortcut() {
         }
         let key = NSString::from_str("?");
         let _: () = objc2::msg_send![item, setKeyEquivalent: &*key];
-        let _: () = objc2::msg_send![item, setKeyEquivalentModifierMask: 1usize << 20]; // NSEventModifierFlagCommand
+        let _: () = objc2::msg_send![item, setKeyEquivalentModifierMask: 1usize << 20];
+        // NSEventModifierFlagCommand
     }
 }
 
@@ -61,7 +66,8 @@ pub fn show(app: &AppHandle) {
     #[cfg(debug_assertions)]
     {
         use tauri_plugin_opener::OpenerExt;
-        let page = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gen/help").join(BOOK).join("Contents/Resources/en.lproj/index.html");
+        let page =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gen/help").join(BOOK).join("Contents/Resources/en.lproj/index.html");
         if page.exists() {
             let _ = app.opener().open_path(page.to_string_lossy(), None::<&str>);
         } else {

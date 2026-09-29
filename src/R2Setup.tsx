@@ -1,3 +1,7 @@
+// Copyright © 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.
+// See LICENSE for the full text.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Cloudflare R2 setup from a setup token the person makes in Cloudflare's dashboard. Keepr uses
 // it once to make (or, for a source, find) the bucket and a token for that bucket alone, then
 // deletes the setup token.
@@ -35,9 +39,16 @@ export function R2Setup({ mode, onMade }: { mode: "destination" | "source"; onMa
     });
   return (
     <div className="card col" style={{ padding: 14, gap: 10, background: "var(--sunk)" }}>
-      <span style={{ fontWeight: 600 }}>{mode === "source" ? "Let Keepr set up read-only access" : "New to this? Let Keepr set it up"}</span>
+      <span style={{ fontWeight: 600 }}>
+        {mode === "source" ? "Let Keepr set up read-only access" : "New to this? Let Keepr set it up"}
+      </span>
       <span className="small muted" style={{ lineHeight: 1.5 }}>
-        In Cloudflare, make a custom API token with two permissions: <b>Account › Workers R2 Storage › Edit</b> and <b>User › API Tokens › Edit</b>. Paste it here. Keepr uses it once to {mode === "source" ? "make a token that may only read the bucket you choose" : "make a private bucket and a token that works only in it"}, then deletes it.
+        In Cloudflare, make a custom API token with two permissions: <b>Account › Workers R2 Storage › Edit</b> and{" "}
+        <b>User › API Tokens › Edit</b>. Paste it here. Keepr uses it once to{" "}
+        {mode === "source"
+          ? "make a token that may only read the bucket you choose"
+          : "make a private bucket and a token that works only in it"}
+        , then deletes it.
       </span>
       <div className="row" style={{ gap: 8 }}>
         <button className="btn small" onClick={() => openUrl("https://dash.cloudflare.com/profile/api-tokens")}>
@@ -51,7 +62,12 @@ export function R2Setup({ mode, onMade }: { mode: "destination" | "source"; onMa
         </label>
         <label className="field">
           <span>Account ID</span>
-          <input className="input mono" placeholder="Only if you have several" value={account} onChange={(e) => setAccount(e.target.value)} />
+          <input
+            className="input mono"
+            placeholder="Only if you have several"
+            value={account}
+            onChange={(e) => setAccount(e.target.value)}
+          />
         </label>
         {mode === "destination" && (
           <label className="field" style={{ gridColumn: "span 2" }}>
@@ -66,7 +82,11 @@ export function R2Setup({ mode, onMade }: { mode: "destination" | "source"; onMa
             Set up
           </button>
         ) : (
-          <button className="btn primary" disabled={!token.trim() || !!busy} onClick={() => run("Asking for the buckets…", async () => setBuckets(await api.r2Buckets(token, account)))}>
+          <button
+            className="btn primary"
+            disabled={!token.trim() || !!busy}
+            onClick={() => run("Asking for the buckets…", async () => setBuckets(await api.r2Buckets(token, account)))}
+          >
             List my buckets
           </button>
         )}
@@ -74,7 +94,9 @@ export function R2Setup({ mode, onMade }: { mode: "destination" | "source"; onMa
       </div>
       {buckets && (
         <div className="col" style={{ gap: 6 }}>
-          <span className="small muted">{buckets.length ? "Choose the bucket to back up:" : "There are no R2 buckets in this account."}</span>
+          <span className="small muted">
+            {buckets.length ? "Choose the bucket to back up:" : "There are no R2 buckets in this account."}
+          </span>
           <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
             {buckets.map((b) => (
               <button key={b} className="btn small" disabled={!!busy} onClick={() => made(b)}>
@@ -85,7 +107,11 @@ export function R2Setup({ mode, onMade }: { mode: "destination" | "source"; onMa
           </div>
         </div>
       )}
-      {error && <span className="small" style={{ color: "var(--red)" }}>{error}</span>}
+      {error && (
+        <span className="small" style={{ color: "var(--red)" }}>
+          {error}
+        </span>
+      )}
     </div>
   );
 }
