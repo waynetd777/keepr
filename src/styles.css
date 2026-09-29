@@ -884,6 +884,26 @@ input[type="checkbox"] {
   flex-shrink: 0;
   border-bottom: 1px solid var(--line);
 }
+.sorthead {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: default;
+}
+.sorthead:hover,
+.sorthead.on {
+  color: var(--ink);
+}
+.sorthead span {
+  font-size: 8px;
+}
 .file-row {
   height: 32px;
 }

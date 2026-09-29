@@ -154,6 +154,38 @@ function CompareSheet({ plan, snapshot, path, onClose }: { plan: string; snapsho
   );
 }
 
+type SortBy = "name" | "modified" | "size" | "versions";
+
+// A column heading that sorts the list: click to sort by it, again to reverse.
+function SortHead({
+  by,
+  sort,
+  setSort,
+  className,
+  style,
+  children,
+}: {
+  by: SortBy;
+  sort: { by: SortBy; up: boolean };
+  setSort: (s: { by: SortBy; up: boolean }) => void;
+  className?: string;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+}) {
+  const on = sort.by === by;
+  return (
+    <button
+      className={`sorthead${on ? " on" : ""}${className ? ` ${className}` : ""}`}
+      style={style}
+      aria-sort={on ? (sort.up ? "ascending" : "descending") : "none"}
+      onClick={() => setSort({ by, up: on ? !sort.up : true })}
+    >
+      {children}
+      {on && <span aria-hidden="true">{sort.up ? "▲" : "▼"}</span>}
+    </button>
+  );
+}
+
 export default function Restore() {
   const { ov, screen, home, go } = useApp();
   const act = useAct();
@@ -179,6 +211,8 @@ export default function Restore() {
   const [query, setQuery] = useState(screen.name === "restore" ? (screen.query ?? focus?.path.split("/").pop() ?? "") : "");
   const [hits, setHits] = useState<Entry[] | null>(null);
   const [comparing, setComparing] = useState<{ snapshot: string; path: string } | null>(null);
+  // Folders stay first, as in Finder; within them, by the column clicked, again to reverse.
+  const [sort, setSort] = useState<{ by: SortBy; up: boolean }>({ by: "name", up: true });
 
   useEffect(() => {
     if (!planId) return;
@@ -297,15 +331,25 @@ export default function Restore() {
   // Keyed by place in the tree as well as path: a backup made while one source was inside another
   // holds the same path twice.
   const rows: { e: Entry; depth: number; key: string }[] = [];
+  const sorted = (list: Entry[]) => {
+    const dir = sort.up ? 1 : -1;
+    const value = (e: Entry) => (sort.by === "modified" ? e.mtime : sort.by === "size" ? e.size : sort.by === "versions" ? e.versions : 0);
+    return [...list].sort(
+      (a, b) =>
+        Number(a.kind !== "dir") - Number(b.kind !== "dir") ||
+        dir * (value(a) - value(b)) ||
+        dir * a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }),
+    );
+  };
   const walk = (path: string, depth: number, under: string) => {
-    (kids[path] ?? []).forEach((e, i) => {
+    sorted(kids[path] ?? []).forEach((e, i) => {
       // By position: a source's name is its whole path, so names joined up can collide.
       const key = `${under}.${i}`;
       rows.push({ e, depth, key });
       if (e.kind === "dir" && open.has(e.path) && e.tag !== "deleted") walk(e.path, depth + 1, key);
     });
   };
-  if (hits) hits.forEach((e, i) => rows.push({ e, depth: 0, key: `${i}` }));
+  if (hits) sorted(hits).forEach((e, i) => rows.push({ e, depth: 0, key: `${i}` }));
   else walk("", 0, "");
 
   const items = [...checked.values()];
@@ -436,12 +480,18 @@ export default function Restore() {
             <div className="grow" style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
               <div className="files-head caps" style={{ letterSpacing: "0.04em" }}>
                 <span style={{ width: 14 }} />
-                <span className="grow" style={{ paddingLeft: 40 }}>
+                <SortHead by="name" sort={sort} setSort={setSort} className="grow" style={{ paddingLeft: 40 }}>
                   {hits ? `${hits.length} found` : "Name"}
-                </span>
-                <span style={{ width: 140 }}>Modified</span>
-                <span style={{ width: 76, textAlign: "right" }}>Size</span>
-                <span style={{ width: 70, textAlign: "right" }}>Versions</span>
+                </SortHead>
+                <SortHead by="modified" sort={sort} setSort={setSort} style={{ width: 140 }}>
+                  Modified
+                </SortHead>
+                <SortHead by="size" sort={sort} setSort={setSort} style={{ width: 76, justifyContent: "flex-end" }}>
+                  Size
+                </SortHead>
+                <SortHead by="versions" sort={sort} setSort={setSort} style={{ width: 70, justifyContent: "flex-end" }}>
+                  Versions
+                </SortHead>
                 <span style={{ width: 76 }} />
               </div>
               <div style={{ flexGrow: 1, overflow: "auto" }}>
