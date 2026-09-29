@@ -43,12 +43,14 @@ The app's binary (`Keepr.app/Contents/MacOS/Keepr`) also runs without a window:
 
 | Flag | What it does |
 |---|---|
-| `--back-up <plan id>…` | Back up those plans, print the results; exit 1 if any didn't complete |
-| `--verify-restore <plan id> <folder>` | Restore the latest snapshot into the folder and compare it byte for byte with the sources; exit 3 on a mismatch |
-| `--rename-plan-folder <plan id>` | Rename a plan's backup folder to match its name (with the app not running) |
-| `--list-destination <destination id>` | List what's in an S3 destination |
+| `--back-up <plan id>…` | Back up those plans (incremental, straight away, whatever the plan's wait conditions), print each result; exit 1 if any didn't complete (one with warnings counts as complete) |
+| `--verify-restore <plan id> <folder>` | Restore the latest snapshot into the folder and compare it byte for byte with the sources, counting a file that changed since the backup as expected; exit 3 on a mismatch. Saves nothing to Keepr's settings or history, so it can run beside the app |
+| `--rename-plan-folder <plan id>` | Rename a plan's backup folder to match its name, and print the new name |
+| `--list-destination <destination id>` | List every object in an S3, B2 or R2 destination's bucket, with the count and total size |
 | `--copy-plan-password <from id> <to id>` | Copy one plan's password in the Keychain to another |
-| `--remove-path <plan id> <path>` | Take a path out of every snapshot |
+| `--remove-path <plan id> <path>` | Take a file or folder, by its original full path, out of every snapshot and free the space only it used; a source's own path removes that whole source. Prints the result |
+
+Each exits 1 on an error, with the reason on stderr. An unknown flag, or the right flag with the wrong number of arguments, opens the app instead.
 
 A plan's id and a destination's id are their `id` fields in `~/Library/Application Support/Keepr/config.json`; the app doesn't show them. To list the plans:
 
@@ -58,7 +60,7 @@ python3 -c "import json,os; [print(p['id'], p['name']) for p in json.load(open(o
 
 Quit Keepr before a command that changes a backup (`--back-up`, `--remove-path`, `--rename-plan-folder`): the app and the command would otherwise both work on the same backup and the same history.
 
-`KEEPR_NO_SCHEDULE` stops the scheduler and `KEEPR_NO_STILL` the still copies; `KEEPR_SCENE` is the screenshot mode.
+`KEEPR_DATA` points Keepr at another settings folder instead of `~/Library/Application Support/Keepr`, for the app and the commands alike. `KEEPR_NO_SCHEDULE` stops the scheduler and `KEEPR_NO_STILL` the still copies; `KEEPR_SCENE` is the screenshot mode.
 
 ## Signing and permissions
 
