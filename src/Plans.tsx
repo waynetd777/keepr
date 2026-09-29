@@ -838,7 +838,8 @@ export default function Plans() {
               <span>1 day</span>
               <span>1 month</span>
               <span>1 year</span>
-              <span>{r.monthlyMonths === 0 ? "Forever" : `${r.monthlyMonths / 12} years`}</span>
+              {/* A year is the mark before this one, so only a longer history gets a label here. */}
+              <span>{r.monthlyMonths === 0 ? "Forever" : r.monthlyMonths > 12 ? `${r.monthlyMonths / 12} years` : ""}</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
               <KeepBox
@@ -860,6 +861,7 @@ export default function Plans() {
                   [0, "not kept"],
                   [7, "for 7 days"],
                   [14, "for 14 days"],
+                  [21, "for 21 days"],
                   [30, "for 30 days"],
                   [90, "for 90 days"],
                 ]}
