@@ -294,15 +294,18 @@ export default function Restore() {
     setChecked(m);
   };
 
-  const rows: { e: Entry; depth: number }[] = [];
-  const walk = (path: string, depth: number) => {
+  // Keyed by place in the tree as well as path: a backup made while one source was inside another
+  // holds the same path twice.
+  const rows: { e: Entry; depth: number; key: string }[] = [];
+  const walk = (path: string, depth: number, under: string) => {
     for (const e of kids[path] ?? []) {
-      rows.push({ e, depth });
-      if (e.kind === "dir" && open.has(e.path) && e.tag !== "deleted") walk(e.path, depth + 1);
+      const key = `${under}/${e.name}${e.tag}`;
+      rows.push({ e, depth, key });
+      if (e.kind === "dir" && open.has(e.path) && e.tag !== "deleted") walk(e.path, depth + 1, key);
     }
   };
-  if (hits) hits.forEach((e) => rows.push({ e, depth: 0 }));
-  else walk("", 0);
+  if (hits) hits.forEach((e, i) => rows.push({ e, depth: 0, key: `${i}` }));
+  else walk("", 0, "");
 
   const items = [...checked.values()];
   const total = items.reduce((n, e) => n + e.size, 0);
@@ -441,13 +444,10 @@ export default function Restore() {
                 <span style={{ width: 76 }} />
               </div>
               <div style={{ flexGrow: 1, overflow: "auto" }}>
-                {rows.map(({ e, depth }) => {
+                {rows.map(({ e, depth, key }) => {
                   const name = e.name.startsWith("/") ? tilde(e.name, home) : hits ? tilde(e.path, home) : e.name;
                   return (
-                    <div
-                      key={e.path + e.tag}
-                      className={`file-row${picked?.path === e.path ? " sel" : ""}${e.tag === "deleted" ? " gone" : ""}`}
-                    >
+                    <div key={key} className={`file-row${picked?.path === e.path ? " sel" : ""}${e.tag === "deleted" ? " gone" : ""}`}>
                       <input
                         type="checkbox"
                         aria-label={`Choose ${e.name}`}

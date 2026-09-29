@@ -304,6 +304,9 @@ fn save_plan(core: State<Core_>, mut plan: Plan, password: Option<String>) -> Re
     if plan.sources.is_empty() {
         return Err("Add at least one folder to back up.".into());
     }
+    if let Some(why) = config::overlapping_sources(&plan.sources) {
+        return Err(why);
+    }
     if core.config.lock().unwrap().destination(&plan.destination).is_none() {
         return Err("Choose where to keep the backup.".into());
     }

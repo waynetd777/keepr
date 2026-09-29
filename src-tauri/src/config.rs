@@ -401,9 +401,41 @@ pub fn folder_name(name: &str, id: &str) -> String {
     format!("{} {}", if s.is_empty() { "Plan" } else { s }, &id[..6])
 }
 
+/// Why a plan's folders can't all be backed up side by side: one listed twice, or one inside
+/// another, which would put the same files in the backup twice under the same names.
+pub fn overlapping_sources(sources: &[Place]) -> Option<String> {
+    let folders: Vec<&str> =
+        sources.iter().filter_map(|s| if let Place::Folder { path, .. } = s { Some(path.as_str()) } else { None }).collect();
+    for (i, a) in folders.iter().enumerate() {
+        for b in &folders[i + 1..] {
+            let (pa, pb) = (std::path::Path::new(a), std::path::Path::new(b));
+            if pa == pb {
+                return Some(format!("{a} is in the plan twice. Remove one of them."));
+            }
+            let (inner, outer) = if pa.starts_with(pb) {
+                (a, b)
+            } else if pb.starts_with(pa) {
+                (b, a)
+            } else {
+                continue;
+            };
+            return Some(format!("{inner} is inside {outer}, which the plan already backs up. Remove one of them."));
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spots_overlapping_sources() {
+        let f = |p: &str| Place::Folder { path: p.into(), name: None };
+        assert_eq!(overlapping_sources(&[f("/a/b"), f("/a/bc")]), None);
+        assert!(overlapping_sources(&[f("/a/b/c"), f("/a/b")]).unwrap().starts_with("/a/b/c is inside /a/b"));
+        assert!(overlapping_sources(&[f("/a"), f("/a/")]).unwrap().contains("twice"));
+    }
 
     #[test]
     fn reads_what_it_writes_and_survives_junk() {
