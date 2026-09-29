@@ -127,6 +127,11 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
             : `Watching ${watching} plan${watching === 1 ? "" : "s"}`}
         </span>
       )}
+      {running && (
+        <div className="progress" style={{ width: 90, height: 6 }} aria-label="Progress">
+          <div className="solid" style={{ width: `${ov?.job ? pct(ov.job) : 0}%`, transition: "width 0.4s" }} />
+        </div>
+      )}
       {screen.name === "destinations" && (
         <button
           className="btn"
@@ -144,12 +149,7 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
         </button>
       )}
       {running ? (
-        <>
-          <div className="progress" style={{ width: 90, height: 6 }} aria-label="Progress">
-            <div className="solid" style={{ width: `${ov?.job ? pct(ov.job) : 0}%`, transition: "width 0.4s" }} />
-          </div>
-          <StopButton job={ov!.job!} />
-        </>
+        <StopButton job={ov!.job!} />
       ) : (
         (ov?.plans.length ?? 0) > 0 && (
           <button className="btn primary" onClick={() => api.backUpAll()} title="Back up every plan now ⌘B">
