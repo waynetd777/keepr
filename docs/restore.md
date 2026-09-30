@@ -17,6 +17,13 @@ The tabs along the top are your plans, each with the number of snapshots it has.
 
 The list shows each file's modified time and size, how many versions of it are kept, and whether it's **New**, **Changed** or **Deleted** in this snapshot. Click the arrow beside a folder, or double-click it, to open it.
 
+At the latest snapshot, the list is also checked against your Mac as it is now, so you don't have to wait for the next backup to see what has changed since:
+
+- **Not on Mac** — in the backup, but no longer on your Mac.
+- **Not backed up** — on your Mac, but not in the backup yet. Files the plan leaves out on purpose (its [What to leave out](plans.md#what-to-leave-out) rules, and the like) never show this. One that's in no snapshot can't be chosen, as there's nothing to restore.
+
+The list updates by itself when a backup, restore or removal of the plan finishes.
+
 ## A file's versions
 
 Click a file to see every version the backup keeps of it, newest first, each with its date and size. The one in the snapshot you're looking at is marked **In this snapshot**.
@@ -36,7 +43,7 @@ Tick what you want back: files, folders, or a mix. A ticked folder comes back wi
 - **Restore to** — **Original location**, where each item was, making any folders that no longer exist; or **Another folder…**, where items keep their folders inside the folder you choose.
 - **If a file is already there** — **Keep both (add "restored")**, which names the restored copy "Budget (restored).numbers"; **Replace it**; or **Skip it**.
 
-Then click **Restore**. Each file is written under a temporary name and only takes its real name once it's complete, so a restore that's stopped never leaves half a file. Files get back their modified times and permissions. A deleted file comes from the last snapshot that had it.
+Then click **Restore**. Each file is written under a temporary name and only takes its real name once it's complete, so a restore that's stopped never leaves half a file. Files get back their modified times and permissions. A deleted file comes from the last snapshot that had it. After a restore to the original location, Keepr backs the plan up, so what you restored is in the latest snapshot and stops showing as deleted.
 
 A restore runs like a backup, one job at a time, and shows in [Activity](day-to-day.md#activity). Files backed up from an S3 bucket can only be restored to a folder on the Mac, never back into the bucket.
 
@@ -50,4 +57,4 @@ A plan whose destination can't be reached (an unplugged drive, say) isn't search
 
 ## Removing something from a backup
 
-**Remove from backup…**, under a file's or folder's versions, takes it out of every snapshot, to free the space or because it should never have been backed up. Keepr asks twice first; it can't be undone. To stop it being backed up again, add a rule for it in the plan's [What to leave out](plans.md#what-to-leave-out).
+**Remove from backup…**, under a file's or folder's versions (a deleted one's too), takes it out of every snapshot, to free the space or because it should never have been backed up. Keepr asks twice first; it can't be undone. To stop it being backed up again, add a rule for it in the plan's [What to leave out](plans.md#what-to-leave-out).

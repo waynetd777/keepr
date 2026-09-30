@@ -6,7 +6,7 @@ A new plan starts on: hourly, every backup kept for a day, then one a day for 30
 
 <a href="images/index.md#backup-plans"><picture><source media="(prefers-color-scheme: dark)" srcset="images/plan-dark.png"><img alt="A plan's settings: its sources, what to leave out, the versions to keep, where and when it backs up" src="images/plan-light.png"></picture></a>
 
-[What to keep](#what-to-keep) · [What to leave out](#what-to-leave-out) · [Versions to keep](#versions-to-keep) · [Where](#where) · [When](#when) · [Full and incremental](#full-and-incremental) · [Before each backup](#before-each-backup) · [Encryption](#encryption) · [Turning a plan off, and deleting it](#turning-a-plan-off-and-deleting-it)
+[What to keep](#what-to-keep) · [What to leave out](#what-to-leave-out) · [Versions to keep](#versions-to-keep) · [Where](#where) · [When](#when) · [Full and incremental](#full-and-incremental) · [Before each backup](#before-each-backup) · [After each backup](#after-each-backup) · [Encryption](#encryption) · [Turning a plan off, and deleting it](#turning-a-plan-off-and-deleting-it)
 
 ## What to keep
 
@@ -75,6 +75,25 @@ The first backup copies everything. After that, each backup looks only at what c
 ## Before each backup
 
 A command to run before each backup, for example one that exports a database into a folder the plan backs up. It runs in your login shell, its output goes into the backup's log in [Activity](day-to-day.md#activity), and it's stopped after 15 minutes. **If it fails**, Keepr either backs up anyway and marks the backup with a warning, or doesn't back up.
+
+## After each backup
+
+A command to run when each backup ends, however it went, for example one that tells a home server whether the backup worked. It runs in your login shell, its output goes into the backup's log, and it's stopped after 2 minutes. Whatever it does, the backup's own result stays as it was.
+
+It's told how the backup went in environment variables:
+
+| Variable | What it holds |
+|---|---|
+| `KEEPR_PLAN`, `KEEPR_PLAN_ID` | The plan's name and its id |
+| `KEEPR_KIND` | `backup` or `full` |
+| `KEEPR_RESULT` | `ok`, `warning`, `failed`, `waiting` (its destination wasn't there) or `cancelled` |
+| `KEEPR_MESSAGE` | What the backup's result says, such as "3 changed · 15.8 KB sent" or why it failed |
+| `KEEPR_STARTED`, `KEEPR_FINISHED` | When it started and finished |
+| `KEEPR_LAST_SUCCESS` | When the plan last backed up successfully, or empty |
+| `KEEPR_FILES`, `KEEPR_CHANGED`, `KEEPR_ADDED_BYTES` | How many files it looked at and how many had changed, and how much it added |
+| `KEEPR_PLAN_IDS` | Every plan that's on, comma-separated, so whatever is listening can forget plans that are gone |
+
+Times are like `2026-09-30T19:13:12+02:00`. While a plan keeps waiting for the same missing destination, the command runs only the first time.
 
 ## Encryption
 

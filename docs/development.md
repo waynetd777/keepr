@@ -10,7 +10,7 @@ Tauri 2, with a React and TypeScript frontend (Vite) and a Rust backend. The bac
 | `make check` | The engine's and the app's Rust tests, the TypeScript check, then `make lint` |
 | `make lint` | rustfmt, Clippy (warnings are errors), Prettier and ESLint, and a licence header on every source file; checks only |
 | `make fmt` | Reformat the Rust and TypeScript, and add the licence header where it's missing |
-| `make app` | Bump the version (1.0.0 → 1.0.1) and build the .app, signed with the identity in `signing.local` if there is one |
+| `make app` | Bump the version (1.0.0 → 1.0.1) once the current one has a release, and build the .app, signed with the identity in `signing.local` if there is one |
 | `make install-app` | Build it and replace the copy in /Applications |
 | `make dmg` | Pack the built app into `Keepr.dmg` for a release |
 | `make help` | Build the Help Book from `docs/` |
@@ -22,7 +22,7 @@ Tauri 2, with a React and TypeScript frontend (Vite) and a Rust backend. The bac
 - On macOS 27, release builds link with Rust's lld against the macOS 26 SDK, because macOS 27's linker sometimes breaks proc-macro builds ("can't find crate"). The Makefile explains.
 - Tests never take APFS snapshots of the Mac.
 
-Every release build gets the next patch version (`tools/bump_version.py`, which keeps `tauri.conf.json`, `package.json`, `Cargo.toml` and the lock files in step) and one build number, stamped on the app, its Help Book and the binary; Settings shows both. For a minor or major step, give the version: `make app VERSION=1.1.0`. Commit the bump with the release.
+A release build moves to the next patch version once the current one has been released, that is, once `v<version>` is tagged on GitHub (`tools/bump_version.py`, which keeps `tauri.conf.json`, `package.json`, `Cargo.toml` and the lock files in step), so local builds between releases share a version. Every build gets its own build number, stamped on the app, its Help Book and the binary; Settings shows both. For a minor or major step, give the version: `make app VERSION=1.1.0`. Commit the bump with the release.
 
 To publish one: `make app`, `make dmg`, commit and push, then `gh release create v<version> src-tauri/target/release/bundle/dmg/Keepr.dmg`. The README's download link points at the latest release's `Keepr.dmg`, so keep that name. `tools/dmg/make_dmg.py` draws the window's background from `tools/dmg/background.html` (rendered by WebKit) and has Finder lay out the icons, so the first run asks to let the terminal control Finder.
 
@@ -78,7 +78,7 @@ Works only in the app from `make install-app`, not under `make dev`. It register
 
 ## Help
 
-The app's Help menu (**Keepr Help**, ⌘?) opens an Apple Help Book built from the user guides in `docs/` (all but this one). `tools/helpbook.py` converts them with pandoc, a page per `##` section, styled like the app, with search indexes from `hiutil`. The release build runs it and copies the book into the app's Resources; `src-tauri/Info.plist` registers it. The book carries the app's version, which every release build bumps, because macOS keeps showing a cached book until its version changes. `make install-app` also clears the Help cache (`~/Library/Caches/com.apple.helpd/`) and re-registers the app, since the old book cached at the same path otherwise makes Help show "The selected content is currently unavailable". Under `make dev`, Help opens the pages in the browser instead.
+The app's Help menu (**Keepr Help**, ⌘?) opens an Apple Help Book built from the user guides in `docs/` (all but this one). `tools/helpbook.py` converts them with pandoc, a page per `##` section, styled like the app, with search indexes from `hiutil`. The release build runs it and copies the book into the app's Resources; `src-tauri/Info.plist` registers it. The book carries the app's version, which changes with each release, because macOS keeps showing a cached book until its version changes. `make install-app` also clears the Help cache (`~/Library/Caches/com.apple.helpd/`) and re-registers the app, since the old book cached at the same path otherwise makes Help show "The selected content is currently unavailable". Under `make dev`, Help opens the pages in the browser instead.
 
 ## Writing the docs
 
