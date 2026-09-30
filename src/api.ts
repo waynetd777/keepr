@@ -42,6 +42,7 @@ export type Plan = {
   conditions: { catchUp: boolean; onBattery: boolean; minBattery: number; noHotspot: boolean; limitMbps: number };
   before?: string;
   beforeMustSucceed?: boolean;
+  after?: string;
 };
 
 export type Settings = { notifyFailures: boolean; notifySuccess: boolean; staleDays: number };

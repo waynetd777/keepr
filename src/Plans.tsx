@@ -38,6 +38,7 @@ function blankPlan(dest: string, excludes: string[]): Plan {
     conditions: { catchUp: true, onBattery: true, minBattery: 20, noHotspot: true, limitMbps: 0 },
     before: "",
     beforeMustSucceed: false,
+    after: "",
   };
 }
 
@@ -1118,6 +1119,23 @@ export default function Plans() {
                 </select>
               </label>
             )}
+          </section>
+
+          <section className="card section" style={{ gap: 10 }}>
+            <h2>After each backup</h2>
+            <p className="muted" style={{ lineHeight: 1.5 }}>
+              A command to run when each backup ends, however it went, for example one that tells a home server. It gets the result in{" "}
+              <span className="mono">$KEEPR_RESULT</span> (ok, warning, failed, waiting or cancelled), with{" "}
+              <span className="mono">$KEEPR_PLAN</span>, <span className="mono">$KEEPR_MESSAGE</span> and{" "}
+              <span className="mono">$KEEPR_LAST_SUCCESS</span>. Its output goes into the backup's log.
+            </p>
+            <input
+              className="input mono"
+              aria-label="Command to run after each backup"
+              placeholder="e.g. ~/scripts/report.sh"
+              value={plan.after ?? ""}
+              onChange={(e) => update((p) => ({ ...p, after: e.target.value }))}
+            />
           </section>
 
           <section className="card section" style={{ gap: 10 }}>

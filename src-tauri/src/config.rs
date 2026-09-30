@@ -184,6 +184,10 @@ pub struct Plan {
     /// If the command fails: carry on and mark the backup with a warning (false), or don't back up (true).
     #[serde(default)]
     pub before_must_succeed: bool,
+    /// A command run after each backup, whatever its result (for example, one that tells a home
+    /// server how it went). The outcome is in KEEPR_* environment variables; see Core::run_after.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub after: String,
 }
 
 fn weekly() -> Often {

@@ -629,6 +629,9 @@ impl Core {
                 }
             }
         }
+        if let Job::Backup { plan, .. } = &job {
+            self.run_after(&cur, plan, &mut run);
+        }
         // The log to its own file; the history keeps only the summary.
         let logs = self.dir.join("logs");
         if !self.frozen && !run.log.is_empty() {
@@ -852,15 +855,76 @@ impl Core {
     /// Runs the plan's before-backup command, with its output in the run's log. Returns why it
     /// failed (None if it didn't); an Err stops the backup (when it must succeed, or on Stop).
     fn run_before(&self, cur: &Arc<Current>, plan: &Plan, run: &mut Run) -> Result<Option<String>, String> {
-        use std::io::{BufRead, BufReader};
         Self::set_stage(cur, "Running the command before the backup");
-        run.note(format!("Running: {}", plan.before.trim()));
+        let failed = Self::run_command(cur, &plan.before, &[], Duration::from_secs(15 * 60), true, run).map_err(|e| {
+            if e == "cancelled" {
+                e
+            } else {
+                format!("Couldn't run the command before the backup: {e}")
+            }
+        })?;
+        if let (Some(why), true) = (&failed, plan.before_must_succeed) {
+            return Err(format!("The command before the backup failed ({why}), so {} didn't back up.", plan.name));
+        }
+        Ok(failed)
+    }
+
+    /// The command after a backup, told how it went: KEEPR_PLAN (the plan's name), KEEPR_PLAN_ID,
+    /// KEEPR_KIND (backup or full), KEEPR_RESULT (ok, warning, failed, waiting or cancelled),
+    /// KEEPR_MESSAGE, KEEPR_STARTED and KEEPR_FINISHED (RFC 3339), KEEPR_LAST_SUCCESS (the newest
+    /// snapshot's time, or empty), KEEPR_FILES, KEEPR_CHANGED, KEEPR_ADDED_BYTES, and
+    /// KEEPR_PLAN_IDS (every plan switched on, comma-separated, so a listener can forget the
+    /// rest). Its result never changes the backup's.
+    fn run_after(&self, cur: &Arc<Current>, plan_id: &str, run: &mut Run) {
+        let (plan, all) = {
+            let cfg = self.config.lock().unwrap();
+            let all: Vec<String> = cfg.plans.iter().filter(|p| p.enabled).map(|p| p.id.clone()).collect();
+            let Some(plan) = cfg.plan(plan_id).cloned() else { return };
+            (plan, all.join(","))
+        };
+        if plan.after.trim().is_empty() {
+            return;
+        }
+        let last_success = self.state.lock().unwrap().plan(plan_id).last_success.clone().unwrap_or_default();
+        let env = [
+            ("KEEPR_PLAN", plan.name.clone()),
+            ("KEEPR_PLAN_ID", plan.id.clone()),
+            ("KEEPR_KIND", run.kind.clone()),
+            ("KEEPR_RESULT", run.result.clone()),
+            ("KEEPR_MESSAGE", run.message.clone()),
+            ("KEEPR_STARTED", run.started.clone()),
+            ("KEEPR_FINISHED", run.finished.clone()),
+            ("KEEPR_LAST_SUCCESS", last_success),
+            ("KEEPR_FILES", run.files.to_string()),
+            ("KEEPR_CHANGED", run.changed.to_string()),
+            ("KEEPR_ADDED_BYTES", run.added_bytes.to_string()),
+            ("KEEPR_PLAN_IDS", all),
+        ];
+        Self::set_stage(cur, "Running the command after the backup");
+        if let Err(e) = Self::run_command(cur, &plan.after, &env, Duration::from_secs(2 * 60), false, run) {
+            run.note(format!("Couldn't run the command after the backup: {e}"));
+        }
+    }
+
+    /// Runs a plan's command with /bin/zsh -lc, its output into the run's log. Ok(None) when it
+    /// succeeded, Ok(Some(why)) when it failed or ran past `limit`; a Stop ends it when `stoppable`.
+    fn run_command(
+        cur: &Arc<Current>,
+        cmd: &str,
+        env: &[(&str, String)],
+        limit: Duration,
+        stoppable: bool,
+        run: &mut Run,
+    ) -> Result<Option<String>, String> {
+        use std::io::{BufRead, BufReader};
+        run.note(format!("Running: {}", cmd.trim()));
         let mut child = std::process::Command::new("/bin/zsh")
-            .args(["-lc", &format!("{} 2>&1", plan.before.trim())])
+            .args(["-lc", &format!("{} 2>&1", cmd.trim())])
+            .envs(env.iter().map(|(k, v)| (k, v)))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .spawn()
-            .map_err(|e| format!("Couldn't run the command before the backup: {e}"))?;
+            .map_err(|e| e.to_string())?;
         let out = child.stdout.take().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
@@ -871,12 +935,11 @@ impl Core {
             }
         });
         let started = Instant::now();
-        let limit = Duration::from_secs(15 * 60);
         let status = loop {
             while let Ok(l) = rx.try_recv() {
                 run.note(format!("  {l}"));
             }
-            if cur.ctl.cancel.load(Relaxed) {
+            if stoppable && cur.ctl.cancel.load(Relaxed) {
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err("cancelled".into());
@@ -903,14 +966,11 @@ impl Core {
                 Some(c) => format!("exit status {c}"),
                 None => "stopped by a signal".into(),
             }),
-            None => Some("took longer than 15 minutes".into()),
+            None => Some(format!("took longer than {} minutes", limit.as_secs() / 60)),
         };
         match &failed {
             None => run.note("The command finished"),
             Some(why) => run.note(format!("The command failed: {why}")),
-        }
-        if let (Some(why), true) = (&failed, plan.before_must_succeed) {
-            return Err(format!("The command before the backup failed ({why}), so {} didn't back up.", plan.name));
         }
         Ok(failed)
     }
@@ -1190,6 +1250,7 @@ mod tests {
             conditions: Default::default(),
             before: String::new(),
             before_must_succeed: false,
+            after: String::new(),
         }
     }
 
@@ -1261,6 +1322,9 @@ mod tests {
         let mut p = plan(src.path());
         // The command writes the file the backup then picks up, and fails.
         p.before = format!("echo fetched > '{}/fetched.txt'; echo hello from before; exit 3", src.path().display());
+        // The command after is told how it went, whatever that was.
+        let told = data.path().join("told.txt");
+        p.after = format!("echo \"$KEEPR_RESULT $KEEPR_PLAN_ID $KEEPR_FILES\" >> '{}'", told.display());
         {
             let mut cfg = c.config.lock().unwrap();
             cfg.destinations.push(Destination {
@@ -1280,6 +1344,7 @@ mod tests {
         assert_eq!(run.files, 1, "the file the command wrote was backed up");
         let log = std::fs::read_to_string(data.path().join("logs").join(format!("{}.log", run.id))).unwrap();
         assert!(log.contains("hello from before"), "{log}");
+        assert_eq!(std::fs::read_to_string(&told).unwrap(), "warning p1 1\n");
 
         // When it must succeed, a failure stops the backup.
         c.config.lock().unwrap().plans[0].before_must_succeed = true;
@@ -1287,6 +1352,7 @@ mod tests {
         wait(&c);
         let run = c.state.lock().unwrap().history.last().cloned().unwrap();
         assert_eq!(run.result, "failed");
+        assert_eq!(std::fs::read_to_string(&told).unwrap(), "warning p1 1\nfailed p1 0\n");
     }
 
     #[test]
