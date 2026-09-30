@@ -343,6 +343,8 @@ export default function Restore() {
     }
     setOpen(s);
   };
+  // On the Mac and in no snapshot this far: nothing to restore or remove.
+  const onlyOnMac = (e: Entry) => e.disk === "unsaved" && e.tag !== "deleted";
   const toggleCheck = (e: Entry) => {
     const m = new Map(checked);
     if (m.has(e.path)) m.delete(e.path);
@@ -368,7 +370,7 @@ export default function Restore() {
       // By position: a source's name is its whole path, so names joined up can collide.
       const key = `${under}.${i}`;
       rows.push({ e, depth, key });
-      if (e.kind === "dir" && open.has(e.path) && e.tag !== "deleted") walk(e.path, depth + 1, key);
+      if (e.kind === "dir" && open.has(e.path) && e.tag !== "deleted" && !onlyOnMac(e)) walk(e.path, depth + 1, key);
     });
   };
   if (hits) sorted(hits).forEach((e, i) => rows.push({ e, depth: 0, key: `${i}` }));
@@ -517,7 +519,7 @@ export default function Restore() {
                 <SortHead by="versions" sort={sort} setSort={setSort} style={{ width: 70, justifyContent: "flex-end" }}>
                   Versions
                 </SortHead>
-                <span style={{ width: 76 }} />
+                <span style={{ width: 96 }} />
               </div>
               <div style={{ flexGrow: 1, overflow: "auto" }}>
                 {rows.map(({ e, depth, key }) => {
@@ -528,10 +530,11 @@ export default function Restore() {
                         type="checkbox"
                         aria-label={`Choose ${e.name}`}
                         checked={checked.has(e.path)}
+                        disabled={onlyOnMac(e)}
                         onChange={() => toggleCheck(e)}
                       />
                       <span style={{ width: depth * 20, flexShrink: 0 }} />
-                      {e.kind === "dir" && !hits && e.tag !== "deleted" ? (
+                      {e.kind === "dir" && !hits && e.tag !== "deleted" && !onlyOnMac(e) ? (
                         <button
                           className={`disc${open.has(e.path) ? " open" : ""}`}
                           aria-label={`${open.has(e.path) ? "Collapse" : "Expand"} ${e.name}`}
@@ -570,9 +573,21 @@ export default function Restore() {
                         <span className="mono muted" style={{ width: 70, textAlign: "right", fontSize: 11 }}>
                           {e.kind === "file" && e.versions ? e.versions : ""}
                         </span>
-                        <span style={{ width: 76, display: "flex", justifyContent: "flex-end" }}>
-                          {e.tag && (
-                            <span className={`tag ${e.tag}`}>{e.tag === "new" ? "New" : e.tag === "changed" ? "Changed" : "Deleted"}</span>
+                        <span style={{ width: 96, display: "flex", justifyContent: "flex-end" }}>
+                          {e.disk === "gone" ? (
+                            <span className="tag deleted" title="In this backup, but no longer on your Mac">
+                              Not on Mac
+                            </span>
+                          ) : e.disk === "unsaved" ? (
+                            <span className="tag plain" title="On your Mac, but not in the backup yet">
+                              Not backed up
+                            </span>
+                          ) : (
+                            e.tag && (
+                              <span className={`tag ${e.tag}`}>
+                                {e.tag === "new" ? "New" : e.tag === "changed" ? "Changed" : "Deleted"}
+                              </span>
+                            )
                           )}
                         </span>
                       </button>
@@ -675,7 +690,7 @@ export default function Restore() {
                   </div>
                 </>
               )}
-              {picked && (
+              {picked && !onlyOnMac(picked) && (
                 <div style={{ padding: "0 16px 12px", display: picked.kind === "dir" ? "none" : "flex" }}>
                   <button
                     className="btn small danger"
@@ -687,7 +702,7 @@ export default function Restore() {
                   </button>
                 </div>
               )}
-              {picked?.kind === "dir" && (
+              {picked?.kind === "dir" && !onlyOnMac(picked) && (
                 <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 10, color: "var(--ink2)", lineHeight: 1.5 }}>
                   <span>
                     {picked.name.startsWith("/") ? tilde(picked.name, home) : picked.name} held {bytes(picked.size)} at this snapshot

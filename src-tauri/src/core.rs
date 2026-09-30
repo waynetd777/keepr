@@ -653,6 +653,11 @@ impl Core {
         *cur.stage.lock().unwrap() = s.to_string();
     }
 
+    /// The folder a plan's backup is in, once it has been opened.
+    pub fn repo_path(&self, plan_id: &str) -> Option<PathBuf> {
+        self.repos.lock().unwrap().get(plan_id).map(|(p, _)| p.clone())
+    }
+
     fn backup(self: &Arc<Self>, cur: &Arc<Current>, plan_id: &str, full: bool, run: &mut Run) -> Result<(), String> {
         let (plan, dest) = self.plan_and_dest(plan_id)?;
         run.note(format!("{} backup of {} to {}", if full { "Full" } else { "Incremental" }, plan.name, dest.name));
@@ -676,7 +681,7 @@ impl Core {
         }
         // The folders on this Mac: what macOS's change record and the still copy are about.
         let on_disk: Vec<PathBuf> = sources.iter().zip(&remote).filter(|(_, r)| r.is_none()).map(|(s, _)| s.clone()).collect();
-        let repo_path = self.repos.lock().unwrap().get(plan_id).map(|(p, _)| p.clone());
+        let repo_path = self.repo_path(plan_id);
         *cur.base.lock().unwrap() = (repo.counters.stored_bytes.load(Relaxed), repo.counters.dup_bytes.load(Relaxed));
         *cur.repo.lock().unwrap() = Some(repo.clone());
         Self::set_stage(cur, "");

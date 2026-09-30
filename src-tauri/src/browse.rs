@@ -27,6 +27,9 @@ pub struct Entry {
     pub versions: u32,
     /// For a folder, how many entries it has.
     pub items: u32,
+    /// In the newest snapshot, against the Mac now: "gone" (in the backup, not on the Mac),
+    /// "unsaved" (on the Mac, not in the snapshot) or "".
+    pub disk: String,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -133,6 +136,7 @@ pub fn list(core: &Core, plan: &str, snapshot: &str, path: &str, show_deleted: b
                 tag: tag.into(),
                 versions: versions.get(&n.name).copied().unwrap_or(1),
                 items: if n.kind == NodeKind::Dir { items(n) } else { 0 },
+                disk: String::new(),
             }
         })
         .collect();
@@ -149,13 +153,97 @@ pub fn list(core: &Core, plan: &str, snapshot: &str, path: &str, show_deleted: b
                     tag: "deleted".into(),
                     versions: versions.get(*name).copied().unwrap_or(1),
                     items: 0,
+                    disk: String::new(),
                 });
             }
         }
     }
+    if at + 1 == snaps.len() {
+        against_disk(core, plan, path, &here, &prev, &versions, &mut out);
+    }
     // Folders first, then by name, as Finder does.
     out.sort_by(|a, b| (a.kind != "dir").cmp(&(b.kind != "dir")).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
     Ok(out)
+}
+
+/// The newest snapshot's folder against the same folder on the Mac now, so what has gone since
+/// the last backup, or come since and not been backed up, shows without waiting for the next one.
+/// Only for folders on this Mac; what the plan's rules leave out isn't counted as not backed up.
+fn against_disk(
+    core: &Core,
+    plan: &str,
+    path: &str,
+    here: &[Node],
+    prev: &HashMap<&str, &Node>,
+    versions: &HashMap<String, u32>,
+    out: &mut Vec<Entry>,
+) {
+    use crate::config::Place;
+    use std::path::{Path, PathBuf};
+    let Some(p) = core.config.lock().unwrap().plans.iter().find(|p| p.id == plan).cloned() else { return };
+    let folders: Vec<PathBuf> =
+        p.sources.iter().filter_map(|s| if let Place::Folder { path, .. } = s { Some(PathBuf::from(path)) } else { None }).collect();
+    let local = |e: &str| e.starts_with('/') && folders.iter().any(|f| Path::new(e).starts_with(f));
+    for e in out.iter_mut() {
+        if local(&e.path)
+            && e.tag != "deleted"
+            && std::fs::symlink_metadata(&e.path).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+        {
+            e.disk = "gone".into();
+        }
+    }
+    // The top level is the sources themselves; what else is on the Mac there isn't theirs.
+    if path.is_empty() || !local(path) {
+        return;
+    }
+    let opts = keepr_engine::backup::Options {
+        sources: folders,
+        excludes: p.excludes.clone(),
+        gitignore: p.gitignore,
+        skip_dataless: p.skip_cloud_only,
+        skip_marked: p.skip_marked,
+        max_file_size: (p.max_file_size > 0).then_some(p.max_file_size),
+        skip_paths: core.repo_path(plan).into_iter().collect(),
+        ..Default::default()
+    };
+    let Ok(rules) = keepr_engine::backup::Rules::for_dir(&opts, Path::new(path)) else { return };
+    let Ok(rd) = std::fs::read_dir(path) else { return };
+    let names: std::collections::HashSet<&str> = here.iter().map(|n| n.name.as_str()).collect();
+    for d in rd.flatten() {
+        let name = d.file_name().to_string_lossy().to_string();
+        if names.contains(name.as_str()) {
+            continue;
+        }
+        let Ok(m) = std::fs::symlink_metadata(d.path()) else { continue };
+        if rules.skips(&d.path(), &m) {
+            continue;
+        }
+        // Deleted before the last backup and back since: the same row, now on the Mac.
+        if let Some(e) = out.iter_mut().find(|e| e.name == name) {
+            e.disk = "unsaved".into();
+            continue;
+        }
+        use std::os::unix::fs::MetadataExt;
+        let ft = m.file_type();
+        out.push(Entry {
+            path: d.path().to_string_lossy().to_string(),
+            kind: if ft.is_dir() {
+                "dir"
+            } else if ft.is_symlink() {
+                "link"
+            } else {
+                "file"
+            }
+            .into(),
+            size: if ft.is_file() { m.size() } else { 0 },
+            mtime: m.mtime() * 1000,
+            tag: if prev.contains_key(name.as_str()) { "deleted".into() } else { String::new() },
+            versions: versions.get(&name).copied().unwrap_or(0),
+            items: 0,
+            disk: "unsaved".into(),
+            name,
+        });
+    }
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -242,6 +330,7 @@ pub fn search_everywhere(core: &Core, query: &str) -> (Vec<Found>, Vec<String>) 
                     tag: if h.gone { "deleted".into() } else { String::new() },
                     versions: 0,
                     items: 0,
+                    disk: String::new(),
                 },
             })),
             Err(e) if e.contains("hasn't backed up yet") => {}
@@ -271,6 +360,7 @@ pub fn search(core: &Core, plan: &str, snapshot: &str, query: &str) -> Result<Ve
             tag: String::new(),
             versions: 0,
             items: 0,
+            disk: String::new(),
         })
         .collect())
 }

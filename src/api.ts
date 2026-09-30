@@ -141,6 +141,8 @@ export type Entry = {
   tag: "" | "new" | "changed" | "deleted";
   versions: number;
   items: number;
+  /** The newest snapshot against the Mac now: in the backup but gone, or here but not backed up. */
+  disk: "" | "gone" | "unsaved";
 };
 export type Version = { snapshot: string; time: string; size: number; mtime: number; keptIn: number };
 export type Found = { plan: string; planName: string; snapshot: string; time: string; gone: boolean; entry: Entry };

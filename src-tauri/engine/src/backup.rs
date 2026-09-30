@@ -241,6 +241,68 @@ impl Excluder {
     }
 }
 
+fn gitignored(ignores: &[ignore::gitignore::Gitignore], path: &Path, is_dir: bool) -> bool {
+    for g in ignores.iter().rev() {
+        match g.matched(path, is_dir) {
+            ignore::Match::Ignore(_) => return true,
+            ignore::Match::Whitelist(_) => return false,
+            ignore::Match::None => {}
+        }
+    }
+    false
+}
+
+/// A file left out for being only in the cloud or too big.
+fn skips_file(opts: &Options, m: &fs::Metadata) -> bool {
+    (opts.skip_dataless && std::os::macos::fs::MetadataExt::st_flags(m) & SF_DATALESS != 0)
+        || opts.max_file_size.is_some_and(|max| m.size() > max)
+}
+
+/// The rules a backup leaves things out by, for one folder: so a file there that isn't in the
+/// backup can be told apart as not backed up yet, rather than never to be.
+pub struct Rules<'a> {
+    opts: &'a Options,
+    ex: Excluder,
+    ignores: Vec<ignore::gitignore::Gitignore>,
+}
+
+impl<'a> Rules<'a> {
+    /// For `dir`, a folder inside one of `opts.sources`; its .gitignore files from the source down apply.
+    pub fn for_dir(opts: &'a Options, dir: &Path) -> Result<Rules<'a>> {
+        let mut ignores = vec![];
+        if let Some(src) = opts.sources.iter().find(|s| dir.starts_with(s)).filter(|_| opts.gitignore) {
+            let mut d = src.clone();
+            let rest: Vec<_> = dir.strip_prefix(src).unwrap_or(Path::new("")).components().collect();
+            for c in std::iter::once(None).chain(rest.into_iter().map(Some)) {
+                if let Some(c) = c {
+                    d.push(c);
+                }
+                if d.join(".gitignore").is_file() {
+                    let mut b = ignore::gitignore::GitignoreBuilder::new(&d);
+                    b.add(d.join(".gitignore"));
+                    if let Ok(g) = b.build() {
+                        ignores.push(g);
+                    }
+                }
+            }
+        }
+        Ok(Rules { opts, ex: Excluder::new(&opts.excludes)?, ignores })
+    }
+
+    /// Whether a backup leaves out the item at `path`, whose metadata is `m`.
+    pub fn skips(&self, path: &Path, m: &fs::Metadata) -> bool {
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let ft = m.file_type();
+        let is_dir = ft.is_dir();
+        !(is_dir || ft.is_file() || ft.is_symlink())
+            || self.opts.skip_paths.iter().any(|s| path.starts_with(s))
+            || self.ex.excluded(path, &name, is_dir)
+            || (self.opts.gitignore && gitignored(&self.ignores, path, is_dir))
+            || (self.opts.skip_marked && marked(path))
+            || (ft.is_file() && skips_file(self.opts, m))
+    }
+}
+
 enum Entry {
     Dir(ScanDir),
     /// A file, and its place in the read list when it needs reading.
@@ -323,21 +385,11 @@ impl Walk<'_> {
     }
 
     fn gitignored(&self, path: &Path, is_dir: bool) -> bool {
-        for g in self.ignores.iter().rev() {
-            match g.matched(path, is_dir) {
-                ignore::Match::Ignore(_) => return true,
-                ignore::Match::Whitelist(_) => return false,
-                ignore::Match::None => {}
-            }
-        }
-        false
+        gitignored(&self.ignores, path, is_dir)
     }
 
     fn file(&mut self, name: String, path: &Path, m: &fs::Metadata, prev: Option<&Node>) -> Option<Entry> {
-        if self.opts.skip_dataless && std::os::macos::fs::MetadataExt::st_flags(m) & SF_DATALESS != 0 {
-            return None;
-        }
-        if self.opts.max_file_size.is_some_and(|max| m.size() > max) {
+        if skips_file(self.opts, m) {
             return None;
         }
         let node = node_from(name, NodeKind::File, m);
@@ -819,6 +871,24 @@ pub(crate) mod tests {
         assert_eq!(s4.stats.removed_files, 1);
         assert_eq!(s3.tree, s2.tree);
         assert_eq!(repo.snapshots().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn rules_tell_left_out_from_not_yet_backed_up() {
+        let (src, _dst, _repo) = setup(None);
+        write(&src.path().join(".gitignore"), b"*.log\n");
+        write(&src.path().join("proj/run.log"), b"l");
+        write(&src.path().join("proj/x.tmp"), b"t");
+        write(&src.path().join("proj/main.rs"), b"fn main(){}");
+        let mut o = opts(src.path());
+        o.excludes = vec!["*.tmp".into()];
+        o.gitignore = true;
+        let dir = src.path().join("proj");
+        let rules = Rules::for_dir(&o, &dir).unwrap();
+        let skips = |n: &str| rules.skips(&dir.join(n), &fs::symlink_metadata(dir.join(n)).unwrap());
+        assert!(skips("run.log"));
+        assert!(skips("x.tmp"));
+        assert!(!skips("main.rs"));
     }
 
     #[test]
