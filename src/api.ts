@@ -145,6 +145,20 @@ export type Entry = {
   /** The newest snapshot against the Mac now: in the backup but gone, or here but not backed up. */
   disk: "" | "gone" | "unsaved";
 };
+/** A folder in Restore's size map; see browse::MapDir. */
+export type MapDir = {
+  name: string;
+  path: string;
+  size: number;
+  files: number;
+  depth: number;
+  looseFiles: number;
+  looseSize: number;
+  more: number;
+  moreSize: number;
+  read: boolean;
+  kids: MapDir[];
+};
 export type Version = { snapshot: string; time: string; size: number; mtime: number; keptIn: number };
 export type Found = { plan: string; planName: string; snapshot: string; time: string; gone: boolean; entry: Entry };
 export type Target = { kind: "original" } | { kind: "folder"; path: string };
@@ -217,6 +231,7 @@ export const api = {
   pause: (paused: boolean) => invoke<void>("job_pause", { paused }),
   pauseHour: () => invoke<void>("pause_hour"),
   snapshots: (plan: string) => invoke<SnapInfo[]>("snapshots", { plan }),
+  sizeMap: (plan: string, snapshot: string, path: string) => invoke<MapDir>("size_map", { plan, snapshot, path }),
   listDir: (plan: string, snapshot: string, path: string, showDeleted: boolean) =>
     invoke<Entry[]>("list_dir", { plan, snapshot, path, showDeleted }),
   versions: (plan: string, path: string) => invoke<Version[]>("file_versions", { plan, path }),

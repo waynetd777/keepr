@@ -24,6 +24,10 @@ At the latest snapshot, the list is also checked against your Mac as it is now, 
 
 The list updates by itself when a backup, restore or removal of the plan finishes.
 
+**Files** and **Size map**, above the list, switch between the list and a map of the snapshot. The map draws each folder as a block as big as what it holds, nested inside the folder it's in and coloured by how deep it is, so what takes the space shows at a glance. The files directly in a folder are one dashed block, and folders too small to draw are another. Click a folder to zoom into it, and the path bar above the map to come back out. ⌘-click a folder, or click a dashed block, to find it in **Files**, open and picked, ready to see its versions or restore it.
+
+<a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/sizemap-dark.png"><img alt="The size map of a snapshot: Documents and Projects as blocks, with Finance and Letters inside Documents" src="images/sizemap-light.png"></picture></a>
+
 ## A file's versions
 
 Click a file to see every version the backup keeps of it, newest first, each with its date and size. The one in the snapshot you're looking at is marked **In this snapshot**.
@@ -38,7 +42,7 @@ Click a folder to see its size and how many items it held at that snapshot.
 
 ## Restoring
 
-Tick what you want back: files, folders, or a mix. A ticked folder comes back with everything in it as it was then. The bar at the bottom says how much you've chosen, and:
+Tick what you want back: files, folders, or a mix. A ticked folder comes back with everything in it as it was then, and what's inside it shows ticked too; untick one of those to leave just that out. A folder with only some of what's inside it ticked shows a dash. The box above the list ticks everything, or nothing. The bar at the bottom says how much you've chosen, and:
 
 - **Restore to** — **Original location**, where each item was, making any folders that no longer exist; or **Another folder…**, where items keep their folders inside the folder you choose.
 - **If a file is already there** — **Keep both (add "restored")**, which names the restored copy "Budget (restored).numbers"; **Replace it**; or **Skip it**.

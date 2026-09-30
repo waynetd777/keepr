@@ -7,3 +7,4 @@
 {"desc": "B2 setup panel shared by the destination form and the S3 source sheet", "hash": "15da1c7ae9630a76", "path": "src/B2Setup.tsx", "ts": "2026-09-28T22:00:34Z", "who": "114321799+waynetd777@users.noreply.github.com"}
 {"desc": "R2 setup panel shared by the destination form and the S3 source sheet", "hash": "82d46361448081e8", "path": "src/R2Setup.tsx", "ts": "2026-09-28T22:06:54Z", "who": "114321799+waynetd777@users.noreply.github.com"}
 {"desc": "Sheet for adding an S3 bucket as a read-only plan source, with AWS sign-in setup", "hash": "972e4d1104c367a4", "path": "src/S3Source.tsx", "ts": "2026-09-28T21:27:42Z", "who": "114321799+waynetd777@users.noreply.github.com"}
+{"desc": "Restore's Size map tab: a snapshot's folders as a squarified treemap; click zooms, ⌘-click finds it in Files", "hash": "b3e9656bf449a0bd", "path": "src/SizeMap.tsx", "ts": "2026-09-30T18:38:46Z", "who": "114321799+waynetd777@users.noreply.github.com"}

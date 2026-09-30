@@ -246,6 +246,107 @@ fn against_disk(
     }
 }
 
+/// One folder in the Restore screen's size map: its size, the files directly in it taken
+/// together, its biggest folders (expanded biggest first, as far as the budget goes), and the
+/// rest of its folders taken together.
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MapDir {
+    pub name: String,
+    pub path: String,
+    pub size: u64,
+    /// Files anywhere below it.
+    pub files: u64,
+    /// 1 for the map's top folder's children, and so on.
+    pub depth: u32,
+    /// The files directly in it.
+    pub loose_files: u64,
+    pub loose_size: u64,
+    /// Its folders not in `kids`: past the per-folder limit, or too small to be worth listing.
+    pub more: u32,
+    pub more_size: u64,
+    /// False when the budget ran out before its contents were read.
+    pub read: bool,
+    pub kids: Vec<MapDir>,
+}
+
+/// How many folders one size map lists, and how many folders of one folder: enough to fill a
+/// screen, few enough to read and draw at once.
+const MAP_BUDGET: usize = 3000;
+const MAP_KIDS: usize = 60;
+
+/// The size map of `path` in a snapshot, biggest folders read first.
+pub fn size_map(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result<MapDir, String> {
+    let repo = core.repo(plan, false)?;
+    let snap = repo
+        .snapshots()
+        .map_err(|e| e.0)?
+        .into_iter()
+        .find(|s| s.id.hex() == snapshot)
+        .ok_or("That snapshot is no longer in the backup.")?;
+    let (tree, size, files) = if path.is_empty() {
+        let t = repo.load_tree(&snap.tree).map_err(|e| e.0)?;
+        (
+            Some(snap.tree),
+            t.nodes.iter().map(|n| n.size).sum(),
+            t.nodes.iter().map(|n| n.files.max((n.kind == NodeKind::File) as u64)).sum(),
+        )
+    } else {
+        let n = keepr_engine::browse::node_at(&repo, &snap, path).map_err(|e| e.0)?.ok_or("That folder isn't in this snapshot.")?;
+        (n.subtree, n.size, n.files)
+    };
+    let name = if path.is_empty() { String::new() } else { path.rsplit('/').next().unwrap_or(path).to_string() };
+    // A flat list of folders, each with its parent's place, filled biggest first.
+    let mut all = vec![(usize::MAX, MapDir { name, path: path.to_string(), size, files, depth: 0, ..Default::default() }, tree)];
+    let mut todo = std::collections::BinaryHeap::from([(size, 0usize)]);
+    // Folders too small to show at any sensible size aren't read.
+    let floor = size / 50_000;
+    while let Some((_, i)) = todo.pop() {
+        if all.len() >= MAP_BUDGET {
+            break;
+        }
+        let Some(t) = all[i].2 else { continue };
+        let t = repo.load_tree(&t).map_err(|e| e.0)?;
+        let mut dirs: Vec<&Node> = vec![];
+        let d = &mut all[i].1;
+        d.read = true;
+        for n in &t.nodes {
+            match n.kind {
+                NodeKind::Dir => dirs.push(n),
+                _ => {
+                    d.loose_files += 1;
+                    d.loose_size += n.size;
+                }
+            }
+        }
+        dirs.sort_by_key(|n| std::cmp::Reverse(n.size));
+        let (depth, base) = (d.depth + 1, d.path.clone());
+        for (k, n) in dirs.into_iter().enumerate() {
+            if k >= MAP_KIDS || n.size < floor || all.len() >= MAP_BUDGET {
+                let d = &mut all[i].1;
+                d.more += 1;
+                d.more_size += n.size;
+                continue;
+            }
+            let p = if base.is_empty() { n.name.clone() } else { format!("{base}/{}", n.name) };
+            all.push((i, MapDir { name: n.name.clone(), path: p, size: n.size, files: n.files, depth, ..Default::default() }, n.subtree));
+            todo.push((n.size, all.len() - 1));
+        }
+    }
+    // Children come after their parents, so folding from the end builds the tree.
+    for j in (1..all.len()).rev() {
+        let (parent, d, _) = std::mem::take(&mut all[j]);
+        all[parent].1.kids.push(d);
+    }
+    let mut root = std::mem::take(&mut all[0].1);
+    fn order(d: &mut MapDir) {
+        d.kids.sort_by_key(|k| std::cmp::Reverse(k.size));
+        d.kids.iter_mut().for_each(order);
+    }
+    order(&mut root);
+    Ok(root)
+}
+
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionInfo {

@@ -27,6 +27,7 @@ On [Restore](../restore.md).
 
 - Documents & Projects at its latest snapshot: [light](restore-light.png) · [dark](restore-dark.png)
 - The versions of Budget 2026.numbers: [light](versions-light.png) · [dark](versions-dark.png)
+- The size map of a snapshot: [light](sizemap-light.png) · [dark](sizemap-dark.png)
 - Searching every backup for “notes”: [light](search-light.png) · [dark](search-dark.png)
 
 ## Destinations

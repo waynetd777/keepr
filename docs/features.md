@@ -60,4 +60,4 @@ Keepr is free software under the GNU General Public License, version 3 or later.
 - It comes with no warranty.
 - The licence is in `LICENSE` in the source, and at [gnu.org](https://www.gnu.org/licenses/gpl-3.0.html).
 
-Keepr is built with Tauri and React, and its backups with FastCDC, zstd, BLAKE3, XChaCha20-Poly1305 and Argon2 (the Rust crates `fastcdc`, `zstd`, `blake3`, `chacha20poly1305` and `argon2`), all under the MIT, Apache 2.0 or BSD licences. Its numbers are set in JetBrains Mono, under the SIL Open Font License.
+Keepr is built with Tauri and React, and its backups with FastCDC, zstd, BLAKE3, XChaCha20-Poly1305 and Argon2 (the Rust crates `fastcdc`, `zstd`, `blake3`, `chacha20poly1305` and `argon2`), all under the MIT, Apache 2.0 or BSD licences. Its numbers are set in JetBrains Mono, under the SIL Open Font License. Restore's size map is drawn with the squarified treemap layout (Bruls, Huizing and van Wijk) from Disk Usage Visualiser, under the MIT licence.

@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Comparison, type Conflict, type Entry, type SnapInfo, type Version } from "./api";
 import { statusDot, useApp } from "./context";
 import { Icon } from "./icons";
+import SizeMap from "./SizeMap";
 import { ClearButton, PlanProgress, Sheet, Switch, useAct, useToast } from "./ui";
 import { bytes, dayKey, dayLabel, longWhen, tilde, when } from "./format";
 
@@ -211,6 +212,10 @@ export default function Restore() {
   const [query, setQuery] = useState(screen.name === "restore" ? (screen.query ?? focus?.path.split("/").pop() ?? "") : "");
   const [hits, setHits] = useState<Entry[] | null>(null);
   const [comparing, setComparing] = useState<{ snapshot: string; path: string } | null>(null);
+  // The snapshot as a list of files, or as a map of what takes the space.
+  const [view, setView] = useState<"files" | "map">((screen.name === "restore" && screen.view) || "files");
+  // Shown from the map: that item, once the folders on the way to it are listed.
+  const [reveal, setReveal] = useState<{ path: string; parent: string } | null>(null);
   // Quick Look first copies the file out of the backup, which takes a while for a big one.
   const [looking, setLooking] = useState(false);
   // Folders stay first, as in Finder; within them, by the column clicked, again to reverse.
@@ -331,6 +336,15 @@ export default function Restore() {
     return () => window.removeEventListener("keydown", k);
   }, [snaps]);
 
+  // Shown from the map (showInFiles, below): pick it once its folder is listed.
+  useEffect(() => {
+    const e = reveal && kids[reveal.parent]?.find((k) => k.path === reveal.path);
+    if (!e) return;
+    setPicked(e);
+    setReveal(null);
+    requestAnimationFrame(() => document.querySelector(`[data-path="${CSS.escape(e.path)}"]`)?.scrollIntoView({ block: "center" }));
+  }, [reveal, kids]);
+
   if (!plan) {
     return (
       <div className="content">
@@ -354,12 +368,61 @@ export default function Restore() {
     }
     setOpen(s);
   };
+  // From the map to the list: open the folders down to it, then pick it.
+  const showInFiles = (path: string) => {
+    setView("files");
+    setQuery("");
+    // A source's name is its whole path, so the way down starts from the source it's in.
+    const root = (kids[""] ?? []).find((r) => path === r.path || path.startsWith(`${r.path}/`));
+    if (!root) return;
+    const way = [root.path];
+    for (const part of path
+      .slice(root.path.length + 1)
+      .split("/")
+      .filter(Boolean))
+      way.push(`${way[way.length - 1]}/${part}`);
+    const s = new Set(open);
+    for (const p of way) {
+      s.add(p);
+      if (!kids[p]) load(p);
+    }
+    setOpen(s);
+    setReveal({ path, parent: way.length > 1 ? way[way.length - 2] : "" });
+  };
   // On the Mac and in no snapshot this far: nothing to restore or remove.
   const onlyOnMac = (e: Entry) => e.disk === "unsaved" && e.tag !== "deleted";
+  // A chosen folder brings everything in it, so what's inside shows as chosen too. Only what's
+  // in this snapshot comes with it: a deleted item has to be chosen on its own.
+  const comesWithFolder = (e: Entry) => e.tag !== "deleted" && !onlyOnMac(e);
+  const chosenFolder = (e: Entry) =>
+    comesWithFolder(e) ? [...checked.keys()].find((p) => p !== e.path && e.path.startsWith(`${p}/`)) : undefined;
+  const isChosen = (e: Entry) => checked.has(e.path) || chosenFolder(e) !== undefined;
+  // A folder with something chosen inside it, but not all of it.
+  const partlyChosen = (e: Entry) => !isChosen(e) && [...checked.keys()].some((p) => p.startsWith(`${e.path}/`));
   const toggleCheck = (e: Entry) => {
     const m = new Map(checked);
+    const folder = chosenFolder(e);
     if (m.has(e.path)) m.delete(e.path);
-    else m.set(e.path, e);
+    else if (folder) {
+      // Leaving one item out of a chosen folder: choose the rest of each folder on the way down
+      // to it instead. They're all listed, since the item is showing.
+      let at = folder;
+      const way = e.path.slice(folder.length + 1).split("/");
+      if (way.some((_, i) => !kids[i === 0 ? folder : `${folder}/${way.slice(0, i).join("/")}`])) {
+        toast("Open the folders down to it to leave it out.");
+        return;
+      }
+      m.delete(folder);
+      for (const part of way) {
+        const next = `${at}/${part}`;
+        for (const k of kids[at] ?? []) if (k.path !== next && comesWithFolder(k)) m.set(k.path, k);
+        at = next;
+      }
+    } else {
+      // A folder chosen whole replaces anything chosen inside it, so nothing is restored twice.
+      for (const p of m.keys()) if (p.startsWith(`${e.path}/`)) m.delete(p);
+      m.set(e.path, e);
+    }
     setChecked(m);
   };
 
@@ -388,6 +451,12 @@ export default function Restore() {
   else walk("", 0, "");
 
   const items = [...checked.values()];
+  // The header's box: everything at the top of the list (a folder brings all that's in it), or
+  // nothing. Choosing everything replaces what was chosen below the top, so nothing goes twice.
+  const top = (hits ?? kids[""] ?? []).filter((e) => !onlyOnMac(e));
+  const allChosen = top.length > 0 && top.every((e) => checked.has(e.path));
+  const someChosen = checked.size > 0 && !allChosen;
+  const chooseAll = () => setChecked(allChosen ? new Map() : new Map(top.map((e) => [e.path, e])));
   const total = items.reduce((n, e) => n + e.size, 0);
   const start = async (snapshot: string, paths: string[]) => {
     if (dest === "folder" && !folder) {
@@ -458,7 +527,10 @@ export default function Restore() {
               aria-label="Find in this backup"
               placeholder={`Find in ${plan.name}`}
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setView("files");
+              }}
             />
             {query && <ClearButton onClick={() => setQuery("")} />}
           </label>
@@ -514,10 +586,45 @@ export default function Restore() {
         )}
 
         {snap && (
+          <div className="view-tabs">
+            <div className="seg" role="tablist" aria-label="Show the snapshot as">
+              <button role="tab" aria-selected={view === "files"} className={view === "files" ? "on" : ""} onClick={() => setView("files")}>
+                Files
+              </button>
+              <button role="tab" aria-selected={view === "map"} className={view === "map" ? "on" : ""} onClick={() => setView("map")}>
+                Size map
+              </button>
+            </div>
+            <span className="small muted">
+              {view === "files"
+                ? "Every file and folder, with its versions."
+                : "Each folder drawn as big as what it holds. Click one to zoom in, ⌘-click to find it in Files."}
+            </span>
+          </div>
+        )}
+
+        {snap && view === "map" && (
+          <section className="card" style={{ flexGrow: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
+            <SizeMap plan={plan.id} snapshot={snap.id} home={home} onShow={showInFiles} />
+          </section>
+        )}
+
+        {snap && view === "files" && (
           <section className="card" style={{ flexGrow: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
             <div className="grow" style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
               <div className="files-head caps" style={{ letterSpacing: "0.04em" }}>
-                <span style={{ width: 14 }} />
+                <input
+                  type="checkbox"
+                  className="pick"
+                  aria-label={allChosen ? "Choose nothing" : "Choose everything"}
+                  title={allChosen ? "Choose nothing" : "Choose everything"}
+                  checked={allChosen}
+                  ref={(el) => {
+                    if (el) el.indeterminate = someChosen;
+                  }}
+                  disabled={top.length === 0}
+                  onChange={chooseAll}
+                />
                 <SortHead by="name" sort={sort} setSort={setSort} className="grow" style={{ paddingLeft: 40 }}>
                   {hits ? `${hits.length} found` : "Name"}
                 </SortHead>
@@ -536,15 +643,25 @@ export default function Restore() {
                 {rows.map(({ e, depth, key }) => {
                   const name = e.name.startsWith("/") ? tilde(e.name, home) : hits ? tilde(e.path, home) : e.name;
                   return (
-                    <div key={key} className={`file-row${picked?.path === e.path ? " sel" : ""}${e.tag === "deleted" ? " gone" : ""}`}>
+                    <div
+                      key={key}
+                      data-path={e.path}
+                      className={`file-row${picked?.path === e.path ? " sel" : ""}${e.tag === "deleted" ? " gone" : ""}`}
+                    >
                       <input
                         type="checkbox"
+                        className="pick"
                         aria-label={`Choose ${e.name}`}
-                        checked={checked.has(e.path)}
+                        style={{ marginLeft: depth * 20 }}
+                        checked={isChosen(e)}
+                        ref={(el) => {
+                          if (el) el.indeterminate = partlyChosen(e);
+                        }}
                         disabled={onlyOnMac(e)}
                         onChange={() => toggleCheck(e)}
                       />
-                      <span style={{ width: depth * 20, flexShrink: 0 }} />
+                      {/* Keeps the gap the indent had, so names stay where they were. */}
+                      <span style={{ width: 0, flexShrink: 0 }} />
                       {e.kind === "dir" && !hits && e.tag !== "deleted" && !onlyOnMac(e) ? (
                         <button
                           className={`disc${open.has(e.path) ? " open" : ""}`}

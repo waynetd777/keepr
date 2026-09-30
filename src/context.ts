@@ -11,7 +11,7 @@ import type { Config, JobStatus, Overview as OverviewData } from "./api";
 export type Screen =
   | { name: "overview" }
   | { name: "plans"; plan?: string; isNew?: boolean }
-  | { name: "restore"; plan?: string; query?: string; focus?: { snapshot: string; path: string } }
+  | { name: "restore"; plan?: string; query?: string; focus?: { snapshot: string; path: string }; view?: "files" | "map" }
   | { name: "search"; query: string }
   | { name: "activity" }
   | { name: "destinations"; add?: boolean }

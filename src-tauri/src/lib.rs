@@ -860,6 +860,12 @@ async fn snapshots(core: State<'_, Core_>, plan: String) -> Result<Vec<browse::S
 }
 
 #[tauri::command]
+async fn size_map(core: State<'_, Core_>, plan: String, snapshot: String, path: String) -> Result<browse::MapDir, String> {
+    let core = core.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || browse::size_map(&core, &plan, &snapshot, &path)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn list_dir(
     core: State<'_, Core_>,
     plan: String,
@@ -1271,6 +1277,7 @@ pub fn run() {
             pause_hour,
             snapshots,
             list_dir,
+            size_map,
             file_versions,
             search_snapshot,
             search_everywhere,

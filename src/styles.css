@@ -33,6 +33,21 @@
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
   --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
   --mono: "JetBrains Mono", ui-monospace, monospace;
+  /* Restore's size map: a hue per folder level, as in Disk Usage Visualiser. */
+  --h1: #d7263d;
+  --h2: #e8590c;
+  --h3: #d99a00;
+  --h4: #1a9e4b;
+  --h5: #0e9aa7;
+  --h6: #1e7fe0;
+  --h7: #3d3fbf;
+  --h8: #9a3fd6;
+  --mix: 34%;
+  --h3-ink: #1d1d1f;
+  --loose: #8e8e93;
+  /* Restore's choose boxes: a tick for chosen, a dash for partly chosen. */
+  --tick: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2014%2014%22%3E%3Cpath%20d%3D%22M3.5%207.2%206%209.6l4.6-5%22%20fill%3D%22none%22%20stroke%3D%22%23ffffff%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3C/svg%3E");
+  --dash: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2014%2014%22%3E%3Crect%20x%3D%223.5%22%20y%3D%226%22%20width%3D%227%22%20height%3D%222%22%20rx%3D%221%22%20fill%3D%22%230f7a5c%22/%3E%3C/svg%3E");
   color-scheme: light;
 }
 
@@ -61,6 +76,19 @@
     --pop: 0 12px 40px rgba(0, 0, 0, 0.55);
     --scrim: rgba(0, 0, 0, 0.45);
     --seg: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --h1: #c4525a;
+    --h2: #c8703a;
+    --h3: #b58a2e;
+    --h4: #3f9a63;
+    --h5: #2f9ea8;
+    --h6: #4f8fd4;
+    --h7: #6062bd;
+    --h8: #9569c9;
+    --mix: 28%;
+    --h3-ink: #ffffff;
+    --loose: #7c7c82;
+    --tick: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2014%2014%22%3E%3Cpath%20d%3D%22M3.5%207.2%206%209.6l4.6-5%22%20fill%3D%22none%22%20stroke%3D%22%23062318%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3C/svg%3E");
+    --dash: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2014%2014%22%3E%3Crect%20x%3D%223.5%22%20y%3D%226%22%20width%3D%227%22%20height%3D%222%22%20rx%3D%221%22%20fill%3D%22%233cc593%22/%3E%3C/svg%3E");
     color-scheme: dark;
   }
 }
@@ -88,6 +116,19 @@
   --pop: 0 12px 40px rgba(0, 0, 0, 0.55);
   --scrim: rgba(0, 0, 0, 0.45);
   --seg: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --h1: #c4525a;
+  --h2: #c8703a;
+  --h3: #b58a2e;
+  --h4: #3f9a63;
+  --h5: #2f9ea8;
+  --h6: #4f8fd4;
+  --h7: #6062bd;
+  --h8: #9569c9;
+  --mix: 28%;
+  --h3-ink: #ffffff;
+  --loose: #7c7c82;
+  --tick: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2014%2014%22%3E%3Cpath%20d%3D%22M3.5%207.2%206%209.6l4.6-5%22%20fill%3D%22none%22%20stroke%3D%22%23062318%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3C/svg%3E");
+  --dash: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2014%2014%22%3E%3Crect%20x%3D%223.5%22%20y%3D%226%22%20width%3D%227%22%20height%3D%222%22%20rx%3D%221%22%20fill%3D%22%233cc593%22/%3E%3C/svg%3E");
   color-scheme: dark;
 }
 
@@ -553,6 +594,37 @@ select.input {
 }
 input[type="checkbox"] {
   accent-color: var(--accent);
+}
+/* Restore's choose boxes, drawn so chosen (filled, a tick) and partly chosen (outlined, a dash)
+   can't be mistaken for each other. */
+input.pick {
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  border: 1.5px solid var(--line2);
+  border-radius: 4px;
+  background: var(--surface) center / 14px 14px no-repeat;
+  cursor: pointer;
+}
+input.pick:checked {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  background-image: var(--tick);
+}
+input.pick:indeterminate {
+  border-color: var(--accent);
+  background-image: var(--dash);
+}
+input.pick:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+input.pick:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .chip {
   display: inline-flex;
@@ -1366,4 +1438,193 @@ html.tray body {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
   border-color: var(--accent);
   transform: scale(1.01);
+}
+
+/* Restore's size map (SizeMap.tsx). `color` carries the folder level's hue: header strip solid, body a tint, edge the hue. */
+.view-tabs {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.map-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.map-bar .crumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+.map-bar .crumbs button {
+  border: 0;
+  background: none;
+  padding: 2px 4px;
+  border-radius: 5px;
+  color: var(--ink2);
+  font: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.map-bar .crumbs button:hover {
+  background: var(--hover);
+}
+.map-bar .crumbs button.on {
+  color: var(--ink);
+  font-weight: 600;
+}
+.map-wrap {
+  position: relative;
+  flex-grow: 1;
+  min-height: 0;
+  margin: 10px;
+}
+.map {
+  position: absolute;
+  inset: 0;
+}
+.map-wait {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.blk {
+  position: absolute;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid currentColor;
+  box-sizing: border-box;
+  background: color-mix(in srgb, currentColor var(--mix), var(--surface));
+}
+.blk.zoom {
+  cursor: zoom-in;
+}
+.blk:hover {
+  z-index: 1;
+  box-shadow: 0 0 0 2px var(--ink) inset;
+}
+.blk > .hd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11.5px;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  background: currentColor;
+}
+.blk > .hd > * {
+  color: #fff;
+}
+.blk.d3 > .hd > * {
+  color: var(--h3-ink);
+}
+.blk > .hd .n {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.blk > .hd .s {
+  margin-left: auto;
+  opacity: 0.88;
+  font-variant-numeric: tabular-nums;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.blk.files,
+.blk.more {
+  border-style: dashed;
+  color: var(--loose);
+  background: color-mix(in srgb, var(--loose) 14%, var(--surface));
+  cursor: pointer;
+}
+.blk.files > .hd,
+.blk.more > .hd {
+  background: transparent;
+}
+.blk.files > .hd > *,
+.blk.more > .hd > * {
+  color: var(--ink2);
+}
+.blk.files > .hd .n,
+.blk.more > .hd .n {
+  font-weight: 500;
+}
+.d1 {
+  color: var(--h1);
+}
+.d2 {
+  color: var(--h2);
+}
+.d3 {
+  color: var(--h3);
+}
+.d4 {
+  color: var(--h4);
+}
+.d5 {
+  color: var(--h5);
+}
+.d6 {
+  color: var(--h6);
+}
+.d7 {
+  color: var(--h7);
+}
+.d8 {
+  color: var(--h8);
+}
+.map-tip {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: var(--pop);
+  max-width: 380px;
+}
+.map-tip .p {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink3);
+  word-break: break-all;
+}
+.map-tip .r {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1px 12px;
+  margin-top: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.map-tip .r span:nth-child(odd) {
+  color: var(--ink3);
+}
+.map-tip .r b {
+  font-weight: 600;
+}
+.map-tip .hint {
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px solid var(--line);
+  color: var(--ink3);
+  font-size: 11px;
 }
