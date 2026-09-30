@@ -211,6 +211,8 @@ export default function Restore() {
   const [query, setQuery] = useState(screen.name === "restore" ? (screen.query ?? focus?.path.split("/").pop() ?? "") : "");
   const [hits, setHits] = useState<Entry[] | null>(null);
   const [comparing, setComparing] = useState<{ snapshot: string; path: string } | null>(null);
+  // Quick Look first copies the file out of the backup, which takes a while for a big one.
+  const [looking, setLooking] = useState(false);
   // Folders stay first, as in Finder; within them, by the column clicked, again to reverse.
   const [sort, setSort] = useState<{ by: SortBy; up: boolean }>({ by: "name", up: true });
 
@@ -679,11 +681,20 @@ export default function Restore() {
                     <button
                       className="btn"
                       title="Quick Look (Space)"
-                      disabled={!version}
-                      onClick={() => version && act(() => api.quickLook(plan.id, version.snapshot, picked.path))}
+                      disabled={!version || looking}
+                      onClick={async () => {
+                        if (!version) return;
+                        setLooking(true);
+                        await act(() => api.quickLook(plan.id, version.snapshot, picked.path));
+                        setLooking(false);
+                      }}
                     >
-                      <Icon name="eye" size={14} stroke={1.9} />
-                      Quick Look
+                      {looking ? (
+                        <span className="dot spin" style={{ width: 12, height: 12 }} />
+                      ) : (
+                        <Icon name="eye" size={14} stroke={1.9} />
+                      )}
+                      {looking ? "Opening…" : "Quick Look"}
                     </button>
                     <button
                       className="btn"
