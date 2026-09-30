@@ -1029,11 +1029,12 @@ impl Core {
         run.note("Applying the version rules");
         let p = keepr_engine::prune::run(&repo, &plan.retention, &cur.ctl).map_err(|e| e.0)?;
         run.note(format!(
-            "{} snapshots kept, {} removed; {} packs deleted, {} rewritten; {} freed",
+            "{} snapshots kept, {} removed; {} packs deleted, {} rewritten, {} small ones merged; {} freed",
             p.kept,
             p.forgotten,
             p.packs_deleted,
             p.packs_rewritten,
+            p.packs_merged,
             human_bytes(p.bytes_freed)
         ));
         self.state.lock().unwrap().plan(plan_id).last_prune = Some(now());

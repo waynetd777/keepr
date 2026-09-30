@@ -23,8 +23,15 @@ pub struct Pruned {
     pub kept: u64,
     pub packs_deleted: u64,
     pub packs_rewritten: u64,
+    /// Small packs copied together into fuller ones.
+    pub packs_merged: u64,
     pub bytes_freed: u64,
 }
+
+/// A pack under this is small: typically the last of a backup, written however little it held.
+const SMALL_PACK: u64 = PACK_TARGET as u64 / 4;
+/// Small packs are merged once there are this many; for fewer, the rewrite isn't worth it.
+const MERGE_AT: usize = 8;
 
 /// Every blob the remaining snapshots need.
 pub fn used_blobs(repo: &Repo, ctl: &Control) -> Result<HashSet<Id>> {
@@ -261,8 +268,11 @@ pub fn remove_source(repo: &Arc<Repo>, source: &str, ctl: &Control) -> Result<Pr
     Ok(out)
 }
 
-/// Rewrites packs that are mostly unused, deletes ones that are wholly unused, and replaces
-/// the index with one naming only what is left.
+/// A pack's blobs still in use, with where each sits in it.
+type Live = Vec<(Id, crate::repo::Loc)>;
+
+/// Rewrites packs that are mostly unused, merges small ones, deletes ones that are wholly unused,
+/// and replaces the index with one naming only what is left.
 pub fn reclaim(repo: &Arc<Repo>, ctl: &Control, out: &mut Pruned) -> Result<()> {
     let used = used_blobs(repo, ctl)?;
     let (packs, blobs, old_files) = {
@@ -277,7 +287,10 @@ pub fn reclaim(repo: &Arc<Repo>, ctl: &Control, out: &mut Pruned) -> Result<()> 
     }
     let mut records: Vec<PackRecord> = Vec::new();
     let mut doomed: Vec<Id> = Vec::new();
-    let mut rewrite: Vec<(Id, Vec<(Id, crate::repo::Loc)>)> = Vec::new();
+    let mut rewrite: Vec<(Id, Live)> = Vec::new();
+    // Every backup ends with a pack of whatever was left over, often a few KB. A cloud folder
+    // syncs each as its own file, so once enough pile up they are copied together.
+    let mut small: Vec<(Id, Live, u64)> = Vec::new();
     for (n, pack) in packs.iter().enumerate() {
         let size = repo.backend.size(&pack_path(pack)).unwrap_or(0);
         let entries = live.remove(&(n as u32)).unwrap_or_default();
@@ -288,10 +301,25 @@ pub fn reclaim(repo: &Arc<Repo>, ctl: &Control, out: &mut Pruned) -> Result<()> 
         } else if live_bytes * 2 < size {
             out.bytes_freed += size - live_bytes;
             rewrite.push((*pack, entries));
+        } else if size < SMALL_PACK {
+            small.push((*pack, entries, size - live_bytes));
         } else {
             let mut blobs: Vec<Entry> = entries.iter().map(|(id, l)| Entry(*id, l.kind, l.offset, l.len, l.raw)).collect();
             blobs.sort_by_key(|e| e.2);
             records.push(PackRecord { pack: *pack, blobs });
+        }
+    }
+    if small.len() >= MERGE_AT {
+        out.packs_merged = small.len() as u64;
+        for (pack, entries, overhead) in small {
+            out.bytes_freed += overhead;
+            rewrite.push((pack, entries));
+        }
+    } else {
+        for (pack, entries, _) in small {
+            let mut blobs: Vec<Entry> = entries.iter().map(|(id, l)| Entry(*id, l.kind, l.offset, l.len, l.raw)).collect();
+            blobs.sort_by_key(|e| e.2);
+            records.push(PackRecord { pack, blobs });
         }
     }
 
@@ -321,7 +349,6 @@ pub fn reclaim(repo: &Arc<Repo>, ctl: &Control, out: &mut Pruned) -> Result<()> 
                 write(&mut buf, &mut entries, &mut records)?;
             }
         }
-        out.packs_rewritten += 1;
         doomed.push(*pack);
     }
     write(&mut buf, &mut entries, &mut records)?;
@@ -350,7 +377,8 @@ pub fn reclaim(repo: &Arc<Repo>, ctl: &Control, out: &mut Pruned) -> Result<()> 
         repo.backend.remove(&pack_path(p))?;
         out.packs_deleted += 1;
     }
-    out.packs_deleted -= out.packs_rewritten;
+    out.packs_rewritten = rewrite.len() as u64 - out.packs_merged;
+    out.packs_deleted -= rewrite.len() as u64;
     reload_index(repo)
 }
 
@@ -398,6 +426,31 @@ mod tests {
     use super::*;
     use crate::backup::{self, tests::*};
     use std::fs;
+
+    #[test]
+    fn small_packs_are_merged_once_there_are_enough() {
+        let (src, dst, repo) = setup(None);
+        let keep_all = Retention { all_hours: 1000, daily_days: 0, weekly_weeks: 0, monthly_months: 0, keep_deleted_days: 0 };
+        let packs = |r: &Repo| r.backend.list("packs").unwrap().iter().filter(|f| f.ends_with(".pack")).count();
+        let mut parent = None;
+        for i in 0..MERGE_AT + 1 {
+            fs::write(src.path().join(format!("{i}.txt")), format!("file {i}")).unwrap();
+            parent = Some(backup::run(&repo, &opts(src.path()), parent.as_ref(), &Control::default()).unwrap());
+            if i == MERGE_AT - 2 {
+                // Too few to be worth it yet.
+                let p = run(&repo, &keep_all, &Control::default()).unwrap();
+                assert_eq!(p.packs_merged, 0, "{p:?}");
+            }
+        }
+        let before = packs(&repo);
+        assert!(before > MERGE_AT, "{before}");
+        let p = run(&repo, &keep_all, &Control::default()).unwrap();
+        assert_eq!((p.forgotten, p.packs_merged as usize, p.packs_rewritten), (0, before, 0), "{p:?}");
+        assert_eq!(packs(&repo), 1);
+        let r2 = Arc::new(crate::repo::Repo::open(Arc::new(crate::backend::Folder::new(dst.path())), crate::repo::Secret::None).unwrap());
+        assert_eq!(r2.snapshots().unwrap().len(), MERGE_AT + 1);
+        assert!(crate::check::run(&r2, 1.0, &Control::default()).unwrap().problems.is_empty());
+    }
 
     #[test]
     fn leftovers_from_a_stopped_backup_go() {
