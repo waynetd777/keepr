@@ -232,6 +232,8 @@ export default function Restore() {
   // so fetch them again, staying on the same moment (or the newest, if that's where we were).
   const planJob = ov?.job?.plan === planId ? ov.job.id : undefined;
   const lastJob = useRef(planJob);
+  // Bumped when such a job ends, to list the open folders again: a restore changes the Mac.
+  const [fresh, setFresh] = useState(0);
   useEffect(() => {
     const ended = lastJob.current && lastJob.current !== planJob;
     lastJob.current = planJob;
@@ -244,6 +246,7 @@ export default function Restore() {
         setSnaps(s);
         setSel(at >= 0 ? at : s.length - 1);
         setPicked(null);
+        setFresh((n) => n + 1);
       },
       () => {},
     );
@@ -271,6 +274,12 @@ export default function Restore() {
     open.forEach((p) => load(p));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snap?.id, showDeleted]);
+  useEffect(() => {
+    if (!snap || !fresh) return;
+    load("");
+    open.forEach((p) => load(p));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fresh]);
 
   // The first time: open each source, so there's something to see.
   useEffect(() => {
