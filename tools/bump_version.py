@@ -4,15 +4,16 @@
 
 """Bumps the app's version for a release build: the last number of tauri.conf.json's version
 (0.1.0 → 0.1.1), written to package.json and src-tauri/Cargo.toml (and both lock files) too, so
-they agree. Prints the new version.
+they agree. Prints the new version. A version with no release yet (no v<version> tag on origin,
+or locally when origin can't be reached) is kept, so local builds don't use up numbers.
 
-    python3 tools/bump_version.py            # 0.1.0 → 0.1.1
+    python3 tools/bump_version.py            # 0.1.0 → 0.1.1, if v0.1.0 was released
     python3 tools/bump_version.py 1.1.0      # set it (a minor or major step is chosen by hand)
 
 `make app` runs it before every release build. The build number (CFBundleVersion) is separate: the
 Makefile stamps one per build on the app, its binary.
 """
-import json, re, sys
+import json, re, subprocess, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -28,12 +29,23 @@ def replace(path, pattern, new, count=1):
     path.write_text(out)
 
 
+def released(version):
+    tag = f"v{version}"
+    remote = subprocess.run(["git", "ls-remote", "--tags", "origin", tag], cwd=ROOT, capture_output=True, text=True)
+    if remote.returncode == 0:
+        return bool(remote.stdout.strip())
+    local = subprocess.run(["git", "tag", "-l", tag], cwd=ROOT, capture_output=True, text=True)
+    return bool(local.stdout.strip())
+
+
 def main():
     old = json.loads(CONF.read_text())["version"]
     if len(sys.argv) > 1:
         new = sys.argv[1]
         if not re.fullmatch(r"\d+\.\d+\.\d+", new):
             sys.exit(f"bump_version: {new!r} is not major.minor.patch")
+    elif not released(old):
+        new = old
     else:
         major, minor, patch = (int(x) for x in old.split("."))
         new = f"{major}.{minor}.{patch + 1}"

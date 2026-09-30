@@ -5,7 +5,7 @@
 // Restore: pick a moment on the snapshot strip, tick files and folders as they were then, see
 // any file's versions, and put them back where they were or into another folder.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Comparison, type Conflict, type Entry, type SnapInfo, type Version } from "./api";
 import { statusDot, useApp } from "./context";
 import { Icon } from "./icons";
@@ -228,6 +228,28 @@ export default function Restore() {
     );
   }, [planId, focus]);
 
+  // A job of this plan's has ended: a backup adds a snapshot and Remove from backup rewrites them,
+  // so fetch them again, staying on the same moment (or the newest, if that's where we were).
+  const planJob = ov?.job?.plan === planId ? ov.job.id : undefined;
+  const lastJob = useRef(planJob);
+  useEffect(() => {
+    const ended = lastJob.current && lastJob.current !== planJob;
+    lastJob.current = planJob;
+    if (!ended || !planId || !snaps) return;
+    const was = snaps[sel];
+    const atNewest = sel === snaps.length - 1;
+    api.snapshots(planId).then(
+      (s) => {
+        const at = atNewest ? -1 : s.findIndex((x) => x.time === was?.time);
+        setSnaps(s);
+        setSel(at >= 0 ? at : s.length - 1);
+        setPicked(null);
+      },
+      () => {},
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planJob]);
+
   const snap = snaps?.[sel];
   const load = useCallback(
     async (path: string) => {
@@ -361,6 +383,9 @@ export default function Restore() {
     }
     const target = dest === "folder" ? { kind: "folder" as const, path: folder } : { kind: "original" as const };
     await act(() => api.restore(plan.id, snapshot, paths, target, conflict));
+    // Back in place, a restored file is on the Mac again; a backup after it puts that in a
+    // snapshot, so it stops showing as deleted.
+    if (dest === "original") await api.backUp(plan.id).catch(() => {});
     toast(`Restoring ${paths.length === 1 ? paths[0].split("/").pop() : `${paths.length} items`}. Activity shows how it's going.`);
   };
   const chooseFolder = async () => {
@@ -650,7 +675,7 @@ export default function Restore() {
                   </div>
                 </>
               )}
-              {picked && picked.tag !== "deleted" && (
+              {picked && (
                 <div style={{ padding: "0 16px 12px", display: picked.kind === "dir" ? "none" : "flex" }}>
                   <button
                     className="btn small danger"
