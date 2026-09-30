@@ -4,7 +4,7 @@ Restore shows your files as they were at any backup, and puts back whichever you
 
 <a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/restore-dark.png"><img alt="Restore: Documents & Projects as they were at its latest snapshot, with the snapshots along the top and the files below" src="images/restore-light.png"></picture></a>
 
-[Going back to a moment](#going-back-to-a-moment) · [A file's versions](#a-files-versions) · [Restoring](#restoring) · [Finding a file in any backup](#finding-a-file-in-any-backup) · [Removing something from a backup](#removing-something-from-a-backup)
+[Going back to a moment](#going-back-to-a-moment) · [A file's versions](#a-files-versions) · [Restoring](#restoring) · [Seeing what takes the space](#seeing-what-takes-the-space) · [Finding a file in any backup](#finding-a-file-in-any-backup) · [Removing something from a backup](#removing-something-from-a-backup)
 
 ## Going back to a moment
 
@@ -24,9 +24,6 @@ At the latest snapshot, the list is also checked against your Mac as it is now, 
 
 The list updates by itself when a backup, restore or removal of the plan finishes.
 
-**Files** and **Size map**, above the list, switch between the list and a map of the snapshot. The map draws each folder as a block as big as what it holds, nested inside the folder it's in and coloured by how deep it is, so what takes the space shows at a glance. The files directly in a folder are one dashed block, and folders too small to draw are another. Click a folder to zoom into it, and the path bar above the map to come back out. ⌘-click a folder, or click a dashed block, to find it in **Files**, open and picked, ready to see its versions or restore it.
-
-<a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/sizemap-dark.png"><img alt="The size map of a snapshot: Documents and Projects as blocks, with Finance and Letters inside Documents" src="images/sizemap-light.png"></picture></a>
 
 ## A file's versions
 
@@ -50,6 +47,12 @@ Tick what you want back: files, folders, or a mix. A ticked folder comes back wi
 Then click **Restore**. Each file is written under a temporary name and only takes its real name once it's complete, so a restore that's stopped never leaves half a file. Files get back their modified times and permissions. A deleted file comes from the last snapshot that had it. After a restore to the original location, Keepr backs the plan up, so what you restored is in the latest snapshot and stops showing as deleted.
 
 A restore runs like a backup, one job at a time, and shows in [Activity](day-to-day.md#activity). Files backed up from an S3 bucket can only be restored to a folder on the Mac, never back into the bucket.
+
+## Seeing what takes the space
+
+**Size map**, beside **Files** above the list, shows the snapshot as a map instead of a list. It draws each folder as a block as big as what it holds, nested inside the folder it's in and coloured by how deep it is, so what takes the space shows at a glance. The files directly in a folder are one dashed block, and folders too small to draw are another. Click a folder to zoom into it, and the path bar above the map to come back out. ⌘-click a folder, or click a dashed block, to find it in **Files**, open and picked, ready to see its versions or restore it.
+
+<a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/sizemap-dark.png"><img alt="The size map of a snapshot: Documents and Projects as blocks, with Finance and Letters inside Documents" src="images/sizemap-light.png"></picture></a>
 
 ## Finding a file in any backup
 
