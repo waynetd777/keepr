@@ -30,9 +30,11 @@ Keepr connects to the share when a backup needs it, out of sight of Finder, and 
 
 ## Cloud folders on this Mac
 
-iCloud Drive, OneDrive, Google Drive, Dropbox and the like, where they're synced to this Mac. Keepr writes the backup into the local folder (**Folder inside**, `Keepr` unless you change it), and the service uploads it. One that's turned off is shown greyed out with the reason.
+iCloud Drive, Google Drive, OneDrive, Dropbox, Box and any other service whose Mac app syncs a folder in Finder's sidebar under **Locations**. Install the service's app (Google Drive for desktop, the OneDrive or Dropbox app, Box Drive…) and sign in, and its folder appears in the list; Keepr needs nothing else from the service. Keepr writes the backup into that folder (**Folder inside**, `Keepr` unless you change it), and the service's app uploads it. One that's turned off is shown greyed out with the reason.
 
-The backup takes space on the Mac as well as in the cloud until the service offloads it: turn on **Optimise Mac Storage** (iCloud) or **Files On-Demand** (OneDrive) to let it.
+An older Dropbox app that keeps its folder at `~/Dropbox` isn't listed; choose that folder with **Folder or drive** instead.
+
+The backup takes space on the Mac as well as in the cloud until the service offloads it: turn on **Optimise Mac Storage** (iCloud), **Files On-Demand** (OneDrive), **Stream files** (Google Drive) or **online-only** files (Dropbox) to let it.
 
 ## S3 bucket
 

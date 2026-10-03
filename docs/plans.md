@@ -14,7 +14,7 @@ A new plan starts on: hourly, every backup kept for a day, then one a day for 30
 
 - **Folder or drive…** — any folders on this Mac or a connected drive. Pick several at once.
 - **SMB share on the network…** — a folder on a NAS or another computer. Keepr lists the servers it finds; fill in the **User name**, **Password** and **Share** (**List** shows the shares), and **Folder in the share** (`/` for all of it). A login Finder or Keepr has already saved is filled in for you.
-- **In iCloud Drive…**, **In OneDrive…** and so on — a folder in a cloud service synced to this Mac.
+- **In iCloud Drive…**, **In Google Drive…**, **In OneDrive…** and so on — a folder in a cloud service synced to this Mac (see [Cloud folders on this Mac](destinations.md#cloud-folders-on-this-mac)).
 - **S3 bucket…** — a bucket at Amazon S3, Backblaze B2, Cloudflare R2 or another S3 service. Keepr can make a read-only key for it (see [Destinations](destinations.md#amazon-s3) for how the setup works), or you can enter one. **Check** tells you how much is in it. For Amazon, note that data leaving AWS costs about $0.09 a GB.
 
 Keepr only reads your sources. It never changes or moves them. Each source can have its own name; click it to change it.
@@ -32,7 +32,7 @@ Rules leave files and folders out of the backup. A new plan leaves out `node_mod
 | `~/Movies` or `/Volumes/Scratch` | That folder and everything in it |
 
 - **Follow .gitignore files in projects** leaves out what a project's `.gitignore` does.
-- **Skip files that are only in the cloud (they aren't downloaded)** leaves out files iCloud Drive, OneDrive and the like have removed from the Mac to save space. Untick it and Keepr downloads them to back them up, and they stay downloaded.
+- **Skip files that are only in the cloud (they aren't downloaded)** leaves out files iCloud Drive, Google Drive, OneDrive, Dropbox and the like have removed from the Mac to save space. Untick it and Keepr downloads them to back them up, and they stay downloaded.
 - **Skip what apps mark as not needing a backup, as Time Machine does** leaves out what apps have marked as not needing a backup, such as their caches and downloaded data they can fetch again. Time Machine skips the same things.
 - **Skip files larger than** leaves out anything bigger than 1, 2, 4, 10 or 50 GB.
 

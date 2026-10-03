@@ -8,7 +8,7 @@ Keepr is a backup app for macOS. It keeps every version of the files you choose,
 |---|---|
 | [Backup plans](plans.md) | What to back up and leave out, when, the versions to keep, encryption |
 | [Restore](restore.md) | Going back to a moment, a file's versions, comparing, finding a file in any backup |
-| [Destinations](destinations.md) | Folders and drives, SMB shares, cloud folders, S3, Backblaze B2 and Cloudflare R2 |
+| [Destinations](destinations.md) | Folders and drives, SMB shares, cloud folders (iCloud Drive, Google Drive, OneDrive, Dropbox, Box…), S3, Backblaze B2 and Cloudflare R2 |
 | [Day to day](day-to-day.md) | The menu bar, Activity, notifications, Settings, and how the backups are stored |
 
 ## First run
