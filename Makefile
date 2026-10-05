@@ -15,12 +15,13 @@ SIGN_ID  := $(APPLE_SIGNING_IDENTITY)
 # "-" is an ad-hoc signature: an empty identity makes the bundler fail instead.
 export APPLE_SIGNING_IDENTITY := $(if $(SIGN_ID),$(SIGN_ID),-)
 
-.PHONY: check test lint fmt app install-app dmg dev icons sign-check screenshots help
+.PHONY: check test lint fmt app install-app dmg dev icons sign-check screenshots
 
-## cargo test (the engine and the app), TypeScript type-check, then make lint.
+## cargo test (the engine and the app), TypeScript type-check and tests (vitest), then make lint.
 check:
 	cd src-tauri && cargo test -p keepr-engine && cargo test --lib -p keepr
 	npx tsc --noEmit -p tsconfig.json
+	npx vitest run
 	@$(MAKE) --no-print-directory lint
 
 ## Formatting (rustfmt, Prettier), Clippy, ESLint and the licence headers, all checked, nothing changed.
@@ -53,8 +54,7 @@ RELEASE_ENV := SDKROOT=$(lastword $(OLD_SDK))
 endif
 
 # Each release build bumps the version (tools/bump_version.py: 0.1.0 → 0.1.1) and gets its own
-# build number, the same on the app (CFBundleVersion), its Help Book and the binary (Settings shows both).
-# macOS caches the Help Book by its version and only re-reads a new one, so every release needs one.
+# build number, the same on the app (CFBundleVersion) and the binary (Settings shows both).
 BUILD := $(shell date +%Y%m%d.%H%M%S)
 
 ## Bump the version (or set it: make app VERSION=1.1.0) and build the .app, signed with the identity in signing.local when there is one.
@@ -73,9 +73,6 @@ install-app: app
 	@rm -rf "/Applications/Keepr.app"
 	@ditto "$(APP)" "/Applications/Keepr.app"
 	@echo "installed /Applications/Keepr.app"
-	@# helpd keeps the old book cached under the same path and then shows "content unavailable", so drop its cache and re-register.
-	@killall helpd 2>/dev/null || true
-	@rm -rf ~/Library/Caches/com.apple.helpd/*
 	@/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "/Applications/Keepr.app"
 
 ## Pack the built app into the release DMG (src-tauri/target/release/bundle/dmg/), laid out like other Mac installers.
@@ -96,9 +93,5 @@ screenshots:
 sign-check:
 	@codesign -dv --verbose=2 "/Applications/Keepr.app" 2>&1 | grep -E "^(Identifier|Authority|Signature|TeamIdentifier)"
 
-## Build the Help Book from docs/ (the release build does this itself; for the dev build's Help menu).
-help:
-	@python3 tools/helpbook.py
-
-dev: help
+dev:
 	npm run tauri dev

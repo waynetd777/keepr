@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Keepr",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "identifier": "com.wayned.keepr",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "python3 tools/helpbook.py && npm run build",
+    "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -57,10 +57,7 @@
     ],
     "macOS": {
       "minimumSystemVersion": "13.0",
-      "entitlements": "Entitlements.plist",
-      "files": {
-        "Resources/Keepr.help": "gen/help/Keepr.help"
-      }
+      "entitlements": "Entitlements.plist"
     }
   }
 }

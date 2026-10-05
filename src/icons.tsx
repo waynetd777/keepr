@@ -48,6 +48,12 @@ const paths: Record<string, JSX.Element> = {
       <path d="m20 20-3.5-3.5" />
     </>
   ),
+  help: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.4 9.2a2.7 2.7 0 0 1 5.2 1c0 1.8-2.6 2.5-2.6 2.5M12 16.8h.01" />
+    </>
+  ),
   back: <path d="m15 18-6-6 6-6" />,
   forward: <path d="m9 18 6-6-6-6" />,
   down: <path d="m6 9 6 6 6-6" />,

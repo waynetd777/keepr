@@ -29,7 +29,7 @@ To have Keepr start when you log in, turn on **Open at Login** in [Settings](day
 
 ## The window
 
-The sidebar has **Backup Plans** (⌘1), **Restore** (⌘2), **Activity** (⌘3) and **Destinations** (⌘4), with **Settings** (⌘,) at the bottom. The toolbar has **Back** (⌘[) and **Forward** (⌘]), a search box, **Find a file in any backup** (⌘K), and **Back up now** (⌘B), which backs up every plan that's on. While a backup runs, the toolbar shows its progress and a **Stop** button.
+The sidebar has **Backup Plans** (⌘1), **Restore** (⌘2), **Activity** (⌘3) and **Destinations** (⌘4), with **Settings** (⌘,) at the bottom. The toolbar has **Back** (⌘[) and **Forward** (⌘]), a search box, **Find a file in any backup** (⌘K), and **Back up now** (⌘B), which backs up every plan that's on. While a backup runs, the toolbar shows its progress and a **Stop** button. The **?** at its right end, or `?`, opens [help](day-to-day.md#help) for the screen you're on.
 
 Closing the window doesn't quit Keepr: it leaves the Dock and keeps backing up from the [menu bar](day-to-day.md#the-menu-bar). Click Keepr in the Dock or the menu bar to bring the window back, and use **Quit Keepr** in the menu bar to stop it.
 

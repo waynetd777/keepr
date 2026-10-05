@@ -2,15 +2,12 @@
 // See LICENSE for the full text.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The Help menu's "Keepr Help" (⌘?), opening the Help Book tools/helpbook.py builds from docs/.
-//! The app's Info.plist names the book, so macOS also searches it from the Help menu's search
-//! field. A dev build has no bundle to hold the book, so there it opens the built pages in the browser.
+//! The Help menu's "Keepr Help" (⌘?), opening the window's help drawer (src/help).
 
 use tauri::menu::{MenuItem, HELP_SUBMENU_ID};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter};
 
 pub const MENU_ID: &str = "help";
-const BOOK: &str = "Keepr.help";
 const TITLE: &str = "Keepr Help";
 
 /// Adds the item to the Help menu of the app's default menu. Main thread, as setup is.
@@ -46,32 +43,8 @@ fn set_shortcut() {
     }
 }
 
-/// The book in the app's Resources, when running from a bundle.
-fn bundled(app: &AppHandle) -> Option<std::path::PathBuf> {
-    app.path().resource_dir().ok().map(|d| d.join(BOOK)).filter(|p| p.exists())
-}
-
-pub fn show(app: &AppHandle) {
-    if bundled(app).is_some() {
-        #[cfg(target_os = "macos")]
-        unsafe {
-            use objc2::runtime::{AnyClass, AnyObject};
-            let Some(cls) = AnyClass::get(c"NSApplication") else { return };
-            let nsapp: *mut AnyObject = objc2::msg_send![cls, sharedApplication];
-            let _: () = objc2::msg_send![nsapp, showHelp: std::ptr::null::<AnyObject>()];
-        }
-        return;
-    }
-    // Only a dev build looks in the source tree (and only it has the path compiled in).
-    #[cfg(debug_assertions)]
-    {
-        use tauri_plugin_opener::OpenerExt;
-        let page =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gen/help").join(BOOK).join("Contents/Resources/en.lproj/index.html");
-        if page.exists() {
-            let _ = app.opener().open_path(page.to_string_lossy(), None::<&str>);
-        } else {
-            eprintln!("no help built: run python3 tools/helpbook.py");
-        }
-    }
+/// The help drawer, in the window, brought forward first.
+pub fn show_drawer(app: &AppHandle) {
+    crate::show_main(app);
+    let _ = app.emit_to("main", "help", ());
 }

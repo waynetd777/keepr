@@ -1362,7 +1362,7 @@ pub fn run() {
         ])
         .on_menu_event(|app, ev| {
             if ev.id() == help::MENU_ID {
-                help::show(app);
+                help::show_drawer(app);
             }
         })
         .setup(move |app| {

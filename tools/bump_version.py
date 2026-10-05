@@ -11,7 +11,7 @@ or locally when origin can't be reached) is kept, so local builds don't use up n
     python3 tools/bump_version.py 1.1.0      # set it (a minor or major step is chosen by hand)
 
 `make app` runs it before every release build. The build number (CFBundleVersion) is separate: the
-Makefile stamps one per build on the app, its binary.
+Makefile stamps one per build on the app and its binary.
 """
 import json, re, subprocess, sys
 from pathlib import Path

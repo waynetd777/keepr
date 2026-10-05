@@ -2,7 +2,7 @@
 
 Once your plans are set up, Keepr backs up on its own from the menu bar, whether or not its window is open. This page is about keeping an eye on it: the menu bar, Activity, notifications and Settings, and what Keepr does in the background.
 
-[The menu bar](#the-menu-bar) · [Activity](#activity) · [Notifications](#notifications) · [Settings](#settings) · [In the background](#in-the-background) · [How backups are stored](#how-backups-are-stored)
+[The menu bar](#the-menu-bar) · [Activity](#activity) · [Notifications](#notifications) · [Settings](#settings) · [Help](#help) · [In the background](#in-the-background) · [How backups are stored](#how-backups-are-stored)
 
 ## The menu bar
 
@@ -42,6 +42,16 @@ A check that finds a problem with the stored data always tells you.
 - **Appearance**: **Match the Mac**, **Light** or **Dark**.
 
 The foot of Settings shows Keepr's version and build, and its licence.
+
+## Help
+
+Press `?`, click **?** at the right of the toolbar, or choose Help › **Keepr Help** (⌘?) to open help for the screen you're on, at the side of the window. It stays open while you use the screen; Esc or × closes it.
+
+<a href="images/index.md#day-to-day"><picture><source media="(prefers-color-scheme: dark)" srcset="images/help-dark.png"><img alt="Help for Restore, at the side of the window, with the getting-started guides below" src="images/help-light.png"></picture></a>
+
+- **Search the help** searches every topic.
+- **Getting started** has three guides, **Start here**, **Get a file back** and **Keep an eye on it**, a step at a time, with links that take you to the screen each step is about. A finished guide is marked **Done**.
+- **Keyboard** lists the keys for the screen, and **All topics** the help for the others.
 
 ## In the background
 

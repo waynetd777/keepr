@@ -27,8 +27,7 @@ It opens normally after that. The first time you use some features, macOS asks f
 - **Restore.** Step back through the snapshots, see every version of a file, Quick Look it or compare it with the file on the Mac, and restore to where it was or somewhere else. Right-click a file for the same and more, or show it in Finder. A size map shows what takes the space, in one snapshot or across every plan. Find a file in every backup at once. [Restore](docs/restore.md)
 - **Destinations.** Folders and drives, NAS shares, iCloud Drive, OneDrive and other cloud folders, Amazon S3, Backblaze B2, Cloudflare R2 and other S3 services, with helpers that make the bucket and a key that can only use it. [Destinations](docs/destinations.md)
 - **In the menu bar.** Keepr keeps backing up with the window closed, waits for drives, batteries and hotspots, catches up after sleep, checks the backups can be read back, and tells you when something goes wrong. [Day to day](docs/day-to-day.md)
-
-The same guides are in the app's Help menu (⌘?).
+- **Help in the app.** `?` or ⌘? opens help for the screen you're on at the side of the window, with search and step-by-step getting-started guides. [Help](docs/day-to-day.md#help)
 
 ## Licence
 

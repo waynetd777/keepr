@@ -83,5 +83,13 @@
       "name": "search",
       "query": "notes"
     }
+  },
+  {
+    "name": "help",
+    "screen": {
+      "name": "restore",
+      "plan": "docs00000001"
+    },
+    "help": {}
   }
 ]

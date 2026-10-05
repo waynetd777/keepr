@@ -18,6 +18,7 @@ import Settings from "./Settings";
 import Search from "./Search";
 import PlansMap from "./PlansMap";
 import { hideSplash } from "./splash";
+import { HelpButton, HelpDrawer, openHelp, type HelpView } from "./help/HelpDrawer";
 
 // Backup Plans is the overview of every plan; a plan's settings open from its card.
 const NAV: [Screen["name"], string, string, string][] = [
@@ -158,6 +159,7 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
           Back up now
         </button>
       )}
+      <HelpButton />
     </header>
   );
 }
@@ -196,10 +198,11 @@ export default function App() {
       refresh();
       if (!sc) return;
       document.documentElement.dataset.scene = "1";
-      const s = JSON.parse(sc) as { screen?: Screen; theme?: string; splash?: boolean };
+      const s = JSON.parse(sc) as { screen?: Screen; theme?: string; splash?: boolean; help?: HelpView };
       if (s.splash) document.documentElement.dataset.keepSplash = "1";
       if (s.theme) document.documentElement.dataset.theme = s.theme;
       if (s.screen) setScreen(s.screen);
+      if (s.help) openHelp(s.help);
     });
     const un1 = on("changed", () => refresh());
     const un2 = on<JobStatus>("job", (j) => setJob(j));
@@ -279,6 +282,7 @@ export default function App() {
               <Settings />
             )}
           </main>
+          <HelpDrawer />
         </div>
         <Tooltips />
       </ToastProvider>
