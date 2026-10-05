@@ -37,9 +37,13 @@ Click a file to see every version the backup keeps of it, newest first, each wit
 
 Click a folder to see its size and how many items it held at that snapshot.
 
+Under a file's versions, or a folder's size, **Show in Finder** opens the folder it's in on your Mac, with it selected; it's greyed out for something no longer on your Mac. **Remove from backup…** is beside it (see [Removing something from a backup](#removing-something-from-a-backup)).
+
+Right-click a file or folder in the list for the same things in one place: **Quick Look** and **Compare with current** for a file in this snapshot, **Expand** or **Collapse** for a folder, **Restore** it on its own (to where the bar at the bottom says), **Select** or **Unselect** it, **Show in Finder**, **Copy path** and **Remove from backup…**. Right-click one of several ticked items to restore, unselect, copy the paths of or remove them all at once; what works on one item at a time (Quick Look, Compare with current, Expand, Show in Finder, and the buttons beside the versions) is greyed out for it.
+
 ## Restoring
 
-Tick what you want back: files, folders, or a mix. A ticked folder comes back with everything in it as it was then, and what's inside it shows ticked too; untick one of those to leave just that out. A folder with only some of what's inside it ticked shows a dash. The box above the list ticks everything, or nothing. The bar at the bottom says how much you've chosen, and:
+Tick what you want back: files, folders, or a mix. A ticked folder comes back with everything in it as it was then, and what's inside it shows ticked too; untick one of those to leave just that out. A folder with only some of what's inside it ticked shows a dash. The box above the list ticks everything, or nothing. The bar at the bottom says how much you've selected, and:
 
 - **Restore to** — **Original location**, where each item was, making any folders that no longer exist; or **Another folder…**, where items keep their folders inside the folder you choose.
 - **If a file is already there** — **Keep both (add "restored")**, which names the restored copy "Budget (restored).numbers"; **Replace it**; or **Skip it**.

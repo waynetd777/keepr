@@ -147,7 +147,8 @@ export function Sheet({
   );
 }
 
-/** A pop-up menu under the element that opened it; closes on a click elsewhere or Escape. */
+/** A pop-up menu under the element that opened it, or at the pointer for a right-click (openAt);
+ *  closes on a click elsewhere or Escape. */
 export function useMenu() {
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -166,10 +167,18 @@ export function useMenu() {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     setAt(at ? null : { x: r.left, y: r.bottom + 4 });
   };
+  const openAt = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setAt({ x: e.clientX, y: e.clientY });
+  };
   const Menu = ({ children, width = 260 }: { children: ReactNode; width?: number }) =>
     at ? (
       <div
-        ref={ref}
+        ref={(el) => {
+          ref.current = el;
+          // Near the bottom of the window, open upwards instead.
+          if (el && el.getBoundingClientRect().bottom > window.innerHeight - 8) el.style.top = `${Math.max(8, at.y - el.offsetHeight)}px`;
+        }}
         className="menu"
         role="menu"
         style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - width - 12), top: at.y, width }}
@@ -178,7 +187,7 @@ export function useMenu() {
         {children}
       </div>
     ) : null;
-  return { open, close: () => setAt(null), Menu, isOpen: !!at };
+  return { open, openAt, close: () => setAt(null), Menu, isOpen: !!at };
 }
 
 const ToastContext = createContext<(msg: string) => void>(() => {});

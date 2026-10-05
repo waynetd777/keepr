@@ -8,24 +8,29 @@
 Makes a demo in .demo/ (gitignored): sample folders in a demo home, a backup folder as the
 destination, and a drive that isn't connected. It backs the folders up a few times with `Keepr --back-up`, editing
 files between runs, so there are snapshots and versions to show. Then it launches the dev build
-once per scene and theme with the scene in KEEPR_SCENE (the app saves and runs nothing), and
-captures the window. Nothing outside .demo/ is read or written, and no snapshots of the Mac are
-taken (KEEPR_NO_STILL).
+once per scene and theme with the scene in KEEPR_SCENE (the app saves and runs nothing). The
+window is invisible and takes no focus, so nothing flashes on screen: the app saves its webview's
+snapshot to KEEPR_SNAPSHOT, and the window's buttons and rounded corners are drawn back on it
+here. Nothing outside .demo/ is read or written, and no snapshots of the Mac are taken
+(KEEPR_NO_STILL).
 
     python3 tools/screenshots.py                 # every scene, light and dark
     python3 tools/screenshots.py restore         # one scene
     python3 tools/screenshots.py --theme dark    # one theme
     python3 tools/screenshots.py --fresh         # remake the demo first
+    python3 tools/screenshots.py -j 1            # one at a time (default: 4 side by side)
+    python3 tools/screenshots.py --release       # the built app (make app)
 
-Needs the Vite dev server (started here if it isn't running), Screen Recording permission for the
-terminal, Pillow and swiftc.
+Needs the Vite dev server (started here if it isn't running) and Pillow.
 """
 
 import argparse
+import concurrent.futures
 import io
 import json
 import os
 import pathlib
+import queue
 import random
 import shutil
 import signal
@@ -35,17 +40,17 @@ import tempfile
 import time
 import urllib.request
 
-from PIL import Image, ImageCms
+from PIL import Image, ImageCms, ImageDraw, ImageStat
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HERE = ROOT / "tools" / "screenshots"
 DEMO = ROOT / ".demo"
 OUT = ROOT / "docs" / "images"
 BIN = ROOT / "src-tauri" / "target" / "debug" / "Keepr"
+RELEASE_BIN = ROOT / "src-tauri" / "target" / "release" / "bundle" / "macos" / "Keepr.app" / "Contents" / "MacOS" / "Keepr"
 DEV_URL = "http://localhost:1420"
 WIDTH = 1400
 SETTLE = 5.0
-
 
 def to_srgb(im):
     icc = im.info.get("icc_profile")
@@ -76,16 +81,13 @@ def dev_server():
     sys.exit("the Vite dev server didn't start")
 
 
-def build(tmp):
+def build():
     subprocess.run(["cargo", "build", "--no-default-features"], cwd=ROOT / "src-tauri", check=True)
-    exe = pathlib.Path(tmp) / "window_id"
-    subprocess.run(["swiftc", "-O", str(HERE / "window_id.swift"), "-o", str(exe)], check=True)
-    return exe
 
 
-def env():
+def env(data=DEMO / "data"):
     # HOME is the demo's, so paths show as ~/Documents and not as where this repo is on this Mac.
-    return {**os.environ, "HOME": str(DEMO / "Home"), "KEEPR_DATA": str(DEMO / "data"), "KEEPR_NO_STILL": "1"}
+    return {**os.environ, "HOME": str(DEMO / "Home"), "KEEPR_DATA": str(data), "KEEPR_NO_STILL": "1"}
 
 
 def write(p, data):
@@ -168,46 +170,83 @@ def make_demo():
     back_up("pics00000001")
 
 
-def window_of(window_id, pid, timeout=30, any_layer=False):
-    end = time.time() + timeout
-    while time.time() < end:
-        out = subprocess.run([str(window_id), str(pid)] + (["any"] if any_layer else []), capture_output=True, text=True).stdout.strip()
-        if out:
-            return out
-        time.sleep(0.3)
-    return None
-
-
-def shoot(scene, theme, window_id):
-    sc = {k: v for k, v in scene.items() if k not in ("name", "crop")}
+def capture(scene, theme, data):
+    """Launches the app on the scene, unseen, and returns its webview's snapshot as an sRGB image, or None."""
+    sc = {k: v for k, v in scene.items() if k not in ("name", "crop", "width")}
     sc["theme"] = theme
-    # "{home}" in a scene is the demo's home folder, for the paths of files in it.
-    app = subprocess.Popen([str(BIN)], cwd=ROOT / "src-tauri", env={**env(), "KEEPR_SCENE": json.dumps(sc).replace("{home}", str(DEMO / "Home"))}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    try:
-        floating = bool(scene.get("tray"))
-        win = window_of(window_id, app.pid, any_layer=floating)
-        if not win:
-            print(f"  {scene['name']} {theme}: no window")
-            return False
-        time.sleep(SETTLE)
-        win = window_of(window_id, app.pid, timeout=5, any_layer=floating) or win
-        with tempfile.NamedTemporaryFile(suffix=".png") as raw:
-            subprocess.run(["screencapture", "-x", "-o", f"-l{win}", raw.name], check=True)
-            im = Image.open(raw.name)
+    with tempfile.TemporaryDirectory() as tmp:
+        shot = pathlib.Path(tmp) / "shot.tiff"
+        app = subprocess.Popen(
+            [str(BIN)],
+            cwd=ROOT / "src-tauri",
+            env={
+                **env(data),
+                "KEEPR_SCENE": json.dumps(sc).replace("{home}", str(DEMO / "Home")),
+                "KEEPR_SNAPSHOT": str(shot),
+                "KEEPR_SNAPSHOT_AFTER": str(SETTLE),
+            },
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            # The app writes the file whole (atomically) once WebKit has drawn it.
+            end = time.time() + SETTLE + 30
+            while not shot.exists() and app.poll() is None and time.time() < end:
+                time.sleep(0.2)
+            if not shot.exists():
+                return None
+            im = Image.open(shot)
             im.load()
-            im = to_srgb(im)
-        if not floating:
-            im = im.resize((WIDTH, round(im.height * WIDTH / im.width)), Image.LANCZOS)
-        if "crop" in scene:
-            x, y, w, h = scene["crop"]
-            im = im.crop((x, y, x + w, y + h))
-        out = OUT / f"{scene['name']}-{theme}.png"
-        im.save(out, optimize=True)
-        print(f"  {out.relative_to(ROOT)}  {im.width}x{im.height}")
-        return True
-    finally:
-        app.send_signal(signal.SIGKILL)
-        app.wait()
+            return to_srgb(im.convert("RGBA") if im.mode not in ("RGB", "RGBA") else im)
+        finally:
+            app.send_signal(signal.SIGKILL)
+            app.wait()
+
+
+def chrome(im, theme):
+    """Draws back what a webview snapshot leaves out: the window's (unfocused) buttons and its
+    rounded corners, as a capture of the window showed them."""
+    k = 4  # drawn large and scaled down, for smooth edges
+    w, h = im.size
+    over = Image.new("RGBA", (w * k, h * k))
+    d = ImageDraw.Draw(over)
+    fill, rim = ((230, 231, 233), (220, 221, 223)) if theme == "light" else ((126, 127, 129), (140, 141, 143))
+    for cx in (23.5, 46, 68.5):
+        cy, r = 19, 7
+        d.ellipse([(cx - r) * k, (cy - r) * k, (cx + r) * k, (cy + r) * k], fill=fill + (255,), outline=rim + (255,), width=k)
+    im = Image.alpha_composite(im.convert("RGBA"), over.resize((w, h), Image.LANCZOS))
+    mask = Image.new("L", (w * k, h * k))
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, w * k - 1, h * k - 1], radius=16 * k, fill=255)
+    im.putalpha(mask.resize((w, h), Image.LANCZOS))
+    return im
+
+
+def blank(im):
+    # An undrawn webview is one flat colour; the splash, the sparsest scene, is well above this.
+    return ImageStat.Stat(im.convert("L")).stddev[0] < 1
+
+
+def shoot(scene, theme, data):
+    # A shot that came out blank (or never came) is taken again, from a fresh launch.
+    for _ in range(3):
+        im = capture(scene, theme, data)
+        if im is not None and not blank(im):
+            break
+    else:
+        print(f"  {scene['name']} {theme}: " + ("no window" if im is None else "blank"))
+        return False
+    # The menu-bar window keeps its natural 2x size; the main window is scaled to WIDTH.
+    if not scene.get("tray"):
+        im = im.resize((WIDTH, round(im.height * WIDTH / im.width)), Image.LANCZOS)
+    if not scene.get("tray"):
+        im = chrome(im, theme)
+    if "crop" in scene:
+        x, y, w, h = scene["crop"]
+        im = im.crop((x, y, x + w, y + h))
+    out = OUT / f"{scene['name']}-{theme}.png"
+    im.save(out, optimize=True)
+    print(f"  {out.relative_to(ROOT)}  {im.width}x{im.height}")
+    return True
 
 
 def main():
@@ -215,19 +254,44 @@ def main():
     ap.add_argument("names", nargs="*")
     ap.add_argument("--theme", choices=["light", "dark"], action="append")
     ap.add_argument("--fresh", action="store_true", help="remake the demo data")
+    ap.add_argument("-j", type=int, default=4, metavar="N", help="apps to run side by side (default 4)")
+    ap.add_argument("--release", action="store_true", help="run the built app (make app) instead of the dev build")
     a = ap.parse_args()
+    global BIN
+    if a.release:
+        if not RELEASE_BIN.exists():
+            sys.exit("no built app: run make app first")
+        BIN = RELEASE_BIN
     scenes = json.loads((HERE / "scenes.json").read_text())
     if a.names:
         scenes = [s for s in scenes if s["name"] in a.names]
     themes = a.theme or ["light", "dark"]
     OUT.mkdir(parents=True, exist_ok=True)
-    server = dev_server()
+    server = None if a.release else dev_server()
     try:
         with tempfile.TemporaryDirectory() as tmp:
-            window_id = build(tmp)
+            if not a.release:
+                build()
             if a.fresh or not (DEMO / "data" / "state.json").exists():
                 make_demo()
-            ok = all([shoot(s, t, window_id) for s in scenes for t in themes])
+            # Each app running at once gets its own copy of the app data.
+            jobs = [(s, t) for s in scenes for t in themes]
+            n = max(1, min(a.j, len(jobs)))
+            free = queue.Queue()
+            for i in range(n):
+                data = pathlib.Path(tmp) / f"data-{i}"
+                shutil.copytree(DEMO / "data", data)
+                free.put(data)
+
+            def one(job):
+                data = free.get()
+                try:
+                    return shoot(*job, data)
+                finally:
+                    free.put(data)
+
+            with concurrent.futures.ThreadPoolExecutor(n) as pool:
+                ok = all(list(pool.map(one, jobs)))
     finally:
         if server:
             server.terminate()

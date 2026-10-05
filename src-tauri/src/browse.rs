@@ -249,6 +249,53 @@ fn against_disk(
 /// One folder in the Restore screen's size map: its size, the files directly in it taken
 /// together, its biggest folders (expanded biggest first, as far as the budget goes), and the
 /// rest of its folders taken together.
+/// Where a backed-up item is on the Mac now, for Show in Finder. A plan's SMB share is connected
+/// first, as a backup connects it; one mounted somewhere else this time (/Volumes/backup-1, say)
+/// has the path moved onto where it is now.
+pub fn on_mac(core: &Core, plan: &str, path: &str) -> Result<std::path::PathBuf, String> {
+    use crate::config::Place;
+    use std::path::{Component, Path, PathBuf};
+    let p = core.config.lock().unwrap().plans.iter().find(|p| p.id == plan).cloned().ok_or("That plan is gone.")?;
+    let name = path.rsplit('/').next().unwrap_or(path).to_string();
+    let gone = || format!("{name} isn't on your Mac any more.");
+    let mut found = None;
+    for s in &p.sources {
+        match s {
+            Place::Folder { path: root, .. } if Path::new(path).starts_with(root) => {
+                found = Some(PathBuf::from(path));
+                break;
+            }
+            Place::Smb(_) => {
+                let base = crate::places::resolve(s, &core.mounts, true, true)?;
+                if Path::new(path).starts_with(&base) {
+                    found = Some(PathBuf::from(path));
+                    break;
+                }
+                // Backed up from /Volumes/<share> under another name: the rest of the path is the same.
+                let mut parts = Path::new(path).components();
+                if let (Some(Component::RootDir), Some(Component::Normal(v)), Some(Component::Normal(_))) =
+                    (parts.next(), parts.next(), parts.next())
+                {
+                    if v == "Volumes" {
+                        let mount = crate::places::mount_point(&base).unwrap_or_else(|| base.clone());
+                        let moved = mount.join(parts.as_path());
+                        if moved.starts_with(&base) {
+                            found = Some(moved);
+                            break;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let at = found.ok_or("It was backed up from somewhere Finder can't show, such as an S3 bucket.")?;
+    if std::fs::symlink_metadata(&at).is_err() {
+        return Err(gone());
+    }
+    Ok(at)
+}
+
 #[derive(Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct MapDir {

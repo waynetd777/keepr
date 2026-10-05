@@ -12,7 +12,13 @@ export type Screen =
   | { name: "overview" }
   | { name: "sizemap" }
   | { name: "plans"; plan?: string; isNew?: boolean }
-  | { name: "restore"; plan?: string; query?: string; focus?: { snapshot: string; path: string }; view?: "files" | "map" }
+  | {
+      name: "restore";
+      plan?: string;
+      query?: string;
+      focus?: { snapshot: string; path: string; inFiles?: boolean };
+      view?: "files" | "map";
+    }
   | { name: "search"; query: string }
   | { name: "activity" }
   | { name: "destinations"; add?: boolean }

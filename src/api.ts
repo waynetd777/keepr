@@ -232,6 +232,7 @@ export const api = {
   pauseHour: () => invoke<void>("pause_hour"),
   snapshots: (plan: string) => invoke<SnapInfo[]>("snapshots", { plan }),
   sizeMap: (plan: string, snapshot: string, path: string) => invoke<MapDir>("size_map", { plan, snapshot, path }),
+  showInFinder: (plan: string, path: string) => invoke<void>("show_in_finder", { plan, path }),
   listDir: (plan: string, snapshot: string, path: string, showDeleted: boolean) =>
     invoke<Entry[]>("list_dir", { plan, snapshot, path, showDeleted }),
   versions: (plan: string, path: string) => invoke<Version[]>("file_versions", { plan, path }),

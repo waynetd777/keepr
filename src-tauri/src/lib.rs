@@ -859,6 +859,14 @@ async fn snapshots(core: State<'_, Core_>, plan: String) -> Result<Vec<browse::S
         .map_err(|e| e.to_string())?
 }
 
+/// Show in Finder: the backed-up item where it is on the Mac now, its SMB share connected first.
+#[tauri::command]
+async fn show_in_finder(core: State<'_, Core_>, plan: String, path: String) -> Result<(), String> {
+    let core = core.inner().clone();
+    let at = tauri::async_runtime::spawn_blocking(move || browse::on_mac(&core, &plan, &path)).await.map_err(|e| e.to_string())??;
+    tauri_plugin_opener::reveal_item_in_dir(at).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn size_map(core: State<'_, Core_>, plan: String, snapshot: String, path: String) -> Result<browse::MapDir, String> {
     let core = core.inner().clone();
@@ -1053,6 +1061,52 @@ fn activate() {
 
 #[cfg(not(target_os = "macos"))]
 fn activate() {}
+
+/// Makes a window invisible and click-through while it still draws, for screenshots
+/// (tools/screenshots.py saves its webview's snapshot): nothing flashes on screen. macOS only.
+fn make_unseen(w: &tauri::WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    if let Ok(ns) = w.ns_window() {
+        // Tauri's own NSWindow, alive as long as the window is; setup runs on the main thread.
+        let window = unsafe { &*(ns as *const objc2_app_kit::NSWindow) };
+        window.setAlphaValue(0.0);
+        window.setIgnoresMouseEvents(true);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = w;
+}
+
+/// Saves what the window's webview shows to `dest` as a TIFF, for screenshots taken unseen
+/// (make_unseen: an invisible window's own capture is blank, its webview's snapshot isn't). The
+/// file appears, written whole, once WebKit has drawn it. macOS only.
+fn snapshot(w: &tauri::WebviewWindow, dest: &std::path::Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let dest = dest.to_path_buf();
+        w.with_webview(move |wv| unsafe {
+            use objc2::runtime::AnyObject;
+            let webview = wv.inner() as *mut AnyObject;
+            let done = block2::RcBlock::new(move |image: *mut AnyObject, _error: *mut AnyObject| {
+                if image.is_null() {
+                    return;
+                }
+                let tiff: *mut AnyObject = objc2::msg_send![image, TIFFRepresentation];
+                if !tiff.is_null() {
+                    let path = objc2_foundation::NSString::from_str(&dest.to_string_lossy());
+                    let _: bool = objc2::msg_send![tiff, writeToFile: &*path, atomically: true];
+                }
+            });
+            let config: *mut AnyObject = std::ptr::null_mut();
+            let _: () = objc2::msg_send![webview, takeSnapshotWithConfiguration: config, completionHandler: &*done];
+        })
+        .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (w, dest);
+        Err("Snapshots are macOS only.".into())
+    }
+}
 
 fn show_main(app: &AppHandle) {
     // Back in the Dock before the window is shown: done afterwards, the window can come up
@@ -1290,6 +1344,7 @@ pub fn run() {
             snapshots,
             list_dir,
             size_map,
+            show_in_finder,
             file_versions,
             search_snapshot,
             search_everywhere,
@@ -1389,17 +1444,35 @@ pub fn run() {
             if tray_scene {
                 if let Some(t) = app.get_webview_window("tray") {
                     let _ = t.set_position(tauri::LogicalPosition::new(200.0, 120.0));
+                    make_unseen(&t);
                     let _ = t.show();
                 }
             }
+            // tools/screenshots.py: the scene's snapshot to KEEPR_SNAPSHOT, once it has settled.
+            if let (true, Some(out)) = (frozen, std::env::var_os("KEEPR_SNAPSHOT")) {
+                let label = if tray_scene { "tray" } else { "main" };
+                let after = std::env::var("KEEPR_SNAPSHOT_AFTER").ok().and_then(|s| s.parse().ok()).unwrap_or(5.0);
+                let app = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs_f64(after));
+                    if let Some(w) = app.get_webview_window(label) {
+                        let _ = snapshot(&w, std::path::Path::new(&out));
+                    }
+                });
+            }
             if let Some(w) = app.get_webview_window("main").filter(|_| !tray_scene) {
+                // Screenshots are taken at one size, unseen and out of the Dock, without taking the focus.
                 if frozen {
                     let _ = w.set_size(tauri::LogicalSize::new(1440.0, 900.0));
                     let _ = w.center();
+                    make_unseen(&w);
+                    set_in_dock(app.handle(), false);
                 }
                 if !quiet {
                     let _ = w.show();
-                    let _ = w.set_focus();
+                    if !frozen {
+                        let _ = w.set_focus();
+                    }
                 }
                 // Closing the window hides it; Keepr stays in the menu bar and keeps backing up.
                 let w2 = w.clone();
