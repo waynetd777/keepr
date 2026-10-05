@@ -6,6 +6,12 @@
     }
   },
   {
+    "name": "plans-map",
+    "screen": {
+      "name": "sizemap"
+    }
+  },
+  {
     "name": "restore",
     "screen": {
       "name": "restore",

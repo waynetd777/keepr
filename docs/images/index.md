@@ -13,6 +13,7 @@ On [the README](../../README.md).
 On [Features](../features.md).
 
 - Backup Plans: [light](overview-light.png) · [dark](overview-dark.png)
+- The size map of every plan: [light](plans-map-light.png) · [dark](plans-map-dark.png)
 - The splash screen: [light](splash-light.png) · [dark](splash-dark.png)
 
 ## Backup plans

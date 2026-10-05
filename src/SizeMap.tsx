@@ -2,13 +2,13 @@
 // See LICENSE for the full text.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Restore's size map: a snapshot's folders drawn as nested blocks, each as big as what it
-// holds, so what takes the space is plain at a glance. The layout is the squarified treemap
-// from Disk Usage Visualiser. Click a folder to zoom into it; ⌘-click, or a click on a block
-// of files, shows it in the Files list.
+// The size map: folders drawn as nested blocks, each as big as what it holds, so what takes
+// the space is plain at a glance. The layout is the squarified treemap from Disk Usage
+// Visualiser. Click a folder to zoom into it; ⌘-click, or a click on a block of files, shows
+// it. Restore draws one snapshot with it; the Size map screen draws every plan's latest.
 
 import { useEffect, useRef, useState } from "react";
-import { api, type MapDir } from "./api";
+import type { MapDir } from "./api";
 import { bytes, tilde } from "./format";
 import { Icon } from "./icons";
 
@@ -92,16 +92,24 @@ function childrenOf(d: MapDir): Item[] {
 const count = (n: number, one: string) => `${n.toLocaleString()} ${one}${n === 1 ? "" : "s"}`;
 
 export default function SizeMap({
-  plan,
-  snapshot,
+  load,
   home,
   onShow,
+  top = "Everything",
+  where,
+  showHint = "show in Files",
 }: {
-  plan: string;
-  snapshot: string;
+  /// The map of a folder by its path, "" for the top. A new function redraws from it.
+  load: (path: string) => Promise<MapDir>;
   home: string;
   /// Show a folder (or the folder a block of files is in) in the Files list.
   onShow: (path: string) => void;
+  /// The first crumb's name.
+  top?: string;
+  /// A path as the tooltip shows it.
+  where?: (path: string) => string;
+  /// What ⌘-click does, for the tooltip.
+  showHint?: string;
 }) {
   // The folder the map is zoomed into, and the way down to it for the path bar.
   const [at, setAt] = useState<{ path: string; name: string }[]>([{ path: "", name: "" }]);
@@ -117,7 +125,7 @@ export default function SizeMap({
     let live = true;
     setTree(null);
     setErr("");
-    api.sizeMap(plan, snapshot, here).then(
+    load(here).then(
       (t) => live && setTree(t),
       (e) => {
         if (!live) return;
@@ -128,7 +136,7 @@ export default function SizeMap({
     return () => {
       live = false;
     };
-  }, [plan, snapshot, here]);
+  }, [load, here]);
 
   const label = (name: string) => (name.startsWith("/") ? tilde(name, home) : name);
   const title = (b: Block) =>
@@ -248,24 +256,24 @@ export default function SizeMap({
     const { b, el } = hit;
     const d = b.dir;
     const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-    const where = esc(label(d.path) || "the backup");
+    const place = esc((where ? where(d.path) : label(d.path)) || "the backup");
     const share = (n: number) => (d.size ? `${Math.round((100 * n) / d.size)}%` : "—");
     let html: string;
     if (b.kind === "files") {
       html =
-        `<b>${title(b)} directly in ${esc(label(d.name) || "the backup")}</b><div class="p">${where}</div>` +
+        `<b>${title(b)} directly in ${esc(label(d.name) || "the backup")}</b><div class="p">${place}</div>` +
         `<div class="r"><span>Size</span><b>${bytes(d.looseSize)}</b><span>Share</span><b>${share(d.looseSize)}</b></div>` +
-        `<div class="hint">Click to show them in Files</div>`;
+        `<div class="hint">Click to ${showHint.replace("show", "show them")}</div>`;
     } else if (b.kind === "more") {
       html =
-        `<b>${title(b)} in ${esc(label(d.name) || "the backup")}</b><div class="p">${where}</div>` +
+        `<b>${title(b)} in ${esc(label(d.name) || "the backup")}</b><div class="p">${place}</div>` +
         `<div class="r"><span>Size</span><b>${bytes(d.moreSize)}</b><span>Share</span><b>${share(d.moreSize)}</b></div>` +
-        `<div class="hint">Each is too small to draw here. Click to see them in Files.</div>`;
+        `<div class="hint">Each is too small to draw here. Click to ${showHint.replace("show", "see them")}.</div>`;
     } else {
       html =
-        `<b>${esc(label(d.name))}</b><div class="p">${where}</div>` +
+        `<b>${esc(label(d.name))}</b><div class="p">${place}</div>` +
         `<div class="r"><span>Size</span><b>${bytes(d.size)}</b><span>Files</span><b>${d.files.toLocaleString()}</b></div>` +
-        `<div class="hint">${el.classList.contains("zoom") ? "Click to zoom in · " : ""}⌘-click to show in Files</div>`;
+        `<div class="hint">${el.classList.contains("zoom") ? "Click to zoom in · " : ""}⌘-click to ${showHint}</div>`;
     }
     tip.innerHTML = html;
     tip.hidden = false;
@@ -289,7 +297,7 @@ export default function SizeMap({
             <span key={c.path} className="row" style={{ gap: 4, minWidth: 0 }}>
               {i > 0 && <span className="faint">›</span>}
               <button className={i === at.length - 1 ? "on" : ""} onClick={() => setAt(at.slice(0, i + 1))}>
-                {i === 0 ? "Everything" : label(c.name)}
+                {i === 0 ? top : label(c.name)}
               </button>
             </span>
           ))}

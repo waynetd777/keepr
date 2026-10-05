@@ -47,6 +47,10 @@ A plan that has failed, is waiting (for its drive, say) or hasn't backed up for 
 
 On the right are **Space used**, across every plan, each destination with its free space, and **Recent**, the last few backups; **All activity** opens [Activity](day-to-day.md#activity).
 
+**Size map**, in the **Space used** card, shows every plan's latest backup as one map, a block per plan, each as big as the files it holds. Inside each plan its folders are blocks too, nested and coloured by how deep they are, so what takes the space shows at a glance. Click a plan or a folder to zoom into it, and the path bar above the map to come back out; ⌘-click one to open it in [Restore](restore.md). With only one plan the map starts at its folders. The sizes are of the files themselves, before de-duplication and compression, so the map's total won't match the space used. It's the same map as Restore's [size map](restore.md#seeing-what-takes-the-space), across all your plans.
+
+<a href="images/index.md#features"><picture><source media="(prefers-color-scheme: dark)" srcset="images/plans-map-dark.png"><img alt="The size map of every plan: Documents & Projects, Photos and Notes as blocks, with their folders inside" src="images/plans-map-light.png"></picture></a>
+
 ## Requirements
 
 A Mac with Apple silicon (M1 or later) and macOS 13 or later.

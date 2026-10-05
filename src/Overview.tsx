@@ -424,7 +424,17 @@ export default function Overview() {
 
       <aside className="col" style={{ width: 340, flexShrink: 0, gap: 16 }}>
         <div className="card pad col" style={{ gap: 12 }}>
-          <span className="caps">Space used</span>
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <span className="caps">Space used</span>
+            <a
+              href="#"
+              onClick={(e) => (e.preventDefault(), go({ name: "sizemap" }))}
+              className="small"
+              title="See which folders take the space"
+            >
+              Size map
+            </a>
+          </div>
           <div className="row" style={{ alignItems: "baseline", gap: 8 }}>
             <span className="big-number">{bytes(ov.storedBytes)}</span>
             <span className="muted">holds {bytes(ov.versionsBytes)} of versions</span>

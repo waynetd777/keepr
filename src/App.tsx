@@ -16,6 +16,7 @@ import Activity from "./Activity";
 import Destinations from "./Destinations";
 import Settings from "./Settings";
 import Search from "./Search";
+import PlansMap from "./PlansMap";
 import { hideSplash } from "./splash";
 
 // Backup Plans is the overview of every plan; a plan's settings open from its card.
@@ -38,7 +39,7 @@ function Sidebar() {
         {NAV.map(([name, label, icon, key]) => (
           <button
             key={name}
-            className={screen.name === name || (name === "overview" && screen.name === "plans") ? "on" : ""}
+            className={screen.name === name || (name === "overview" && (screen.name === "plans" || screen.name === "sizemap")) ? "on" : ""}
             onClick={() => go({ name } as Screen)}
             title={`${label} ${key}`}
           >
@@ -262,6 +263,8 @@ export default function App() {
             <Toolbar back={back} forward={forward} canBack={past.length > 0} canForward={future.length > 0} />
             {!ov || !cfg ? null : screen.name === "overview" ? (
               <Overview />
+            ) : screen.name === "sizemap" ? (
+              <PlansMap />
             ) : screen.name === "plans" ? (
               <Plans key={`${screen.plan ?? ""}-${screen.isNew ?? ""}`} />
             ) : screen.name === "restore" ? (

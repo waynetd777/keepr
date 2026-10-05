@@ -261,6 +261,8 @@ export default function Restore() {
   }, [planJob]);
 
   const snap = snaps?.[sel];
+  const snapId = snap?.id ?? "";
+  const mapLoad = useCallback((path: string) => api.sizeMap(planId ?? "", snapId, path), [planId, snapId]);
   const load = useCallback(
     async (path: string) => {
       if (!planId || !snap) return;
@@ -605,7 +607,7 @@ export default function Restore() {
 
         {snap && view === "map" && (
           <section className="card" style={{ flexGrow: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
-            <SizeMap plan={plan.id} snapshot={snap.id} home={home} onShow={showInFiles} />
+            <SizeMap load={mapLoad} home={home} onShow={showInFiles} />
           </section>
         )}
 
