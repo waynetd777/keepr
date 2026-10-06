@@ -8,7 +8,7 @@ summary: Open at Login, notifications, and appearance.
 Settings (`⌘,`) holds what applies to Keepr as a whole; what applies to one plan is in the plan.
 
 ## Open at Login
-Starts Keepr when you log in, in the menu bar with no window. It's the same setting as System Settings › General › Login Items.
+Starts Keepr when you log in, in the menu bar with no window. It's the same setting as System Settings › General › Login Items, and as the switch in the menu bar panel.
 
 ## Notifications
 - **Tell me when a backup fails** (on unless you turn it off): a backup, check or restore that didn't finish.

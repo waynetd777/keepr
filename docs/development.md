@@ -73,7 +73,7 @@ The Keychain still asks once after each new build, since a self-signed app has n
 
 ## Open at Login
 
-Works only in the app from `make install-app`, not under `make dev`. It registers the installed bundle with SMAppService, which survives rebuilds while the bundle identifier stays `com.wayned.keepr`.
+Works only in the app from `make install-app`, not under `make dev`. It registers the installed bundle with SMAppService, which survives rebuilds while the bundle identifier stays `com.wayned.keepr`. Screenshot scenes show it as available and on, so Settings and the menu bar panel look as they do installed.
 
 ## Help
 

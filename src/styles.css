@@ -589,6 +589,11 @@ p {
 .switch.on::after {
   left: 16px;
 }
+/* Screenshots: the window is hidden, so WebKit may not run a transition; draw the end state. */
+html[data-scene] .switch,
+html[data-scene] .switch::after {
+  transition: none;
+}
 .field {
   display: flex;
   flex-direction: column;

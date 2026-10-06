@@ -6,7 +6,7 @@ Once your plans are set up, Keepr backs up on its own from the menu bar, whether
 
 ## The menu bar
 
-<a href="images/index.md#day-to-day"><picture><source media="(prefers-color-scheme: dark)" srcset="images/menu-bar-dark.png"><img alt="The menu bar panel: one plan waiting for its drive, the others' last and next backups, and the menu" src="images/menu-bar-light.png" width="360"></picture></a>
+<a href="images/index.md#day-to-day"><picture><source media="(prefers-color-scheme: dark)" srcset="images/menu-bar-dark.png"><img alt="The menu bar panel: one plan waiting for its drive, the others' last and next backups, the menu and Open at Login" src="images/menu-bar-light.png" width="360"></picture></a>
 
 Keepr's icon in the menu bar shows a dot while it's backing up, and a mark when a plan needs attention. Click it for:
 
@@ -14,6 +14,7 @@ Keepr's icon in the menu bar shows a dot while it's backing up, and a mark when 
 - The backup that's running, with its progress and the time left.
 - Each plan's last and next backup, or its problem. Click one to open Keepr.
 - **Back up all now** (⌘B), **Pause backups for an hour** (which also stops the backup that's running), **Restore a file…** (⌘R), **Open Keepr** (⌘O), **Settings…** (⌘,) and **Quit Keepr** (⌘Q).
+- An **Open at Login** switch, the same one as in [Settings](#settings), in the installed app.
 
 ## Activity
 

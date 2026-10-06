@@ -25,7 +25,7 @@ macOS asks for some permissions along the way:
 - **Removable and network volumes.** Asked the first time Keepr reads or writes a drive or share.
 - **Notifications.** Asked the first time Keepr has something to tell you.
 
-To have Keepr start when you log in, turn on **Open at Login** in [Settings](day-to-day.md#settings).
+To have Keepr start when you log in, turn on **Open at Login** in [Settings](day-to-day.md#settings) or the [menu bar](day-to-day.md#the-menu-bar).
 
 ## The window
 

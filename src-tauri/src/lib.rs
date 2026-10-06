@@ -980,6 +980,10 @@ fn home_dir() -> String {
 
 #[tauri::command]
 fn login_item() -> (bool, bool) {
+    // Screenshots run the unbundled dev build, which can't register; show it as the installed app would.
+    if scene().is_some() {
+        return (true, true);
+    }
     #[cfg(target_os = "macos")]
     {
         (login_item::available(), login_item::status().is_on())
@@ -990,6 +994,9 @@ fn login_item() -> (bool, bool) {
 
 #[tauri::command]
 fn set_login_item(on: bool) -> bool {
+    if scene().is_some() {
+        return on;
+    }
     #[cfg(target_os = "macos")]
     {
         use login_item::Status;
