@@ -11,6 +11,7 @@ import { api, on, type JobStatus, type Overview } from "./api";
 import { Mark } from "./icons";
 import { statusDot } from "./context";
 import { next, secondsLeft, when } from "./format";
+import { Switch } from "./ui";
 
 const Item = ({ label, keys, onClick, strong }: { label: string; keys?: string; onClick: () => void; strong?: boolean }) => (
   <button
@@ -28,12 +29,15 @@ const hide = () => getCurrentWindow().hide();
 export default function Tray() {
   const [ov, setOv] = useState<Overview | null>(null);
   const [job, setJob] = useState<JobStatus | null>(null);
+  // Open at Login: [available, on]. Only the installed app can register itself.
+  const [login, setLogin] = useState<[boolean, boolean]>([false, false]);
   useEffect(() => {
     api.scene().then((sc) => {
       const t = sc && (JSON.parse(sc) as { theme?: string }).theme;
       if (t) document.documentElement.dataset.theme = t;
     });
-    const load = () => api.overview().then((o) => (setOv(o), setJob(o.job)));
+    // Read again each time the menu opens: System Settings can change Open at Login too.
+    const load = () => (api.overview().then((o) => (setOv(o), setJob(o.job))), api.loginItem().then(setLogin));
     load();
     const u1 = on("changed", load);
     const u2 = on<JobStatus>("job", setJob);
@@ -142,6 +146,15 @@ export default function Tray() {
         {ov.plans.length > 0 && <Item label="Pause backups for an hour" onClick={() => api.pauseHour()} />}
         {ov.plans.length > 0 && <Item label="Restore a file…" keys="⌘R" onClick={() => api.showMain("restore")} />}
         <div style={{ height: 1, background: "var(--line)", margin: "4px 8px" }} />
+        {login[0] && (
+          <>
+            <div className="menu-item static">
+              <span className="grow">Open at Login</span>
+              <Switch label="Open at Login" on={login[1]} onChange={async (v) => setLogin([true, await api.setLoginItem(v)])} />
+            </div>
+            <div style={{ height: 1, background: "var(--line)", margin: "4px 8px" }} />
+          </>
+        )}
         <Item label="Open Keepr" keys="⌘O" onClick={() => api.showMain()} />
         <Item label="Settings…" keys="⌘," onClick={() => api.showMain("settings")} />
         <Item label="Quit Keepr" keys="⌘Q" onClick={() => api.quit()} />

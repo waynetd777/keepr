@@ -1295,6 +1295,11 @@ html.tray body {
   background: var(--accent-soft);
   color: var(--accent-text);
 }
+/* A row holding a switch, not a choice: only the switch reacts. */
+.traywin .menu-item.static:hover {
+  background: transparent;
+  color: inherit;
+}
 
 /* A source's default name reads as its name, not as a hint. */
 .source-name::placeholder {
