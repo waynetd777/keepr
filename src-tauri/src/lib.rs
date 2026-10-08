@@ -5,6 +5,7 @@
 //! Keepr's app: the window's commands, the menu-bar item, and starting the job runner and the
 //! scheduler. The backup engine itself is the keepr-engine crate (engine/).
 
+mod about;
 mod aws_setup;
 mod b2_setup;
 mod browse;
@@ -1384,10 +1385,15 @@ pub fn run() {
         .on_menu_event(|app, ev| {
             if ev.id() == help::MENU_ID {
                 help::show_drawer(app);
+            } else if ev.id() == about::WEBSITE_ID {
+                about::open_website(app);
+            } else if ev.id() == about::ABOUT_ID {
+                about::show(app);
             }
         })
         .setup(move |app| {
             help::add_to_menu(app.handle())?;
+            about::set_about_item(app.handle())?;
             if !frozen {
                 std::thread::spawn(keychain::warm);
             }

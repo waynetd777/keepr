@@ -14,6 +14,7 @@ const TITLE: &str = "Keepr Help";
 pub fn add_to_menu(app: &AppHandle) -> tauri::Result<()> {
     let Some(help) = app.menu().and_then(|m| m.get(HELP_SUBMENU_ID)).and_then(|i| i.as_submenu().cloned()) else { return Ok(()) };
     help.append(&MenuItem::with_id(app, MENU_ID, TITLE, true, None::<&str>)?)?;
+    help.append(&MenuItem::with_id(app, crate::about::WEBSITE_ID, "Keepr Website", true, None::<&str>)?)?;
     #[cfg(target_os = "macos")]
     set_shortcut();
     Ok(())

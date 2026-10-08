@@ -13,6 +13,8 @@ export default tseslint.config(
   { ignores: ["dist/", "src-tauri/", "node_modules/", "_sift/", "design/", "tools/"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  // The product page's script runs in a browser with no bundler.
+  { files: ["site/**/*.js"], languageOptions: { globals: globals.browser } },
   {
     files: ["**/*.{ts,tsx}"],
     languageOptions: { globals: globals.browser },

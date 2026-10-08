@@ -4,6 +4,8 @@ Backups for your Mac. Every file. Every version. Kept.
 
 Keepr keeps every version of the files you choose, on a drive, a NAS, a cloud folder or an S3 bucket, and lets you go back to any moment and restore any file as it was then. The first backup copies everything; after that each one stores only what changed, and every snapshot still restores as a complete copy. Backups can be encrypted, so the place that holds them can't read them.
 
+See it on the [Keepr website](https://keepr.davies.co.za/).
+
 ## Download
 
 For a Mac with Apple silicon (M1 or later) and macOS 13 or later.

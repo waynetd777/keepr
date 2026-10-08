@@ -40,6 +40,7 @@ A check that finds a problem with the stored data always tells you.
 
 - **Open at Login** starts Keepr when you log in, in the menu bar with no window. It's the same setting as System Settings › General › Login Items.
 - The [notifications](#notifications) above.
+- **Website** opens [keepr.davies.co.za](https://keepr.davies.co.za/) in your browser. It's also under Help › **Keepr Website**, and in **About Keepr** in the Keepr menu.
 - **Appearance**: **Match the Mac**, **Light** or **Dark**.
 
 The foot of Settings shows Keepr's version and build, and its licence.

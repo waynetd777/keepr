@@ -6,9 +6,15 @@
 // the appearance.
 
 import { useEffect, useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "./api";
 import { useApp } from "./context";
+import { Icon } from "./icons";
 import { Seg, Switch, useAct } from "./ui";
+
+/** Keepr's website. The same as `WEBSITE` in src-tauri/src/about.rs, which the About panel and
+ * Help › Keepr Website use (a test there keeps them the same). */
+export const WEBSITE = "https://keepr.davies.co.za/";
 
 export type Theme = "system" | "light" | "dark";
 
@@ -86,6 +92,12 @@ export default function Settings() {
                 </option>
               ))}
             </select>
+          </Row>
+          <Row title="Website" sub="What Keepr does, and the latest version to download.">
+            <button className="btn" title="Opens keepr.davies.co.za in your browser" onClick={() => openUrl(WEBSITE)}>
+              <Icon name="globe" size={14} stroke={2} />
+              Website
+            </button>
           </Row>
           <Row title="Appearance">
             <Seg
