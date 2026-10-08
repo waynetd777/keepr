@@ -47,13 +47,9 @@
   const tiles = document.getElementById("tiles");
   const cap = document.getElementById("tilecap");
   if (tiles && cap) {
-    const N = 72;
-    const els = Array.from({ length: N }, () => {
-      const d = document.createElement("i");
-      d.className = "tile";
-      tiles.appendChild(d);
-      return d;
-    });
+    // The pieces are in the HTML (all stored, for a page without this script); the loop redraws them.
+    const els = [...tiles.querySelectorAll(".tile")];
+    const N = els.length;
     // Later backups change a few pieces each: the same ones every loop, so it reads as a story.
     const rounds = [
       [5, 6, 23, 41, 58, 59],
@@ -171,6 +167,17 @@
       { threshold: 0.4 },
     );
     io.observe(mac);
+  }
+
+  // --- Screenshots: the shimmer behind each one stops when it has loaded (or failed). ---
+  for (const box of document.querySelectorAll("[data-shimmer]")) {
+    const img = box.querySelector("img");
+    const done = () => box.classList.add("loaded");
+    if (!img || img.complete) done();
+    else {
+      img.addEventListener("load", done, { once: true });
+      img.addEventListener("error", done, { once: true });
+    }
   }
 
   // --- The latest version, from GitHub, when it answers. ---

@@ -27,6 +27,22 @@
   color-scheme: light;
 }
 
+/* JetBrains Mono, served from fonts/ (SIL Open Font License, fonts/OFL.txt). */
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/jetbrains-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/jetbrains-mono-500.woff2") format("woff2");
+}
+
 * {
   box-sizing: border-box;
 }
@@ -295,6 +311,25 @@ p {
   }
 }
 
+/* Where a screenshot is still loading: a slow sweep of light grey. */
+[data-shimmer]:not(.loaded) {
+  background: linear-gradient(100deg, var(--side) 30%, #ececf0 50%, var(--side) 70%);
+  background-size: 300% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+.shotwrap[data-shimmer]:not(.loaded) {
+  background-clip: content-box;
+  border-radius: 12px;
+}
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
 /* Shared section rhythm */
 section {
   padding: 112px 0;
@@ -380,14 +415,18 @@ section {
   inset: 0;
   width: 100%;
   height: 100%;
-  opacity: 0;
   transform-origin: 0 0;
   transition:
     opacity 0.7s var(--ease),
     transform 1.2s var(--ease);
   will-change: transform, opacity;
 }
-.cam .frame.on {
+/* Without the script, the first screen shows; with it, the step's own. */
+.cam .frame:not(:first-child),
+.js .cam .frame {
+  opacity: 0;
+}
+.js .cam .frame.on {
   opacity: 1;
 }
 .steps {
@@ -402,10 +441,12 @@ section {
   justify-content: center;
   padding: 0;
   max-width: 24em;
-  opacity: 0.3;
   transition: opacity 0.5s;
 }
-.step.on {
+.js .step {
+  opacity: 0.3;
+}
+.js .step.on {
   opacity: 1;
 }
 .step:first-child {
@@ -527,14 +568,16 @@ section {
   margin-top: 6px;
   margin-right: 110px;
   filter: drop-shadow(0 20px 40px rgba(0, 0, 0, 0.18)) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.1));
-  opacity: 0;
-  transform: translateY(-10px) scale(0.98);
   transform-origin: 80% 0;
   transition:
     opacity 0.7s var(--ease),
     transform 0.9s var(--ease);
 }
-.mac.on .panel {
+.js .mac .panel {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.98);
+}
+.js .mac.on .panel {
   opacity: 1;
   transform: none;
 }
@@ -661,6 +704,9 @@ footer {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  [data-shimmer]:not(.loaded) {
+    animation: none;
+  }
   html {
     scroll-behavior: auto;
   }

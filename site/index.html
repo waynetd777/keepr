@@ -47,9 +47,10 @@
         "codeRepository": "https://github.com/waynetd777/keepr"
       }
     </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" />
+    <link rel="preload" href="fonts/jetbrains-mono-500.woff2" as="font" type="font/woff2" crossorigin />
+    <script>
+      document.documentElement.classList.add("js");
+    </script>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
@@ -82,7 +83,7 @@
           </div>
           <p class="fine">For Apple silicon Macs running macOS 13 or later.</p>
         </div>
-        <div class="wrap shotwrap">
+        <div class="wrap shotwrap" data-shimmer>
           <img class="shot hero-shot" src="img/overview-light.webp" width="1400" height="875" alt="Keepr's Backup Plans screen: three plans with their last and next backups, the space they use and the destinations" fetchpriority="high" />
         </div>
       </header>
@@ -96,7 +97,7 @@
             <p>Files are split by their content, and each piece is kept once, compressed, however many files and backups share it.</p>
           </div>
           <figure class="pieces" aria-label="Animation: the first backup stores every piece, later backups store only the pieces that changed">
-            <div class="tiles" id="tiles"></div>
+            <div class="tiles" id="tiles"><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i><i class="tile stored"></i></div>
             <figcaption id="tilecap">Backup <span class="n">1</span> copies everything: <span class="n">72</span> pieces.</figcaption>
           </figure>
         </div>
@@ -105,7 +106,7 @@
       <!-- Walkthrough -->
       <section class="walk" aria-label="A tour of Keepr">
         <div class="wrap grid">
-          <div class="cam" id="cam" aria-hidden="true">
+          <div class="cam" id="cam" aria-hidden="true" data-shimmer>
             <img class="frame" data-shot="plan" src="img/plan-light.webp" width="1400" height="875" alt="" />
             <img class="frame" data-shot="restore" src="img/restore-light.webp" width="1400" height="875" alt="" loading="lazy" />
             <img class="frame" data-shot="versions" src="img/versions-light.webp" width="1400" height="875" alt="" loading="lazy" />
