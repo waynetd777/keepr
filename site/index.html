@@ -234,15 +234,26 @@ Projects/keepr/design-notes.md</pre>
           <div class="actions">
             <a class="btn" href="https://github.com/waynetd777/keepr/releases/latest/download/Keepr.dmg">Download Keepr.dmg</a>
           </div>
-          <p class="fine"><span id="version">Latest release</span> on GitHub. Keepr isn't notarised by Apple, so the first time you open it macOS asks you to allow it: <a href="https://github.com/waynetd777/keepr#download">how to open it</a>.</p>
+          <p class="fine"><span id="version">Latest release</span> on GitHub.</p>
+          <ol class="firstrun">
+            <li>Open the disk image and drag Keepr onto Applications.</li>
+            <li>Open it once. macOS says it can't check the app, because it isn't notarised by Apple. Click Done.</li>
+            <li>In System Settings › Privacy &amp; Security, click Open Anyway. It opens normally after that.</li>
+            <li>In the same place, under Full Disk Access, turn Keepr on, so it can back up every folder.</li>
+          </ol>
         </div>
       </section>
     </main>
 
     <footer>
-      <div class="wrap foot">
-        <span>© 2026 Wayne Davies. Free software under the <a href="https://www.gnu.org/licenses/gpl-3.0.html">GNU GPL</a>, version 3 or later.</span>
-        <span><a href="https://github.com/waynetd777/keepr">Source</a> <a href="https://github.com/waynetd777/keepr/blob/main/docs/features.md">Documentation</a> <a href="https://github.com/waynetd777/keepr/releases">Releases</a></span>
+      <div class="wrap">
+        <p class="foot-links">
+          <a href="https://github.com/waynetd777/keepr/blob/main/docs/features.md">Guides</a>
+          <a href="https://github.com/waynetd777/keepr">Source</a>
+          <a href="https://github.com/waynetd777/keepr/releases">Releases</a>
+          <a href="https://github.com/waynetd777/keepr/blob/main/LICENSE">Licence</a>
+        </p>
+        <p class="small">© 2026 Wayne Davies. Free software under the GNU General Public License, version 3 or later.</p>
       </div>
     </footer>
 
