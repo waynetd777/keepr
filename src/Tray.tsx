@@ -81,8 +81,17 @@ export default function Tray() {
   if (!ov) return null;
   const others = ov.plans.filter((p) => p.id !== job?.plan);
   const attention = ov.plans.filter((p) => ["failed", "waiting", "stale"].includes(p.status));
+  // The plan's name is on the progress row below, so the headline only says what's going on.
   const headline = job
-    ? "Keeping your files"
+    ? job.kind === "restore"
+      ? "Restoring files"
+      : job.kind === "check"
+        ? "Checking a backup"
+        : job.kind === "prune"
+          ? "Tidying up a backup"
+          : job.kind === "remove"
+            ? "Removing from a backup"
+            : "Keeping your files"
     : ov.plans.length === 0
       ? "Nothing set up yet"
       : attention.length

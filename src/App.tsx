@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Ctx, useApp, type AppCtx, type Screen } from "./context";
 import { api, on, type Config, type JobStatus, type Overview as OverviewData } from "./api";
 import { Icon, Mark } from "./icons";
-import { ClearButton, pct, StopButton, ToastProvider, Tooltips } from "./ui";
+import { ClearButton, jobTitle, pct, StopButton, ToastProvider, Tooltips } from "./ui";
 import Overview from "./Overview";
 import Plans from "./Plans";
 import Restore from "./Restore";
@@ -125,7 +125,7 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
           {running
             ? ov?.job?.stopping
               ? `Stopping ${ov?.job?.planName}…`
-              : `Backing up ${ov?.job?.planName}`
+              : ov?.job && jobTitle(ov.job)
             : `Watching ${watching} plan${watching === 1 ? "" : "s"}`}
         </span>
       )}

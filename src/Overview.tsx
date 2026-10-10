@@ -11,7 +11,7 @@ import { useApp } from "./context";
 import { Icon } from "./icons";
 import { ago, bytes, count, longDate, next, when } from "./format";
 import { RecoverySheet } from "./Plans";
-import { DestIcon, PlanProgress, StopButton, useAct } from "./ui";
+import { DestIcon, jobTitle, PlanProgress, StopButton, useAct } from "./ui";
 import { Connection, SpaceMeter } from "./DestStatus";
 import { resultLabel, resultTone, TONE_COLOR } from "./runResult";
 
@@ -345,7 +345,7 @@ export default function Overview() {
     .map((p) => p.nextRun as string)
     .sort()[0];
   const headline = job
-    ? `Backing up ${job.planName}`
+    ? jobTitle(job)
     : failed.length
       ? `${failed[0].name} needs attention`
       : kept.length === 0

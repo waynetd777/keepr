@@ -261,6 +261,21 @@ export function useAct() {
 export const BEFORE_COMMAND = "Running the command before the backup";
 export const AFTER_COMMAND = "Running the command after the backup";
 
+/** What a running job is doing, for a headline: "Backing up Photos", "Restoring from Photos"… */
+export function jobTitle(job: JobStatus): string {
+  const verb =
+    job.kind === "restore"
+      ? "Restoring from"
+      : job.kind === "check"
+        ? "Checking"
+        : job.kind === "prune"
+          ? "Tidying up"
+          : job.kind === "remove"
+            ? "Removing from"
+            : "Backing up";
+  return `${verb} ${job.planName}`;
+}
+
 export function pct(job: JobStatus): number {
   if (job.bytesToRead > 0) return Math.min(100, (100 * job.bytesRead) / job.bytesToRead);
   return job.stage === "Saving" ? 99 : 0;
