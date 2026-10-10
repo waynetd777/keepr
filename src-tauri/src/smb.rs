@@ -38,14 +38,17 @@ fn norm_host(h: &str) -> String {
 }
 
 /// Percent-decodes what getmntinfo reports ("//wayne@keep-nas._smb._tcp.local/My%20Share").
+/// Works on bytes throughout: slicing the string after a "%" would panic when what follows is a
+/// character of more than one byte ("%é").
 fn decode(s: &str) -> String {
+    let hex = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'%' && i + 2 < b.len() {
-            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                out.push(v);
+            if let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2])) {
+                out.push(h << 4 | l);
                 i += 3;
                 continue;
             }
@@ -71,42 +74,45 @@ fn mounted() -> Vec<libc::statfs> {
     v
 }
 
+/// One mounted SMB share: its server as mounted ("192.168.1.20", "keep-nas"), the share, and
+/// where it is.
+struct SmbMount {
+    host: String,
+    share: String,
+    on: PathBuf,
+}
+
+/// "//user@host/share" or "//host/share", as getmntinfo names a share, split into host and share.
+/// Bonjour hosts look like "name._smb._tcp.local"; only the name is kept.
+fn split_from(from: &str) -> Option<(String, String)> {
+    let from = decode(from);
+    let rest = from.trim_start_matches('/');
+    let rest = rest.rsplit_once('@').map_or(rest, |(_, r)| r);
+    let (host, share) = rest.split_once('/')?;
+    Some((host.split("._smb._tcp").next().unwrap_or(host).to_string(), share.trim_matches('/').to_string()))
+}
+
+/// The SMB shares mounted now.
+fn smb_mounts() -> Vec<SmbMount> {
+    let text = |c: &[libc::c_char]| unsafe { CStr::from_ptr(c.as_ptr()) }.to_string_lossy().to_string();
+    mounted()
+        .iter()
+        .filter(|m| text(&m.f_fstypename) == "smbfs")
+        .filter_map(|m| {
+            split_from(&text(&m.f_mntfromname)).map(|(host, share)| SmbMount { host, share, on: PathBuf::from(text(&m.f_mntonname)) })
+        })
+        .collect()
+}
+
 /// Servers of SMB shares mounted now ("192.168.1.20", "keep-nas").
 pub fn mounted_servers() -> Vec<String> {
-    let mut out = Vec::new();
-    for m in &mounted() {
-        if unsafe { CStr::from_ptr(m.f_fstypename.as_ptr()) }.to_string_lossy() != "smbfs" {
-            continue;
-        }
-        let from = decode(&unsafe { CStr::from_ptr(m.f_mntfromname.as_ptr()) }.to_string_lossy());
-        let rest = from.trim_start_matches('/');
-        let rest = rest.rsplit_once('@').map_or(rest, |(_, r)| r);
-        if let Some((host, _)) = rest.split_once('/') {
-            out.push(host.split("._smb._tcp").next().unwrap_or(host).to_string());
-        }
-    }
-    out
+    smb_mounts().into_iter().map(|m| m.host).collect()
 }
 
 /// Where `server`'s `share` is mounted already, if it is.
 pub fn find_mount(server: &str, share: &str) -> Option<PathBuf> {
     let (want_host, want_share) = (norm_host(server), share.trim_matches('/').to_lowercase());
-    for m in &mounted() {
-        let fstype = unsafe { CStr::from_ptr(m.f_fstypename.as_ptr()) }.to_string_lossy();
-        if fstype != "smbfs" {
-            continue;
-        }
-        let from = decode(&unsafe { CStr::from_ptr(m.f_mntfromname.as_ptr()) }.to_string_lossy());
-        // "//user@host/share" or "//host/share"; Bonjour hosts look like "name._smb._tcp.local".
-        let rest = from.trim_start_matches('/');
-        let rest = rest.rsplit_once('@').map_or(rest, |(_, r)| r);
-        let Some((host, sh)) = rest.split_once('/') else { continue };
-        let host = norm_host(host.split("._smb._tcp").next().unwrap_or(host));
-        if host == want_host && sh.trim_matches('/').to_lowercase() == want_share {
-            return Some(PathBuf::from(unsafe { CStr::from_ptr(m.f_mntonname.as_ptr()) }.to_string_lossy().to_string()));
-        }
-    }
-    None
+    smb_mounts().into_iter().find(|m| norm_host(&m.host) == want_host && m.share.to_lowercase() == want_share).map(|m| m.on)
 }
 
 fn percent(s: &str) -> String {
@@ -166,11 +172,10 @@ pub fn mount(server: &str, share: &str, user: &str, password: &str) -> Result<Pa
         .ok_or_else(|| format!("{server}/{share} mounted but can't be found"))
 }
 
-pub fn unmount(path: &std::path::Path) {
-    let c = std::ffi::CString::new(path.to_string_lossy().as_bytes()).unwrap_or_default();
-    unsafe {
-        libc::unmount(c.as_ptr(), 0);
-    }
+/// Unmounts a share Keepr mounted; false if it's still mounted (busy, say).
+pub fn unmount(path: &std::path::Path) -> bool {
+    let Ok(c) = std::ffi::CString::new(path.to_string_lossy().as_bytes()) else { return false };
+    unsafe { libc::unmount(c.as_ptr(), 0) == 0 }
 }
 
 /// Servers offering SMB on this network, by their Bonjour names ("keep-nas"). Takes about a
@@ -249,21 +254,23 @@ pub fn discover() -> Vec<String> {
 /// types the password into. It never appears on a command line.
 pub fn shares(server: &str, user: &str, password: &str) -> Result<Vec<String>, String> {
     use std::io::{Read, Write};
-    use std::os::fd::FromRawFd;
+    use std::os::fd::{FromRawFd, OwnedFd};
     use std::os::unix::process::CommandExt;
     let (mut master, mut slave) = (0, 0);
     if unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) } != 0 {
         return Err("Couldn't ask the server for its shares.".into());
     }
+    // Owned at once, so every way out of here closes them.
+    let (master, slave) = unsafe { (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) };
     let target = if user.is_empty() { format!("//{server}") } else { format!("//{}@{server}", percent(user)) };
-    let stdio = |fd: i32| std::process::Stdio::from(unsafe { std::fs::File::from_raw_fd(libc::dup(fd)) });
+    let stdio = || slave.try_clone().map(std::process::Stdio::from).map_err(|e| e.to_string());
     let mut cmd = std::process::Command::new("/usr/bin/smbutil");
     cmd.arg("view");
     // Options before the server: smbutil stops reading options at the first other argument.
     if user.is_empty() {
         cmd.arg("-N");
     }
-    cmd.arg(&target).stdin(stdio(slave)).stdout(stdio(slave)).stderr(stdio(slave));
+    cmd.arg(&target).stdin(stdio()?).stdout(stdio()?).stderr(stdio()?);
     unsafe {
         cmd.pre_exec(|| {
             libc::setsid();
@@ -272,10 +279,20 @@ pub fn shares(server: &str, user: &str, password: &str) -> Result<Vec<String>, S
         });
     }
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-    unsafe { libc::close(slave) };
-    let mut m = unsafe { std::fs::File::from_raw_fd(master) };
+    // The command holds copies of the terminal's other end; only smbutil should have it now.
+    drop(cmd);
+    drop(slave);
+    let mut m = std::fs::File::from(master);
     let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    let mut reader = m.try_clone().map_err(|e| e.to_string())?;
+    let mut reader = match m.try_clone() {
+        Ok(r) => r,
+        Err(e) => {
+            // Left alone, smbutil would sit at its password prompt for ever.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e.to_string());
+        }
+    };
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
         while let Ok(n) = reader.read(&mut buf) {
@@ -309,8 +326,9 @@ pub fn shares(server: &str, user: &str, password: &str) -> Result<Vec<String>, S
     let _ = child.wait();
     let names = parse_shares(&out);
     if names.is_empty() {
+        // smbutil's own prompt says "Password", so it can't be the sign; its failure messages are.
         let low = out.to_lowercase();
-        return Err(if low.contains("authentication") || low.contains("password") && sent {
+        return Err(if ["authentication error", "logon failure", "permission denied"].iter().any(|t| low.contains(t)) {
             format!("{server} didn't accept the name and password.")
         } else {
             format!("{server} didn't list any shares.")
@@ -358,5 +376,10 @@ mod tests {
         assert_eq!(decode("//wayne@keep-nas._smb._tcp.local/My%20Share"), "//wayne@keep-nas._smb._tcp.local/My Share");
         assert_eq!(norm_host("Keep-NAS.local."), "keep-nas");
         assert_eq!(percent("My Share"), "My%20Share");
+        // A "%" before a character of more than one byte is kept as it is, not a panic.
+        assert_eq!(decode("//h/50%é%"), "//h/50%é%");
+        assert_eq!(decode("%C3%A9"), "é");
+        assert_eq!(split_from("//wayne@keep-nas._smb._tcp.local/My%20Share/"), Some(("keep-nas".to_string(), "My Share".to_string())));
+        assert_eq!(split_from("//192.168.1.20/Backups"), Some(("192.168.1.20".to_string(), "Backups".to_string())));
     }
 }

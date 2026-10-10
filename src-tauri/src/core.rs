@@ -203,8 +203,10 @@ impl Backend for Throttle {
 }
 
 impl Core {
-    pub fn new(dir: PathBuf, emit: Emit, notify: Notify, frozen: bool) -> Arc<Core> {
-        let mut config: Config = config::read(&dir, "config.json");
+    /// Fails only when config.json or state.json is there but can't be read: starting without
+    /// them would write empty ones over them.
+    pub fn new(dir: PathBuf, emit: Emit, notify: Notify, frozen: bool) -> Result<Arc<Core>, String> {
+        let mut config: Config = config::read(&dir, "config.json")?;
         // Destinations made before they could be named may share one ("Keepr" twice): give each a
         // name that says which it is.
         let mut taken: Vec<String> = Vec::new();
@@ -219,7 +221,7 @@ impl Core {
         if renamed && !frozen {
             let _ = config::write(&dir, "config.json", &config);
         }
-        let mut state: State = config::read(&dir, "state.json");
+        let mut state: State = config::read(&dir, "state.json")?;
         // Runs from 0.1.18 kept their logs in state.json: move them to logs/.
         if !frozen && state.history.iter().any(|r| !r.log.is_empty()) {
             let logs = dir.join("logs");
@@ -231,7 +233,7 @@ impl Core {
             }
             let _ = config::write(&dir, "state.json", &state);
         }
-        Arc::new(Core {
+        Ok(Arc::new(Core {
             dir,
             config: Mutex::new(config),
             state: Mutex::new(state),
@@ -244,7 +246,7 @@ impl Core {
             notify,
             frozen,
             still_copies: std::sync::atomic::AtomicBool::new(std::env::var_os("KEEPR_NO_STILL").is_none()),
-        })
+        }))
     }
 
     pub fn save_config(&self) -> Result<(), String> {
@@ -274,16 +276,20 @@ impl Core {
     // ---- the queue ----
 
     /// Adds a job unless the same one is queued or running. Returns its id.
+    ///
+    /// The queue's lock is taken before `current`'s, here and wherever both are held: the job
+    /// thread moves a job from one to the other under the queue's lock, so a job is always in
+    /// one or the other, never neither.
     pub fn enqueue(&self, job: Job) -> String {
         if self.frozen {
             return String::new();
         }
+        let mut q = self.queue.lock().unwrap();
         if let Some(c) = self.current.lock().unwrap().as_ref() {
             if c.job == job {
                 return c.id.clone();
             }
         }
-        let mut q = self.queue.lock().unwrap();
         if let Some((id, _)) = q.iter().find(|(_, j)| *j == job) {
             return id.clone();
         }
@@ -296,8 +302,8 @@ impl Core {
     }
 
     pub fn busy_with(&self, plan: &str) -> bool {
-        self.current.lock().unwrap().as_ref().is_some_and(|c| c.job.plan() == plan)
-            || self.queue.lock().unwrap().iter().any(|(_, j)| j.plan() == plan)
+        let q = self.queue.lock().unwrap();
+        q.iter().any(|(_, j)| j.plan() == plan) || self.current.lock().unwrap().as_ref().is_some_and(|c| c.job.plan() == plan)
     }
 
     /// Jobs waiting their turn: (job id, plan id, kind).
@@ -305,8 +311,10 @@ impl Core {
         self.queue.lock().unwrap().iter().map(|(id, j)| (id.clone(), j.plan().to_string(), j.kind().to_string())).collect()
     }
 
-    pub fn busy_with_any(&self) -> bool {
-        !self.queue.lock().unwrap().is_empty()
+    /// Nothing running and nothing waiting its turn.
+    pub fn idle(&self) -> bool {
+        let q = self.queue.lock().unwrap();
+        q.is_empty() && self.current.lock().unwrap().is_none()
     }
 
     pub fn running(&self) -> bool {
@@ -316,7 +324,7 @@ impl Core {
     pub fn cancel(&self, id: &str) {
         self.queue.lock().unwrap().retain(|(i, _)| i != id);
         if let Some(c) = self.current.lock().unwrap().as_ref() {
-            if c.id == id || id.is_empty() {
+            if c.id == id {
                 c.ctl.cancel.store(true, Relaxed);
                 c.ctl.pause.store(false, Relaxed);
             }
@@ -326,6 +334,14 @@ impl Core {
             (self.emit)("job", serde_json::to_value(s).unwrap_or_default());
         }
         self.changed();
+    }
+
+    /// Stops the backup that's running, if one is (Pause for an hour): a restore or check carries on.
+    pub fn cancel_backup(&self) {
+        let id = self.current.lock().unwrap().as_ref().filter(|c| matches!(c.job, Job::Backup { .. })).map(|c| c.id.clone());
+        if let Some(id) = id {
+            self.cancel(&id);
+        }
     }
 
     pub fn pause(&self, on: bool) {
@@ -408,14 +424,25 @@ impl Core {
     pub fn start(self: &Arc<Self>) {
         let me = self.clone();
         std::thread::spawn(move || loop {
-            let next = {
-                let mut q = me.queue.lock().unwrap();
-                while q.is_empty() {
-                    q = me.wake.wait(q).unwrap();
-                }
-                q.pop_front().unwrap()
+            // Taken off the queue and made current under the queue's lock, so nothing sees the
+            // job in neither place (and queues it again, or decides all is done).
+            let cur = {
+                let mut q = me.wake.wait_while(me.queue.lock().unwrap(), |q| q.is_empty()).unwrap();
+                let (id, job) = q.pop_front().unwrap();
+                let cur = Arc::new(Current {
+                    id,
+                    job,
+                    ctl: Arc::new(Control::default()),
+                    started_at: now(),
+                    stage: Mutex::new("Connecting".into()),
+                    repo: Mutex::new(None),
+                    base: Mutex::new((0, 0)),
+                    rate: Mutex::new((Instant::now(), 0, 0.0)),
+                });
+                *me.current.lock().unwrap() = Some(cur.clone());
+                cur
             };
-            me.run(next.0, next.1);
+            me.run(cur);
         });
         let me = self.clone();
         std::thread::spawn(move || loop {
@@ -455,10 +482,11 @@ impl Core {
                 (path.clone(), Arc::new(Folder::new(&path)))
             }
         };
-        if let Some((at, r)) = self.repos.lock().unwrap().get(plan) {
-            if *at == path && r.backend.exists(CONFIG) {
-                return Ok(r.clone());
-            }
+        // Out of the map before asking the backend: exists() may be a network round trip, and
+        // other plans' jobs and the window need the map meanwhile.
+        let known = self.repos.lock().unwrap().get(plan).filter(|(at, _)| *at == path).map(|(_, r)| r.clone());
+        if let Some(r) = known.filter(|r| r.backend.exists(CONFIG)) {
+            return Ok(r);
         }
         let backend: Arc<dyn Backend> = if p.conditions.limit_mbps > 0 {
             Arc::new(Throttle { inner, per_sec: p.conditions.limit_mbps as u64 * 1_000_000, sent: Mutex::new((Instant::now(), 0)) })
@@ -554,18 +582,9 @@ impl Core {
 
     // ---- running a job ----
 
-    fn run(self: &Arc<Self>, id: String, job: Job) {
-        let cur = Arc::new(Current {
-            id: id.clone(),
-            job: job.clone(),
-            ctl: Arc::new(Control::default()),
-            started_at: now(),
-            stage: Mutex::new("Connecting".into()),
-            repo: Mutex::new(None),
-            base: Mutex::new((0, 0)),
-            rate: Mutex::new((Instant::now(), 0, 0.0)),
-        });
-        *self.current.lock().unwrap() = Some(cur.clone());
+    /// Runs the job the job thread has just made current.
+    fn run(self: &Arc<Self>, cur: Arc<Current>) {
+        let (id, job) = (cur.id.clone(), cur.job.clone());
         self.changed();
         let plan_name = self.config.lock().unwrap().plan(job.plan()).map(|p| p.name.clone()).unwrap_or_default();
         let mut run = Run {
@@ -583,6 +602,7 @@ impl Core {
             stored_bytes: 0,
             dup_bytes: 0,
             log: vec![],
+            log_skipped: 0,
         };
         let outcome = match &job {
             Job::Backup { plan, full } => self.backup(&cur, plan, *full, &mut run),
@@ -630,6 +650,11 @@ impl Core {
             }
         }
         if let Job::Backup { plan, .. } = &job {
+            // Waiting ends with any other result: left set, the scheduler would keep trying every
+            // five minutes, with a failure notification each time.
+            if run.result != "waiting" {
+                self.state.lock().unwrap().plan(plan).waiting = None;
+            }
             self.run_after(&cur, plan, &mut run);
         }
         // The log to its own file; the history keeps only the summary.
@@ -1118,7 +1143,6 @@ impl Core {
     }
 
     fn remove_source(&self, cur: &Arc<Current>, plan_id: &str, source: &Place, run: &mut Run) -> Result<(), String> {
-        let repo = self.repo(plan_id, false)?;
         Self::set_stage(cur, "Removing");
         // The snapshots name a source by the path it was read from.
         let key = match source {
@@ -1126,18 +1150,14 @@ impl Core {
             Place::S3(_) => places::describe(source),
             Place::Smb(_) => places::resolve(source, &self.mounts, true, true)?.to_string_lossy().to_string(),
         };
-        run.note(format!("Taking {} out of every snapshot", places::tilde(&key)));
-        let _ = repo;
         self.remove_key(cur, plan_id, &key, run)
     }
 
     /// Takes a path (a source, or anything inside one) out of every snapshot.
     fn remove_key(&self, cur: &Arc<Current>, plan_id: &str, key: &str, run: &mut Run) -> Result<(), String> {
-        let repo = self.repo(plan_id, false)?;
         Self::set_stage(cur, "Removing");
-        if !run.log.iter().any(|l| l.contains("Taking")) {
-            run.note(format!("Taking {} out of every snapshot", places::tilde(key)));
-        }
+        run.note(format!("Taking {} out of every snapshot", places::tilde(key)));
+        let repo = self.repo(plan_id, false)?;
         let p = keepr_engine::prune::remove_path(&repo, key, &cur.ctl).map_err(|e| e.0)?;
         run.note(format!("{} snapshots rewritten, {} unchanged; {} freed", p.forgotten, p.kept, human_bytes(p.bytes_freed)));
         {
@@ -1224,7 +1244,7 @@ mod tests {
     use crate::config::{Destination, Schedule};
 
     fn core(dir: &std::path::Path) -> Arc<Core> {
-        let c = Core::new(dir.to_path_buf(), Box::new(|_, _| {}), Box::new(|_, _| {}), false);
+        let c = Core::new(dir.to_path_buf(), Box::new(|_, _| {}), Box::new(|_, _| {}), false).unwrap();
         c.still_copies.store(false, Relaxed);
         c
     }
@@ -1257,7 +1277,7 @@ mod tests {
     fn wait(c: &Core) {
         for _ in 0..200 {
             std::thread::sleep(Duration::from_millis(25));
-            if !c.running() && c.queue.lock().unwrap().is_empty() {
+            if c.idle() {
                 return;
             }
         }

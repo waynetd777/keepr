@@ -56,6 +56,33 @@ pub fn info(s: &Snapshot) -> SnapInfo {
     }
 }
 
+impl Entry {
+    /// An entry for a node of the backup, at `path`; what only some views know (versions, a
+    /// folder's item count, how it stands against the Mac) is left for them to fill in.
+    fn from_node(n: &Node, path: String, tag: &str) -> Entry {
+        Entry {
+            name: n.name.clone(),
+            path,
+            kind: kind(n.kind).into(),
+            size: n.size,
+            mtime: n.mtime / 1_000_000,
+            tag: tag.into(),
+            versions: 0,
+            items: 0,
+            disk: String::new(),
+        }
+    }
+}
+
+/// The snapshot with this id, from the backup as it is now.
+fn snapshot(repo: &Repo, hex: &str) -> Result<Snapshot, String> {
+    repo.snapshots()
+        .map_err(|e| e.0)?
+        .into_iter()
+        .find(|s| s.id.hex() == hex)
+        .ok_or_else(|| "That snapshot is no longer in the backup.".into())
+}
+
 fn kind(k: NodeKind) -> &'static str {
     match k {
         NodeKind::File => "file",
@@ -128,15 +155,9 @@ pub fn list(core: &Core, plan: &str, snapshot: &str, path: &str, show_deleted: b
                 _ => "",
             };
             Entry {
-                name: n.name.clone(),
-                path: join(&n.name),
-                kind: kind(n.kind).into(),
-                size: n.size,
-                mtime: n.mtime / 1_000_000,
-                tag: tag.into(),
                 versions: versions.get(&n.name).copied().unwrap_or(1),
                 items: if n.kind == NodeKind::Dir { items(n) } else { 0 },
-                disk: String::new(),
+                ..Entry::from_node(n, join(&n.name), tag)
             }
         })
         .collect();
@@ -144,17 +165,7 @@ pub fn list(core: &Core, plan: &str, snapshot: &str, path: &str, show_deleted: b
         let names: std::collections::HashSet<&str> = here.iter().map(|n| n.name.as_str()).collect();
         for (name, n) in &prev {
             if !names.contains(name) {
-                out.push(Entry {
-                    name: n.name.clone(),
-                    path: join(&n.name),
-                    kind: kind(n.kind).into(),
-                    size: n.size,
-                    mtime: n.mtime / 1_000_000,
-                    tag: "deleted".into(),
-                    versions: versions.get(*name).copied().unwrap_or(1),
-                    items: 0,
-                    disk: String::new(),
-                });
+                out.push(Entry { versions: versions.get(*name).copied().unwrap_or(1), ..Entry::from_node(n, join(&n.name), "deleted") });
             }
         }
     }
@@ -246,9 +257,6 @@ fn against_disk(
     }
 }
 
-/// One folder in the Restore screen's size map: its size, the files directly in it taken
-/// together, its biggest folders (expanded biggest first, as far as the budget goes), and the
-/// rest of its folders taken together.
 /// Where a backed-up item is on the Mac now, for Show in Finder. A plan's SMB share is connected
 /// first, as a backup connects it; one mounted somewhere else this time (/Volumes/backup-1, say)
 /// has the path moved onto where it is now.
@@ -296,6 +304,9 @@ pub fn on_mac(core: &Core, plan: &str, path: &str) -> Result<std::path::PathBuf,
     Ok(at)
 }
 
+/// One folder in the Restore screen's size map: its size, the files directly in it taken
+/// together, its biggest folders (expanded biggest first, as far as the budget goes), and the
+/// rest of its folders taken together.
 #[derive(Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct MapDir {
@@ -325,12 +336,7 @@ const MAP_KIDS: usize = 60;
 /// The size map of `path` in a snapshot, biggest folders read first.
 pub fn size_map(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result<MapDir, String> {
     let repo = core.repo(plan, false)?;
-    let snap = repo
-        .snapshots()
-        .map_err(|e| e.0)?
-        .into_iter()
-        .find(|s| s.id.hex() == snapshot)
-        .ok_or("That snapshot is no longer in the backup.")?;
+    let snap = self::snapshot(&repo, snapshot)?;
     let (tree, size, files) = if path.is_empty() {
         let t = repo.load_tree(&snap.tree).map_err(|e| e.0)?;
         (
@@ -414,17 +420,24 @@ pub fn versions(core: &Core, plan: &str, path: &str) -> Result<Vec<VersionInfo>,
         .collect())
 }
 
+/// Where Quick Look's copies go: one folder, emptied before each preview and at launch, so a
+/// decrypted copy of a backed-up file doesn't outlive the look it was made for by more than one
+/// preview, nor survive the app quitting.
+fn preview_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join("keepr-preview")
+}
+
+/// Removes what earlier previews left. Called at launch.
+pub fn clear_previews() {
+    let _ = std::fs::remove_dir_all(preview_dir());
+}
+
 /// Restores one file of one snapshot into a temporary folder, for Quick Look; returns where.
 pub fn preview_copy(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result<std::path::PathBuf, String> {
     let repo = core.repo(plan, false)?;
-    let snap = repo
-        .snapshots()
-        .map_err(|e| e.0)?
-        .into_iter()
-        .find(|s| s.id.hex() == snapshot)
-        .ok_or("That snapshot is no longer in the backup.")?;
-    let dir = std::env::temp_dir().join(format!("keepr-preview-{}", &snapshot[..8]));
-    let _ = std::fs::remove_dir_all(&dir);
+    let snap = self::snapshot(&repo, snapshot)?;
+    let dir = preview_dir();
+    clear_previews();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let r = keepr_engine::restore::run(
         &repo,
@@ -469,17 +482,7 @@ pub fn search_everywhere(core: &Core, query: &str) -> (Vec<Found>, Vec<String>) 
                 snapshot: h.snapshot.hex(),
                 time: h.time,
                 gone: h.gone,
-                entry: Entry {
-                    name: h.node.name.clone(),
-                    path: h.path,
-                    kind: kind(h.node.kind).into(),
-                    size: h.node.size,
-                    mtime: h.node.mtime / 1_000_000,
-                    tag: if h.gone { "deleted".into() } else { String::new() },
-                    versions: 0,
-                    items: 0,
-                    disk: String::new(),
-                },
+                entry: Entry::from_node(&h.node, h.path, if h.gone { "deleted" } else { "" }),
             })),
             Err(e) if e.contains("hasn't backed up yet") => {}
             Err(_) => missed.push(name),
@@ -490,26 +493,11 @@ pub fn search_everywhere(core: &Core, query: &str) -> (Vec<Found>, Vec<String>) 
 
 pub fn search(core: &Core, plan: &str, snapshot: &str, query: &str) -> Result<Vec<Entry>, String> {
     let repo = core.repo(plan, false)?;
-    let snap = repo
-        .snapshots()
-        .map_err(|e| e.0)?
-        .into_iter()
-        .find(|s| s.id.hex() == snapshot)
-        .ok_or("That snapshot is no longer in the backup.")?;
+    let snap = self::snapshot(&repo, snapshot)?;
     Ok(keepr_engine::browse::search(&repo, &snap, query, 200)
         .map_err(|e| e.0)?
         .into_iter()
-        .map(|h| Entry {
-            name: h.node.name.clone(),
-            path: h.path,
-            kind: kind(h.node.kind).into(),
-            size: h.node.size,
-            mtime: h.node.mtime / 1_000_000,
-            tag: String::new(),
-            versions: 0,
-            items: 0,
-            disk: String::new(),
-        })
+        .map(|h| Entry::from_node(&h.node, h.path, ""))
         .collect())
 }
 
@@ -539,39 +527,62 @@ pub struct Comparison {
     pub current_size: u64,
 }
 
+/// The largest file shown line by line.
+const TEXT_LIMIT: u64 = 4 << 20;
+
+/// Whether a backed-up file has the same bytes as the file at `path`, read a chunk of the backup
+/// at a time against the same stretch of the file, so neither is ever held whole.
+fn same_as_file(repo: &Repo, node: &Node, path: &str) -> std::io::Result<bool> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(path)?;
+    let mut buf = Vec::new();
+    for c in &node.content {
+        let chunk = repo.load(c).map_err(|e| std::io::Error::other(e.0))?;
+        buf.resize(chunk.len(), 0);
+        f.read_exact(&mut buf)?;
+        if buf != chunk {
+            return Ok(false);
+        }
+    }
+    // Nothing may be left over in the file.
+    Ok(f.read(&mut [0u8; 1])? == 0)
+}
+
 /// A version from the backup against the file as it is now.
 pub fn compare(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result<Comparison, String> {
     let repo = core.repo(plan, false)?;
-    let snap = repo
-        .snapshots()
-        .map_err(|e| e.0)?
-        .into_iter()
-        .find(|s| s.id.hex() == snapshot)
-        .ok_or("That snapshot is no longer in the backup.")?;
+    let snap = self::snapshot(&repo, snapshot)?;
     let node = keepr_engine::browse::node_at(&repo, &snap, path).map_err(|e| e.0)?.ok_or("That file isn't in this snapshot.")?;
     if node.kind != NodeKind::File {
         return Err("Only files can be compared.".into());
+    }
+    let current_size = std::fs::metadata(path).ok().filter(|m| m.is_file()).map(|m| m.len());
+    let mut out = Comparison {
+        current_exists: current_size.is_some(),
+        identical: false,
+        text: false,
+        added: 0,
+        removed: 0,
+        lines: vec![],
+        backup_size: node.size,
+        current_size: current_size.unwrap_or(0),
+    };
+    // Past this, a line-by-line difference is too long to read and too big to hold: the answer is
+    // the sizes and whether the two are the same, found a chunk at a time without holding either.
+    if node.size > TEXT_LIMIT || out.current_size > TEXT_LIMIT {
+        out.identical = current_size == Some(node.size) && same_as_file(&repo, &node, path).unwrap_or(false);
+        return Ok(out);
     }
     let mut old = Vec::with_capacity(node.size as usize);
     for c in &node.content {
         old.extend(repo.load(c).map_err(|e| e.0)?);
     }
     let current = std::fs::read(path).ok();
-    let mut out = Comparison {
-        current_exists: current.is_some(),
-        identical: current.as_deref() == Some(&old[..]),
-        text: false,
-        added: 0,
-        removed: 0,
-        lines: vec![],
-        backup_size: old.len() as u64,
-        current_size: current.as_ref().map_or(0, |c| c.len() as u64),
-    };
+    out.identical = current.as_deref() == Some(&old[..]);
+    out.current_size = current.as_ref().map_or(0, |c| c.len() as u64);
+    out.backup_size = old.len() as u64;
     let (Some(new), Ok(a)) = (current.as_ref(), std::str::from_utf8(&old)) else { return Ok(out) };
     let Ok(b) = std::str::from_utf8(new) else { return Ok(out) };
-    if old.len() > 4 << 20 || new.len() > 4 << 20 {
-        return Ok(out);
-    }
     out.text = true;
     let diff = similar::TextDiff::from_lines(a, b);
     for group in diff.grouped_ops(3) {

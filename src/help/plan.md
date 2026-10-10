@@ -53,7 +53,7 @@ The first backup copies everything; after that each one looks only at what chang
 The ⋯ menu runs either now.
 
 ## Before and after each backup
-**Before each backup** runs a command first, such as one that exports a database into a folder the plan backs up; **If it fails**, Keepr backs up anyway with a warning, or doesn't back up. **After each backup** runs one when the backup ends, however it went, and tells it how it went in `KEEPR_` environment variables such as `KEEPR_RESULT`. Both run in your login shell, and their output goes into the backup's log in [Activity](app:activity).
+**Before each backup** runs a command first, such as one that exports a database into a folder the plan backs up; **If it fails**, Keepr backs up anyway with a warning, or doesn't back up. **After each backup** runs one when the backup ends, however it went, and tells it how it went in `KEEPR_` environment variables such as `KEEPR_RESULT`. Both run in your login shell, and their output goes into the backup's log in [Activity](app:activity). While one runs, Activity and the menu bar say so, since nothing is read until it ends.
 
 ## Encryption
 An encrypted plan's files can only be read with its password or its recovery key. Encryption is chosen when you make a plan and can't be changed afterwards. Keepr keeps the password in your Keychain.

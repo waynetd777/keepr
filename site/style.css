@@ -591,6 +591,10 @@ section {
 .three h3 {
   font-size: 22px;
 }
+/* Four facts read better as two rows of two than one row of four. */
+.three.four {
+  grid-template-columns: repeat(2, 1fr);
+}
 
 /* Download */
 .download {
@@ -666,7 +670,8 @@ footer .small {
   .dests {
     grid-template-columns: 1fr 1fr;
   }
-  .three {
+  .three,
+  .three.four {
     grid-template-columns: 1fr;
     gap: 36px;
   }

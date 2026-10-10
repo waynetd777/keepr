@@ -115,11 +115,12 @@ const STOP = new Set([
   "when",
   "why",
 ]);
+// Short words are mostly noise ("to", "an"), but one with a digit is a name: S3, B2, R2.
 const words = (s: string) =>
   s
     .toLowerCase()
     .split(/[^\p{L}\p{N}]+/u)
-    .filter((w) => w.length > 2 && !STOP.has(w))
+    .filter((w) => (w.length > 2 || /\p{N}/u.test(w)) && !STOP.has(w))
     .map((w) => w.replace(/s$/, ""));
 
 export interface HelpHit {

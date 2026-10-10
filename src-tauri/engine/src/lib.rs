@@ -10,7 +10,7 @@
 //! |---|---|
 //! | `keepr-repo.json` | The format, the chunker's sizes and, when encrypted, the wrapped master key |
 //! | `packs/ab/<id>.pack` | Blobs (file chunks and directory trees), compressed and sealed, ~16 MiB a pack |
-//! | `index/<id>.idx` | Which pack holds each blob; one per backup, merged by prune |
+//! | `index/<id>.idx` | Which pack holds each blob; one per backup (more past 100k blobs), merged by prune |
 //! | `snapshots/<id>.snap` | One per backup: when, which plan, the root tree |
 //! | `locks/<id>.lock` | Who is using the repository |
 //!

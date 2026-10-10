@@ -15,7 +15,7 @@ SIGN_ID  := $(APPLE_SIGNING_IDENTITY)
 # "-" is an ad-hoc signature: an empty identity makes the bundler fail instead.
 export APPLE_SIGNING_IDENTITY := $(if $(SIGN_ID),$(SIGN_ID),-)
 
-.PHONY: check test lint fmt app install-app dmg dev icons sign-check screenshots
+.PHONY: check test lint fmt app install-app install-cli dmg dev icons sign-check screenshots
 
 ## cargo test (the engine and the app), TypeScript type-check and tests (vitest), then make lint.
 check:
@@ -74,6 +74,13 @@ install-app: app
 	@ditto "$(APP)" "/Applications/Keepr.app"
 	@echo "installed /Applications/Keepr.app"
 	@/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "/Applications/Keepr.app"
+
+## Link the installed app's binary in as `keepr`, for the command line (docs/development.md).
+BIN_DIR ?= $(HOME)/.local/bin
+install-cli:
+	@mkdir -p "$(BIN_DIR)"
+	@ln -sf "/Applications/Keepr.app/Contents/MacOS/Keepr" "$(BIN_DIR)/keepr"
+	@echo "linked $(BIN_DIR)/keepr; try: keepr --help"
 
 ## Pack the built app into the release DMG (src-tauri/target/release/bundle/dmg/), laid out like other Mac installers.
 dmg:

@@ -7,14 +7,6 @@
 import type { JSX, SVGProps } from "react";
 
 const paths: Record<string, JSX.Element> = {
-  overview: (
-    <>
-      <rect x="3" y="3" width="7" height="9" rx="1.5" />
-      <rect x="14" y="3" width="7" height="5" rx="1.5" />
-      <rect x="14" y="12" width="7" height="9" rx="1.5" />
-      <rect x="3" y="16" width="7" height="5" rx="1.5" />
-    </>
-  ),
   plans: (
     <>
       <path d="M12 3 3 8l9 5 9-5-9-5z" />
@@ -111,18 +103,6 @@ const paths: Record<string, JSX.Element> = {
     <>
       <path d="M4 6h16l-2 14H6z" />
       <ellipse cx="12" cy="6" rx="8" ry="2" />
-    </>
-  ),
-  terminal: (
-    <>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="m7 9 3 3-3 3M13 15h4" />
-    </>
-  ),
-  monitor: (
-    <>
-      <rect x="3" y="4" width="18" height="12" rx="2" />
-      <path d="M8 20h8M12 16v4" />
     </>
   ),
   eye: (

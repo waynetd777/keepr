@@ -54,13 +54,8 @@ pub fn destination(snap: &Snapshot, path: &str, target: &Target) -> Result<PathB
         Target::Original if path.contains("://") => Err(Error::new("Files from a bucket can only be restored into a folder. Choose one.")),
         Target::Original => Ok(PathBuf::from(path)),
         Target::Folder(dir) => {
-            let src = snap
-                .sources
-                .iter()
-                .filter(|s| path == s.as_str() || path.starts_with(&format!("{}/", s.trim_end_matches('/'))))
-                .max_by_key(|s| s.len())
-                .ok_or_else(|| Error::new(format!("{path} isn't in this snapshot")))?;
-            let parent = Path::new(src).parent().unwrap_or(Path::new("/"));
+            let (src, _) = crate::browse::split(snap, path).ok_or_else(|| Error::new(format!("{path} isn't in this snapshot")))?;
+            let parent = Path::new(&src).parent().unwrap_or(Path::new("/"));
             let rel = Path::new(path).strip_prefix(parent).map_err(|_| Error::new(format!("{path} isn't in this snapshot")))?;
             Ok(dir.join(rel))
         }
@@ -80,6 +75,11 @@ pub fn free_name(p: &Path) -> PathBuf {
         }
     }
     unreachable!()
+}
+
+/// Whether `name` is one file's name: not empty, `.` or `..`, and without a '/'.
+fn safe_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains('/') && !name.contains('\0')
 }
 
 struct Job<'a> {
@@ -112,6 +112,12 @@ impl Job<'_> {
                 if let Some(t) = n.subtree {
                     let tree = self.repo.load_tree(&t)?;
                     for child in &tree.nodes {
+                        // A name comes from the snapshot, and the snapshot from a bucket's keys
+                        // perhaps: never one that would put a file outside `dest`.
+                        if !safe_name(&child.name) {
+                            self.err(&dest.join(&child.name), "a name that can't be a file's, so it's left out");
+                            continue;
+                        }
                         self.restore(child, &dest.join(&child.name))?;
                     }
                 }
@@ -230,6 +236,14 @@ pub fn run(repo: &Repo, snap: &Snapshot, items: &[String], target: &Target, conf
 mod tests {
     use super::*;
     use crate::backup::{self, tests::*};
+
+    #[test]
+    fn names_that_leave_the_folder_are_refused() {
+        for bad in ["", ".", "..", "a/b", "../x"] {
+            assert!(!safe_name(bad), "{bad:?}");
+        }
+        assert!(safe_name("..hidden") && safe_name("a b.txt"));
+    }
 
     #[test]
     fn restores_to_a_folder_and_handles_conflicts() {

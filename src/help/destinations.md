@@ -23,7 +23,7 @@ iCloud Drive, Google Drive, OneDrive, Dropbox, Box, and any service whose Mac ap
 A bucket at Amazon S3, Backblaze B2, Cloudflare R2, or another S3 service (**Other**, with its endpoint and region). With a bucket and a key, fill them in. New to this? Each service has a helper:
 
 - **Amazon S3**: **Let Keepr set it up** makes a private bucket and a key that can only use it, by signing in to AWS or through AWS CloudShell.
-- **Backblaze B2**: enter a master key; Keepr uses it once to make the bucket and a key for it, and doesn't keep it.
+- **Backblaze B2**: enter a master key; Keepr uses it once to make the bucket and a key for it, and doesn't keep it. A bucket of that name that Keepr didn't make is left alone: choose another name.
 - **Cloudflare R2**: enter a setup token; Keepr makes the bucket and a token for it, then deletes the setup token.
 
 ## Passwords and keys

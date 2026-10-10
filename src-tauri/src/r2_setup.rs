@@ -11,7 +11,6 @@
 use crate::aws_setup::{Made, Mode};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::time::Duration;
 
 const API: &str = "https://api.cloudflare.com/client/v4";
 
@@ -43,21 +42,21 @@ fn explain(e: ureq::Error) -> String {
 
 impl Cf {
     fn new(token: &str) -> Result<Cf, String> {
-        let tls = native_tls::TlsConnector::new().map_err(|e| e.to_string())?;
-        Ok(Cf {
-            token: token.trim().to_string(),
-            agent: ureq::AgentBuilder::new().tls_connector(std::sync::Arc::new(tls)).timeout(Duration::from_secs(60)).build(),
-        })
+        Ok(Cf { token: token.trim().to_string(), agent: crate::cloud_setup::http_agent()? })
     }
 
     fn call(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value, String> {
+        Ok(self.call_whole(method, path, body)?["result"].clone())
+    }
+
+    /// The whole answer, for when what's beside the result matters (a list's next-page cursor).
+    fn call_whole(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value, String> {
         let req = self.agent.request(method, &format!("{API}{path}")).set("Authorization", &format!("Bearer {}", self.token));
         let r = match body {
             Some(b) => req.send_json(b),
             None => req.call(),
         };
-        let v: Value = r.map_err(explain)?.into_json().map_err(|e| e.to_string())?;
-        Ok(v["result"].clone())
+        r.map_err(explain)?.into_json().map_err(|e| e.to_string())
     }
 
     /// The accounts this token can see: (id, name).
@@ -88,9 +87,24 @@ impl Cf {
         }
     }
 
+    /// Every bucket in the account. Cloudflare answers a page at a time, so this follows the
+    /// cursor to the end: stopping at the first page would make a bucket further on look absent,
+    /// and setup would then try to make it again.
     fn buckets(&self, account: &str) -> Result<Vec<String>, String> {
-        let v = self.call("GET", &format!("/accounts/{account}/r2/buckets"), None)?;
-        Ok(v["buckets"].as_array().cloned().unwrap_or_default().iter().filter_map(|b| b["name"].as_str().map(str::to_string)).collect())
+        let mut names = Vec::new();
+        let mut cursor = String::new();
+        // A thousand pages of a thousand is far beyond any account; the cap only stops a loop.
+        for _ in 0..1000 {
+            let q = if cursor.is_empty() { String::new() } else { format!("&cursor={}", urlencoding(&cursor)) };
+            let v = self.call_whole("GET", &format!("/accounts/{account}/r2/buckets?per_page=1000{q}"), None)?;
+            let page = v["result"]["buckets"].as_array().cloned().unwrap_or_default();
+            names.extend(page.iter().filter_map(|b| b["name"].as_str().map(str::to_string)));
+            match v["result_info"]["cursor"].as_str() {
+                Some(c) if !c.is_empty() && !page.is_empty() && c != cursor => cursor = c.to_string(),
+                _ => break,
+            }
+        }
+        Ok(names)
     }
 
     fn permission_group(&self, name: &str) -> Result<String, String> {
@@ -105,12 +119,15 @@ impl Cf {
     }
 }
 
+/// A cursor made safe to put in a query string.
+fn urlencoding(s: &str) -> String {
+    s.bytes()
+        .map(|b| if b.is_ascii_alphanumeric() || b"-._~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") })
+        .collect()
+}
+
 fn check_name(bucket: &str) -> Result<(), String> {
-    let ok = (3..=63).contains(&bucket.len())
-        && bucket.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-        && !bucket.starts_with('-')
-        && !bucket.ends_with('-');
-    if ok {
+    if crate::cloud_setup::bucket_name_ok(bucket, false) {
         Ok(())
     } else {
         Err("An R2 bucket name is 3 to 63 lower-case letters, digits and hyphens.".into())
@@ -126,9 +143,7 @@ fn s3_secret(token_value: &str) -> String {
 pub fn list(token: &str, account: &str) -> Result<Vec<String>, String> {
     let cf = Cf::new(token)?;
     let acc = cf.account(account)?;
-    let mut b = cf.buckets(&acc)?;
-    b.sort();
-    Ok(b)
+    Ok(crate::cloud_setup::sorted(cf.buckets(&acc)?))
 }
 
 /// Makes (or, for a source, finds) the bucket and S3 keys for it alone, then deletes the setup token.
@@ -185,6 +200,7 @@ mod tests {
     fn names_and_secrets() {
         assert!(check_name("keepr-backup-1a2b").is_ok());
         assert!(check_name("Keepr").is_err());
+        assert_eq!(urlencoding("a+b/c=="), "a%2Bb%2Fc%3D%3D");
         // R2's documented derivation: the secret is the token value's SHA-256.
         assert_eq!(s3_secret("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     }

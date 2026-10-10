@@ -30,6 +30,7 @@ It opens normally after that. The first time you use some features, macOS asks f
 - **Destinations.** Folders and drives, NAS shares, iCloud Drive, OneDrive and other cloud folders, Amazon S3, Backblaze B2, Cloudflare R2 and other S3 services, with helpers that make the bucket and a key that can only use it. [Destinations](docs/destinations.md)
 - **In the menu bar.** Keepr keeps backing up with the window closed, waits for drives, batteries and hotspots, catches up after sleep, checks the backups can be read back, and tells you when something goes wrong. [Day to day](docs/day-to-day.md)
 - **Help in the app.** `?` or ⌘? opens help for the screen you're on at the side of the window, with search and step-by-step getting-started guides. [Help](docs/day-to-day.md#help)
+- **Command line.** `keepr` backs up, checks, tidies and restores, and `keepr status` reports each plan for a health check, with `--json` for scripts. [Development](docs/development.md#command-line) lists the commands.
 
 ## Licence
 
@@ -45,4 +46,4 @@ make dev          # run it with hot reload
 make install-app  # build it and put it in /Applications
 ```
 
-[Development](docs/development.md) has the rest: signing, the release DMG, the command line, screenshots and where things live.
+[Development](docs/development.md) has the rest: signing, the release DMG, the `keepr` command line, screenshots and where things live.

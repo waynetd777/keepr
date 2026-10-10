@@ -23,6 +23,7 @@ The shortcuts, by where they work.
 
 ## Restore
 - `←` `→` — Earlier, later snapshot
+- `Space` — Quick Look the picked file
 - `⌘ click` — In the size map, find a folder in Files
 
 ## Menu bar panel

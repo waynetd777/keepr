@@ -16,6 +16,10 @@ pub const CONFIG: &str = "keepr-repo.json";
 pub const FORMAT: u32 = 1;
 /// A pack is written once it holds this much.
 pub const PACK_TARGET: usize = 16 << 20;
+/// An index file is closed once it names this many blobs, and the next one started. One file per
+/// backup (and prune's one for everything) would otherwise grow without limit: at about 100 bytes
+/// a blob, a few million blobs make one file of hundreds of MB, read whole on every open.
+pub const INDEX_ENTRIES: usize = 100_000;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Chunker {
@@ -85,6 +89,12 @@ pub struct Index {
     pub files: Vec<String>,
 }
 
+impl Packer {
+    fn holds(&self, id: &Id) -> bool {
+        self.pending.contains(id) || self.inflight.contains(id)
+    }
+}
+
 impl Index {
     pub fn add_record(&mut self, rec: &PackRecord) {
         let n = *self.pack_no.entry(rec.pack).or_insert_with(|| {
@@ -107,12 +117,14 @@ struct Packer {
     entries: Vec<Entry>,
     /// Blobs in the pack being filled, so a chunk seen twice in one backup is stored once.
     pending: HashSet<Id>,
+    /// Blobs in a full pack on its way to the backend: out of `pending` but not yet in the index.
+    /// Without this a chunk seen again during the upload would be in neither, and stored twice.
+    inflight: HashSet<Id>,
 }
 
 /// Counts for the backup's progress and its snapshot's statistics.
 #[derive(Default)]
 pub struct Counters {
-    pub added_blobs: std::sync::atomic::AtomicU64,
     pub added_bytes: std::sync::atomic::AtomicU64,
     pub stored_bytes: std::sync::atomic::AtomicU64,
     pub dup_bytes: std::sync::atomic::AtomicU64,
@@ -126,6 +138,9 @@ pub struct Repo {
     packer: Mutex<Packer>,
     /// Packs written by this session and not yet in an index file.
     written: Mutex<Vec<PackRecord>>,
+    /// Why a pack couldn't be written, since the last flush. Other threads have by then been told
+    /// their blobs in that pack were stored, so the flush must fail and no snapshot be saved.
+    failed: Mutex<Option<Error>>,
     trees: Mutex<HashMap<Id, Arc<Tree>>>,
     pub counters: Counters,
 }
@@ -181,8 +196,9 @@ impl Repo {
             config,
             keys,
             index: RwLock::new(Index::default()),
-            packer: Mutex::new(Packer { buf: Vec::new(), entries: Vec::new(), pending: HashSet::new() }),
+            packer: Mutex::new(Packer { buf: Vec::new(), entries: Vec::new(), pending: HashSet::new(), inflight: HashSet::new() }),
             written: Mutex::new(Vec::new()),
+            failed: Mutex::new(None),
             trees: Mutex::new(HashMap::new()),
             counters: Counters::default(),
         }
@@ -259,10 +275,13 @@ impl Repo {
         let body = self.keys.open(stored)?;
         match body.first() {
             Some(0) => Ok(body[1..].to_vec()),
-            Some(1) => {
-                let cap = raw_len.unwrap_or(64 << 20).max(1);
-                zstd::bulk::decompress(&body[1..], cap).map_err(|e| Error::new(format!("damaged data: {e}")))
+            // A blob's plain length is in the index, and bounds the output. An index file or a
+            // snapshot has no such bound, and may be any size, so it is decompressed as a stream.
+            Some(1) => match raw_len {
+                Some(n) => zstd::bulk::decompress(&body[1..], n.max(1)),
+                None => zstd::stream::decode_all(&body[1..]),
             }
+            .map_err(|e| Error::new(format!("damaged data: {e}"))),
             _ => Err(Error::new("damaged data: unknown encoding")),
         }
     }
@@ -281,7 +300,9 @@ impl Repo {
 
     // ---- index ----
 
-    fn load_index(&self) -> Result<()> {
+    /// Reads the index afresh from the backend, replacing the one in memory. Packs this session
+    /// wrote and hasn't yet named in an index file are kept in it: they are on disk and in use.
+    pub fn load_index(&self) -> Result<()> {
         let mut ix = Index::default();
         for f in self.backend.list("index")? {
             if !f.ends_with(".idx") {
@@ -294,8 +315,31 @@ impl Repo {
             }
             ix.files.push(path);
         }
+        for rec in self.written.lock().unwrap().iter() {
+            ix.add_record(rec);
+        }
         *self.index.write().unwrap() = ix;
         Ok(())
+    }
+
+    /// Writes index files naming these packs, a new file every `INDEX_ENTRIES` blobs or so (a
+    /// pack's record is never split). Returns their paths.
+    pub fn write_index(&self, packs: Vec<PackRecord>) -> Result<Vec<String>> {
+        let mut paths = Vec::new();
+        let mut doc = IndexFile::default();
+        let mut n = 0;
+        let mut it = packs.into_iter().peekable();
+        while let Some(rec) = it.next() {
+            n += rec.blobs.len();
+            doc.packs.push(rec);
+            if n >= INDEX_ENTRIES || it.peek().is_none() {
+                let path = format!("index/{}.idx", Id::random().hex());
+                self.write_doc(&path, &std::mem::take(&mut doc))?;
+                paths.push(path);
+                n = 0;
+            }
+        }
+        Ok(paths)
     }
 
     pub fn has(&self, id: &Id) -> bool {
@@ -312,14 +356,16 @@ impl Repo {
     pub fn add(&self, kind: Kind, plain: &[u8]) -> Result<(Id, bool)> {
         use std::sync::atomic::Ordering::Relaxed;
         let id = self.keys.id(plain);
-        if self.has(&id) || self.packer.lock().unwrap().pending.contains(&id) {
+        if self.has(&id) || self.packer.lock().unwrap().holds(&id) {
             self.counters.dup_bytes.fetch_add(plain.len() as u64, Relaxed);
             return Ok((id, false));
         }
         let stored = self.encode(plain);
         let full = {
             let mut p = self.packer.lock().unwrap();
-            if !p.pending.insert(id) {
+            // Asked again under the lock: a pack written meanwhile moves its blobs into the index
+            // before out of `inflight`, so one of the two has this blob if it is stored.
+            if p.holds(&id) || self.has(&id) || !p.pending.insert(id) {
                 // Another thread stored the same chunk while this one was compressing it.
                 self.counters.dup_bytes.fetch_add(plain.len() as u64, Relaxed);
                 return Ok((id, false));
@@ -333,53 +379,86 @@ impl Repo {
                 None
             }
         };
-        self.counters.added_blobs.fetch_add(1, Relaxed);
         self.counters.added_bytes.fetch_add(plain.len() as u64, Relaxed);
         self.counters.stored_bytes.fetch_add(stored.len() as u64, Relaxed);
-        if let Some((buf, entries, ids)) = full {
-            self.write_pack(buf, entries, ids)?;
+        if let Some((buf, entries)) = full {
+            self.write_pack(buf, entries)?;
         }
         Ok((id, true))
     }
 
-    fn take(p: &mut Packer) -> (Vec<u8>, Vec<Entry>, HashSet<Id>) {
-        (std::mem::take(&mut p.buf), std::mem::take(&mut p.entries), std::mem::take(&mut p.pending))
+    /// The pack being filled, to write; its blobs move from `pending` to `inflight`.
+    fn take(p: &mut Packer) -> (Vec<u8>, Vec<Entry>) {
+        let ids = std::mem::take(&mut p.pending);
+        p.inflight.extend(ids);
+        (std::mem::take(&mut p.buf), std::mem::take(&mut p.entries))
+    }
+
+    /// Ends a pack's blobs (`buf`, which `entries` describe) with the pack's header and its length,
+    /// as every pack is laid out.
+    pub fn pack_bytes(&self, buf: &mut Vec<u8>, entries: &[Entry]) -> Result<()> {
+        let header = self.encode(&serde_json::to_vec(entries)?);
+        buf.extend_from_slice(&header);
+        buf.extend_from_slice(&(header.len() as u32).to_le_bytes());
+        Ok(())
     }
 
     /// Packs are named by a random id: the name says nothing about what is inside.
-    fn write_pack(&self, mut buf: Vec<u8>, entries: Vec<Entry>, pending: HashSet<Id>) -> Result<()> {
+    fn write_pack(&self, mut buf: Vec<u8>, entries: Vec<Entry>) -> Result<()> {
         if entries.is_empty() {
             return Ok(());
         }
-        let header = self.encode(&serde_json::to_vec(&entries)?);
-        buf.extend_from_slice(&header);
-        buf.extend_from_slice(&(header.len() as u32).to_le_bytes());
-        let pack = Id::random();
-        self.backend
-            .write(&pack_path(&pack), &buf)
-            .map_err(|e| Error::new(format!("Couldn't write to {}: {e}", self.backend.describe())))?;
+        let res = (|| -> Result<Id> {
+            self.pack_bytes(&mut buf, &entries)?;
+            let pack = Id::random();
+            self.backend
+                .write(&pack_path(&pack), &buf)
+                .map_err(|e| Error::new(format!("Couldn't write to {}: {e}", self.backend.describe())))?;
+            Ok(pack)
+        })();
+        let pack = match res {
+            Ok(p) => p,
+            Err(e) => {
+                // The other blobs in this pack were reported stored to whoever added them, and
+                // their files' nodes will name them: the backup can't be saved now.
+                let mut p = self.packer.lock().unwrap();
+                for Entry(id, ..) in &entries {
+                    p.inflight.remove(id);
+                }
+                self.failed.lock().unwrap().get_or_insert_with(|| e.clone());
+                return Err(e);
+            }
+        };
         let rec = PackRecord { pack, blobs: entries };
-        // Into the in-memory index at once, and only then out of `pending`, so a blob is always
+        // Into the in-memory index at once, and only then out of `inflight`, so a blob is always
         // findable in one or the other.
         self.index.write().unwrap().add_record(&rec);
-        drop(pending);
+        {
+            let mut p = self.packer.lock().unwrap();
+            for Entry(id, ..) in &rec.blobs {
+                p.inflight.remove(id);
+            }
+        }
         self.written.lock().unwrap().push(rec);
         Ok(())
     }
 
-    /// Writes the pack being filled, then an index file naming every pack this session wrote.
-    /// After this, a snapshot may refer to any blob added so far.
+    /// Writes the pack being filled, then index files naming every pack this session wrote.
+    /// After this, a snapshot may refer to any blob added so far. Fails if any pack since the
+    /// last flush couldn't be written, as then some blob added since isn't stored.
     pub fn flush(&self) -> Result<()> {
-        let (buf, entries, pending) = Self::take(&mut self.packer.lock().unwrap());
-        self.write_pack(buf, entries, pending)?;
+        let (buf, entries) = Self::take(&mut self.packer.lock().unwrap());
+        let last = self.write_pack(buf, entries);
+        // The packs that were written are named all the same, so they aren't taken for leftovers.
         let packs = std::mem::take(&mut *self.written.lock().unwrap());
-        if packs.is_empty() {
-            return Ok(());
+        if !packs.is_empty() {
+            let paths = self.write_index(packs.clone()).inspect_err(|_| self.written.lock().unwrap().extend(packs))?;
+            self.index.write().unwrap().files.extend(paths);
         }
-        let path = format!("index/{}.idx", Id::random().hex());
-        self.write_doc(&path, &IndexFile { packs })?;
-        self.index.write().unwrap().files.push(path);
-        Ok(())
+        if let Some(e) = self.failed.lock().unwrap().take() {
+            return Err(e);
+        }
+        last
     }
 
     // ---- reading blobs ----
@@ -454,15 +533,50 @@ impl Repo {
     /// Records that this process is using the repository. Prune takes an exclusive lock and
     /// refuses while anyone else holds one; a lock whose process has gone is cleared.
     pub fn lock(self: &Arc<Self>, exclusive: bool) -> Result<Lock> {
+        self.lock_conflict(exclusive, None)?;
+        let path = format!("locks/{}.lock", Id::random().hex());
+        let l = LockFile { host: hostname(), pid: std::process::id(), time: chrono::Utc::now().to_rfc3339(), exclusive };
+        self.backend.write(&path, &serde_json::to_vec(&l)?)?;
+        // Looking and then writing isn't one step: another Mac may have done the same meanwhile.
+        // Look again now this lock is there for it to see, and back off if one got in.
+        if let Err(e) = self.lock_conflict(exclusive, Some(&path)) {
+            let _ = self.backend.remove(&path);
+            return Err(e);
+        }
+        let (stop, rx) = std::sync::mpsc::channel::<()>();
+        let (backend, p) = (self.backend.clone(), path.clone());
+        // A lock from another Mac counts as stale a day after its time, so a job running longer
+        // than that keeps its time fresh.
+        let refresh = std::thread::spawn(move || {
+            let mut l = l;
+            while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = rx.recv_timeout(LOCK_REFRESH) {
+                l.time = chrono::Utc::now().to_rfc3339();
+                if let Ok(raw) = serde_json::to_vec(&l) {
+                    let _ = backend.write(&p, &raw);
+                }
+            }
+        });
+        Ok(Lock { repo: self.clone(), path, stop: Some(stop), refresh: Some(refresh) })
+    }
+
+    /// Fails if a lock other than `mine` stops this one being taken. Clears stale ones: on this
+    /// Mac, a lock whose process has gone; from another Mac, one not refreshed for a day (its
+    /// process can't be asked).
+    fn lock_conflict(&self, exclusive: bool, mine: Option<&str>) -> Result<()> {
         let host = hostname();
         let me = std::process::id();
         for f in self.backend.list("locks")? {
             let path = format!("locks/{f}");
+            if mine == Some(path.as_str()) {
+                continue;
+            }
             let Ok(raw) = self.backend.read(&path) else { continue };
             let Ok(l) = serde_json::from_slice::<LockFile>(&raw) else { continue };
-            let stale = (l.host == host && !pid_alive(l.pid))
-                || chrono::DateTime::parse_from_rfc3339(&l.time)
-                    .is_ok_and(|t| chrono::Utc::now().signed_duration_since(t).num_hours() >= 24);
+            let stale = if l.host == host {
+                !pid_alive(l.pid)
+            } else {
+                chrono::DateTime::parse_from_rfc3339(&l.time).is_ok_and(|t| chrono::Utc::now().signed_duration_since(t).num_hours() >= 24)
+            };
             if stale {
                 let _ = self.backend.remove(&path);
                 continue;
@@ -475,12 +589,12 @@ impl Repo {
                 )));
             }
         }
-        let path = format!("locks/{}.lock", Id::random().hex());
-        let l = LockFile { host, pid: me, time: chrono::Utc::now().to_rfc3339(), exclusive };
-        self.backend.write(&path, &serde_json::to_vec(&l)?)?;
-        Ok(Lock { repo: self.clone(), path })
+        Ok(())
     }
 }
+
+/// How often a held lock's time is rewritten.
+const LOCK_REFRESH: std::time::Duration = std::time::Duration::from_secs(3600);
 
 #[derive(Serialize, Deserialize)]
 struct LockFile {
@@ -493,10 +607,18 @@ struct LockFile {
 pub struct Lock {
     repo: Arc<Repo>,
     path: String,
+    /// Dropped to stop the thread that keeps the lock's time fresh.
+    stop: Option<std::sync::mpsc::Sender<()>>,
+    refresh: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Drop for Lock {
     fn drop(&mut self) {
+        // The refresher first, so it can't write the lock back after it is removed.
+        drop(self.stop.take());
+        if let Some(t) = self.refresh.take() {
+            let _ = t.join();
+        }
         let _ = self.repo.backend.remove(&self.path);
     }
 }
@@ -607,6 +729,100 @@ mod tests {
         drop(shared);
         r.backend.remove("locks/other.lock").unwrap();
         let _ex = r.lock(true).unwrap();
+    }
+
+    #[test]
+    fn big_index_files_read_back_and_are_split() {
+        let t = tempfile::tempdir().unwrap();
+        let r = repo(t.path(), Some("pw"));
+        // A document past any fixed cap on its plain size still decodes.
+        let big = vec![b'x'; 70 << 20];
+        assert_eq!(r.decode(&r.encode(&big), None).unwrap().len(), big.len());
+        // More blobs than one index file takes: two files, and all of it read back.
+        let rec = |n: usize| PackRecord { pack: Id::random(), blobs: (0..n).map(|_| Entry(Id::random(), Kind::Data, 0, 1, 1)).collect() };
+        let paths = r.write_index(vec![rec(INDEX_ENTRIES - 1), rec(2), rec(5)]).unwrap();
+        assert_eq!(paths.len(), 2);
+        r.load_index().unwrap();
+        assert_eq!(r.index.read().unwrap().blobs.len(), INDEX_ENTRIES + 6);
+    }
+
+    /// A folder whose pack writes fail while `fail` is set.
+    struct Flaky(Folder, std::sync::atomic::AtomicBool);
+
+    impl Backend for Flaky {
+        fn read(&self, p: &str) -> std::io::Result<Vec<u8>> {
+            self.0.read(p)
+        }
+        fn read_at(&self, p: &str, o: u64, l: u64) -> std::io::Result<Vec<u8>> {
+            self.0.read_at(p, o, l)
+        }
+        fn write(&self, p: &str, d: &[u8]) -> std::io::Result<()> {
+            if p.starts_with("packs/") && self.1.load(std::sync::atomic::Ordering::Relaxed) {
+                return Err(std::io::Error::other("disk full"));
+            }
+            self.0.write(p, d)
+        }
+        fn list(&self, d: &str) -> std::io::Result<Vec<String>> {
+            self.0.list(d)
+        }
+        fn remove(&self, p: &str) -> std::io::Result<()> {
+            self.0.remove(p)
+        }
+        fn exists(&self, p: &str) -> bool {
+            self.0.exists(p)
+        }
+        fn size(&self, p: &str) -> std::io::Result<u64> {
+            self.0.size(p)
+        }
+        fn describe(&self) -> String {
+            self.0.describe()
+        }
+    }
+
+    #[test]
+    fn a_failed_pack_fails_the_flush() {
+        let t = tempfile::tempdir().unwrap();
+        let b = Arc::new(Flaky(Folder::new(t.path()), false.into()));
+        let r = Repo::init_with(b.clone(), None, Kdf::fast()).unwrap().repo;
+        // One blob is reported stored, then its pack fails to write with the next.
+        let noise = |seed: u64| {
+            let mut x = seed;
+            (0..PACK_TARGET / 2 + 1)
+                .map(|_| {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    x as u8
+                })
+                .collect::<Vec<u8>>()
+        };
+        let (a, _) = r.add(Kind::Data, &noise(1)).unwrap();
+        b.1.store(true, std::sync::atomic::Ordering::Relaxed);
+        assert!(r.add(Kind::Data, &noise(2)).is_err());
+        b.1.store(false, std::sync::atomic::Ordering::Relaxed);
+        assert!(r.flush().is_err(), "a snapshot must not be saved naming {}", a.short());
+        assert!(!r.has(&a));
+        // The failure is reported once; the next backup starts clean.
+        r.add(Kind::Data, b"later").unwrap();
+        r.flush().unwrap();
+    }
+
+    #[test]
+    fn a_lock_on_this_mac_is_stale_only_when_its_process_has_gone() {
+        let t = tempfile::tempdir().unwrap();
+        let r = Arc::new(repo(t.path(), None));
+        let old = (chrono::Utc::now() - chrono::Duration::hours(48)).to_rfc3339();
+        // Process 1 is always running: two days old, its lock still holds.
+        let live = LockFile { host: hostname(), pid: 1, time: old.clone(), exclusive: false };
+        r.backend.write("locks/live.lock", &serde_json::to_vec(&live).unwrap()).unwrap();
+        assert!(r.lock(true).is_err());
+        r.backend.remove("locks/live.lock").unwrap();
+        let gone = LockFile { host: hostname(), pid: 999_999, time: chrono::Utc::now().to_rfc3339(), exclusive: true };
+        r.backend.write("locks/gone.lock", &serde_json::to_vec(&gone).unwrap()).unwrap();
+        let l = r.lock(true).unwrap();
+        assert!(!r.backend.exists("locks/gone.lock"));
+        drop(l);
+        assert!(r.backend.list("locks").unwrap().is_empty());
     }
 
     #[test]

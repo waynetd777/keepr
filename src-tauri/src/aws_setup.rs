@@ -58,11 +58,7 @@ fn check(region: &str, bucket: &str) -> Result<(), String> {
     if region.is_empty() || !region.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
         return Err("Choose a region, such as eu-west-1.".into());
     }
-    let ok = (3..=63).contains(&bucket.len())
-        && bucket.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.')
-        && !bucket.starts_with('-')
-        && !bucket.ends_with('-');
-    if !ok {
+    if !crate::cloud_setup::bucket_name_ok(bucket, true) {
         return Err("A bucket name is 3 to 63 lower-case letters, digits, dots and hyphens.".into());
     }
     Ok(())
@@ -123,10 +119,13 @@ else
   aws iam create-user --user-name "${{U}}" --tags Key=created-by,Value=Keepr >/dev/null
 fi
 aws iam put-user-policy --user-name "${{U}}" --policy-name keepr-bucket-only --policy-document '{{"Version":"2012-10-17","Statement":[{{"Effect":"Allow","Action":"s3:ListBucket","Resource":"arn:aws:s3:::'"${{B}}"'"}},{{"Effect":"Allow","Action":['"${{A}}"'],"Resource":"arn:aws:s3:::'"${{B}}"'/*"}}]}}'
-# A user may have two keys: make room by removing the oldest Keepr made before.
-OLD=$(aws iam list-access-keys --user-name "${{U}}" --query 'AccessKeyMetadata[].AccessKeyId' --output text)
-set -- $OLD
-if [ $# -ge 2 ]; then aws iam delete-access-key --user-name "${{U}}" --access-key-id "$1"; fi
+# A user may have two keys: make room by removing the older one. AWS lists keys in no promised
+# order, so the oldest is asked for by date; the newer may be the one a working backup uses.
+N=$(aws iam list-access-keys --user-name "${{U}}" --query 'length(AccessKeyMetadata)' --output text)
+if [ "${{N}}" -ge 2 ]; then
+  OLD=$(aws iam list-access-keys --user-name "${{U}}" --query 'sort_by(AccessKeyMetadata,&CreateDate)[0].AccessKeyId' --output text)
+  aws iam delete-access-key --user-name "${{U}}" --access-key-id "${{OLD}}"
+fi
 K=$(aws iam create-access-key --user-name "${{U}}" --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text)
 set -- $K
 echo
@@ -246,6 +245,18 @@ fn session(region: &str) -> Result<Session, String> {
     Session::start(region)
 }
 
+/// Removes sign-in folders left by a run that ended before it could tidy up (it quit, or was
+/// killed, mid-setup). Called at launch, when no sign-in can be in use, because each holds
+/// short-lived AWS credentials that shouldn't outlive the setup they were for.
+pub fn sweep() {
+    let Ok(dir) = std::fs::read_dir(config::data_dir()) else { return };
+    for e in dir.flatten() {
+        if e.file_name().to_string_lossy().starts_with("aws-setup-") && e.path().is_dir() {
+            let _ = std::fs::remove_dir_all(e.path());
+        }
+    }
+}
+
 /// Forgets the sign-in, if one is kept.
 pub fn end_session() {
     if let Some(s) = SESSION.lock().unwrap().take() {
@@ -343,6 +354,7 @@ mod tests {
         assert!(s.contains("R='eu-west-1'; B='keepr-backup-1a2b3c4d'; U='keepr-backup-1a2b3c4d'"));
         assert!(s.contains(r#""Resource":"arn:aws:s3:::'"${B}"'/*""#));
         let r = script("eu-west-1", "photos", Mode::Source).unwrap();
+        assert!(s.contains("sort_by(AccessKeyMetadata,&CreateDate)[0].AccessKeyId") && !s.contains(r#""$1"; fi"#));
         assert!(r.contains("U='keepr-read-photos'") && r.contains(r#"A='"s3:GetObject"'"#) && !r.contains("create-bucket"));
         assert!(script("eu-west-1", "Bad_Name", Mode::Destination).is_err());
         assert!(script("eu-west-1; rm", "keepr", Mode::Source).is_err());

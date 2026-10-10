@@ -32,9 +32,12 @@ impl Mounts {
     pub fn reap(&self, idle: Duration) {
         let mut m = self.0.lock().unwrap();
         let done: Vec<PathBuf> = m.iter().filter(|(_, (t, disc))| *disc && t.elapsed() >= idle).map(|(p, _)| p.clone()).collect();
+        // A share that won't unmount (a file still open on it) stays on the list, to be tried again
+        // next time, rather than being forgotten while it's still mounted and hidden from Finder.
         for p in done {
-            smb::unmount(&p);
-            m.remove(&p);
+            if smb::unmount(&p) {
+                m.remove(&p);
+            }
         }
     }
 }
@@ -68,17 +71,17 @@ fn volume_of(p: &Path) -> Option<String> {
     Some(c.next()?.as_os_str().to_string_lossy().to_string())
 }
 
-/// For a folder in a cloud service's sync folder (~/Library/CloudStorage/OneDrive-Personal/…):
-/// that sync folder, and whether macOS still treats it as a live one. When a cloud account is
-/// signed out or its sync root breaks, macOS renames the root and leaves its contents looking
-/// intact; only the file-provider domain attribute tells a live root from an orphan. Backing up
-/// into an orphan would quietly go to local disk and never reach the cloud.
 /// In a cloud service's sync folder (OneDrive, Google Drive, iCloud Drive…).
 pub fn in_cloud(p: &Path) -> bool {
     let home = std::env::var("HOME").unwrap_or_default();
     cloud_root(p).is_some() || p.starts_with(Path::new(&home).join("Library/Mobile Documents"))
 }
 
+/// For a folder in a cloud service's sync folder (~/Library/CloudStorage/OneDrive-Personal/…):
+/// that sync folder, and whether macOS still treats it as a live one. When a cloud account is
+/// signed out or its sync root breaks, macOS renames the root and leaves its contents looking
+/// intact; only the file-provider domain attribute tells a live root from an orphan. Backing up
+/// into an orphan would quietly go to local disk and never reach the cloud.
 pub fn cloud_root(p: &Path) -> Option<(PathBuf, bool)> {
     let home = std::env::var("HOME").ok()?;
     let cs = Path::new(&home).join("Library/CloudStorage");
@@ -227,7 +230,7 @@ pub fn unique_name(base: &str, taken: &[String]) -> String {
     (2..).map(|i| format!("{base} {i}")).find(|n| free(n)).unwrap()
 }
 
-/// A share's password: Keepr's saved one, else Finder's.
+/// A cloud service's sync folder on this Mac, as the destination picker lists it.
 #[derive(serde::Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct CloudFolder {
@@ -305,6 +308,7 @@ pub fn cloud_folders() -> Vec<CloudFolder> {
     out
 }
 
+/// A share's password: Keepr's saved one, else Finder's.
 pub fn smb_password(s: &Smb) -> Option<String> {
     keychain::get(&keychain::smb_account(&s.user, &s.server)).or_else(|| keychain::finder_smb_password(&s.server, &s.user))
 }
@@ -336,6 +340,19 @@ pub fn tilde(p: &str) -> String {
 
 /// The folder a place is, connecting a share if `connect` and it isn't mounted.
 pub fn resolve(place: &Place, mounts: &Mounts, connect: bool, disconnect_after: bool) -> Result<PathBuf, String> {
+    resolve_with(place, mounts, connect, disconnect_after, None)
+}
+
+/// As `resolve`, connecting a share with `password` rather than the saved one when it's given
+/// (testing a destination before its password is saved). A share mounted this way is noted like
+/// any other, so it is disconnected again once it's idle.
+pub fn resolve_with(
+    place: &Place,
+    mounts: &Mounts,
+    connect: bool,
+    disconnect_after: bool,
+    password: Option<&str>,
+) -> Result<PathBuf, String> {
     match place {
         Place::Folder { path, .. } => {
             let p = PathBuf::from(path);
@@ -366,7 +383,7 @@ pub fn resolve(place: &Place, mounts: &Mounts, connect: bool, disconnect_after: 
             let base = match smb::find_mount(&s.server, &s.share) {
                 Some(m) => m,
                 None if connect => {
-                    let pw = smb_password(s).unwrap_or_default();
+                    let pw = password.map(str::to_string).or_else(|| smb_password(s)).unwrap_or_default();
                     let m = smb::mount(&s.server, &s.share, &s.user, &pw)?;
                     mounts.note(&m, disconnect_after);
                     m

@@ -8,8 +8,8 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
 import { api, type Place } from "./api";
-import { serviceOf, type Service } from "./Destinations";
 import { B2Setup } from "./B2Setup";
+import { BucketPicker, s3EndpointFor, serviceOf, type Service } from "./KeySetup";
 import { R2Setup } from "./R2Setup";
 import { Icon } from "./icons";
 import { Seg, Sheet } from "./ui";
@@ -31,19 +31,15 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   useEffect(() => {
-    api.awsSetupInfo().then((i) => setCli(i.cli));
+    api.awsSetupInfo().then(
+      (i) => setCli(i.cli),
+      () => {},
+    );
     return () => void api.awsSetupEnd();
   }, []);
   useEffect(() => setMsg(null), [service, region, r2Account, endpoint, bucket, prefix, accessKey, secret]);
 
-  const s3Endpoint =
-    service === "aws"
-      ? `https://s3.${region.trim()}.amazonaws.com`
-      : service === "b2"
-        ? `https://s3.${region.trim()}.backblazeb2.com`
-        : service === "r2"
-          ? `https://${r2Account.trim()}.r2.cloudflarestorage.com`
-          : endpoint.trim();
+  const s3Endpoint = s3EndpointFor(service, region, r2Account, endpoint);
   const place: Place = {
     kind: "s3",
     endpoint: s3Endpoint,
@@ -63,6 +59,13 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
       setMsg({ ok: false, text: String(e) });
     }
     setBusy("");
+  };
+  // A key saved in the Keychain belongs to one service and one access key, so choosing another
+  // of either means a secret is needed again, and the buckets listed are no longer this one's.
+  const forget = () => {
+    setSecretSaved(false);
+    setBuckets(null);
+    setShell(false);
   };
   const made = (m: { region: string; bucket: string; accessKey: string }) => {
     setRegion(m.region);
@@ -118,7 +121,10 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
         <Seg
           label="Service"
           value={service}
-          onChange={setService}
+          onChange={(v) => {
+            setService(v);
+            forget();
+          }}
           options={[
             ["aws", "Amazon S3"],
             ["b2", "Backblaze B2"],
@@ -154,26 +160,11 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
               </button>
             </div>
             {buckets && (
-              <div className="col" style={{ gap: 6 }}>
-                <span className="small muted">
-                  {buckets.length ? "Choose the bucket to back up:" : "There are no buckets in this account."}
-                </span>
-                <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
-                  {buckets.map((b) => (
-                    <button
-                      key={b}
-                      className="btn small"
-                      disabled={!!busy}
-                      onClick={() =>
-                        step(`Giving Keepr read-only access to ${b}…`, async () => made(await api.awsSetupRun(region, b, "source")))
-                      }
-                    >
-                      <Icon name="bucket" size={13} />
-                      {b}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <BucketPicker
+                buckets={buckets}
+                busy={!!busy}
+                onPick={(b) => step(`Giving Keepr read-only access to ${b}…`, async () => made(await api.awsSetupRun(region, b, "source")))}
+              />
             )}
             {shell && (
               <div className="col" style={{ gap: 6 }}>
@@ -274,7 +265,14 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
           </label>
           <label className="field">
             <span>Access key ID</span>
-            <input className="input mono" value={accessKey} onChange={(e) => setAccessKey(e.target.value)} />
+            <input
+              className="input mono"
+              value={accessKey}
+              onChange={(e) => {
+                setAccessKey(e.target.value);
+                forget();
+              }}
+            />
           </label>
           <label className="field">
             <span>Secret access key</span>

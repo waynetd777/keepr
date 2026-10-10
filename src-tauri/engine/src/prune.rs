@@ -8,7 +8,7 @@
 //! then are old index files and packs deleted. Until the last step the old state is still whole.
 
 use crate::backup::Control;
-use crate::repo::{pack_path, Entry, PackRecord, Repo, PACK_TARGET};
+use crate::repo::{pack_path, Entry, PackRecord, Repo, INDEX_ENTRIES, PACK_TARGET};
 use crate::retention::{keep, parse_time, Retention};
 use crate::tree::NodeKind;
 use crate::{Id, Result};
@@ -56,6 +56,9 @@ pub fn used_blobs(repo: &Repo, ctl: &Control) -> Result<HashSet<Id>> {
 
 pub fn run(repo: &Arc<Repo>, r: &Retention, ctl: &Control) -> Result<Pruned> {
     let _lock = repo.lock(true)?;
+    // The index in memory may be from before another process's backup (`--back-up`, or another
+    // Mac): its packs would look like leftovers to reclaim, and be deleted.
+    repo.load_index()?;
     let mut out = Pruned::default();
 
     // Which snapshots go.
@@ -76,10 +79,11 @@ pub fn run(repo: &Arc<Repo>, r: &Retention, ctl: &Control) -> Result<Pruned> {
     Ok(out)
 }
 
-/// Files in `tree` that no kept snapshot has, at the same path with the same contents.
-fn uncovered(repo: &Repo, tree: Id, others: &[Id], base: &str, out: &mut Vec<String>) -> Result<()> {
-    if others.contains(&tree) || out.len() >= 500 {
-        return Ok(());
+/// Goes through the files in `tree` that no kept snapshot has, at the same path with the same
+/// contents, until `hit` says yes to one. Returns whether it did.
+fn uncovered(repo: &Repo, tree: Id, others: &[Id], base: &str, hit: &mut dyn FnMut(&str) -> Result<bool>) -> Result<bool> {
+    if others.contains(&tree) {
+        return Ok(false);
     }
     let t = repo.load_tree(&tree)?;
     let theirs: Vec<Arc<crate::tree::Tree>> = others.iter().map(|o| repo.load_tree(o)).collect::<Result<_>>()?;
@@ -88,20 +92,22 @@ fn uncovered(repo: &Repo, tree: Id, others: &[Id], base: &str, out: &mut Vec<Str
         let same: Vec<&crate::tree::Node> = theirs.iter().filter_map(|t| t.get(&n.name)).collect();
         match n.kind {
             NodeKind::File => {
-                if !same.iter().any(|o| o.content_key() == n.content_key()) {
-                    out.push(path);
+                if !same.iter().any(|o| o.content_key() == n.content_key()) && hit(&path)? {
+                    return Ok(true);
                 }
             }
             NodeKind::Dir => {
                 if let Some(sub) = n.subtree {
                     let subs: Vec<Id> = same.iter().filter_map(|o| o.subtree).collect();
-                    uncovered(repo, sub, &subs, &path, out)?;
+                    if uncovered(repo, sub, &subs, &path, hit)? {
+                        return Ok(true);
+                    }
                 }
             }
             NodeKind::Symlink => {}
         }
     }
-    Ok(())
+    Ok(false)
 }
 
 /// Keeps, beyond the retention rules, any snapshot holding the last copy of a file that was
@@ -122,18 +128,19 @@ fn keep_deleted(
         }
         ctl.checkpoint()?;
         let others: Vec<Id> = kept.iter().map(|&k| snaps[k].tree).collect();
-        let mut files = Vec::new();
-        uncovered(repo, snaps[i].tree, &others, "", &mut files)?;
-        let recent_deletion = files.iter().any(|f| {
+        // Each file only this snapshot has is asked about as it is found, and the first deleted
+        // recently enough decides: no list to cap, so no deletion goes unseen in a big snapshot.
+        let mut recently_deleted = |f: &str| -> Result<bool> {
+            ctl.checkpoint()?;
             // When it went: the first later snapshot without it.
-            snaps
+            Ok(snaps
                 .iter()
                 .enumerate()
                 .skip(i + 1)
                 .find(|(_, s)| crate::browse::node_at(repo, s, f).ok().flatten().is_none())
-                .is_some_and(|(j, _)| now.signed_duration_since(times[j]).num_days() < days as i64)
-        });
-        if recent_deletion {
+                .is_some_and(|(j, _)| now.signed_duration_since(times[j]).num_days() < days as i64))
+        };
+        if uncovered(repo, snaps[i].tree, &others, "", &mut recently_deleted)? {
             kept.insert(i);
         }
     }
@@ -206,16 +213,15 @@ pub fn remove_path(repo: &Arc<Repo>, path: &str, ctl: &Control) -> Result<Pruned
         return remove_source(repo, path, ctl);
     }
     let _lock = repo.lock(true)?;
+    repo.load_index()?; // as in `run`
     let mut out = Pruned::default();
     for s in repo.snapshots()? {
         ctl.checkpoint()?;
-        let Some(src) =
-            s.sources.iter().filter(|x| path.starts_with(&format!("{}/", x.trim_end_matches('/')))).max_by_key(|x| x.len()).cloned()
-        else {
+        // A path that is a source in this snapshot was sent to `remove_source` above.
+        let Some((src, rest)) = crate::browse::split(&s, path).filter(|(_, rest)| !rest.is_empty()) else {
             out.kept += 1;
             continue;
         };
-        let rest: Vec<&str> = path[src.trim_end_matches('/').len()..].trim_start_matches('/').split('/').collect();
         let mut names = vec![src.as_str()];
         names.extend(rest);
         let Some((tree, b, f)) = without(repo, &s.tree, &names)? else {
@@ -240,6 +246,7 @@ pub fn remove_path(repo: &Arc<Repo>, path: &str, ctl: &Control) -> Result<Pruned
 /// part-way leaves both, never neither.
 pub fn remove_source(repo: &Arc<Repo>, source: &str, ctl: &Control) -> Result<Pruned> {
     let _lock = repo.lock(true)?;
+    repo.load_index()?; // as in `run`
     let mut out = Pruned::default();
     let key = source.trim_end_matches('/');
     for s in repo.snapshots()? {
@@ -292,21 +299,24 @@ pub fn reclaim(repo: &Arc<Repo>, ctl: &Control, out: &mut Pruned) -> Result<()> 
     // syncs each as its own file, so once enough pile up they are copied together.
     let mut small: Vec<(Id, Live, u64)> = Vec::new();
     for (n, pack) in packs.iter().enumerate() {
-        let size = repo.backend.size(&pack_path(pack)).unwrap_or(0);
         let entries = live.remove(&(n as u32)).unwrap_or_default();
+        // A pack whose size can't be had (the network, a share gone away) is left as it is this
+        // time: kept, never deleted or rewritten on a guess.
+        let Ok(size) = repo.backend.size(&pack_path(pack)) else {
+            records.push(kept_record(*pack, &entries));
+            continue;
+        };
         let live_bytes: u64 = entries.iter().map(|(_, l)| l.len as u64).sum();
         if entries.is_empty() {
             doomed.push(*pack);
             out.bytes_freed += size;
         } else if live_bytes * 2 < size {
-            out.bytes_freed += size - live_bytes;
+            out.bytes_freed += size.saturating_sub(live_bytes);
             rewrite.push((*pack, entries));
         } else if size < SMALL_PACK {
-            small.push((*pack, entries, size - live_bytes));
+            small.push((*pack, entries, size.saturating_sub(live_bytes)));
         } else {
-            let mut blobs: Vec<Entry> = entries.iter().map(|(id, l)| Entry(*id, l.kind, l.offset, l.len, l.raw)).collect();
-            blobs.sort_by_key(|e| e.2);
-            records.push(PackRecord { pack: *pack, blobs });
+            records.push(kept_record(*pack, &entries));
         }
     }
     if small.len() >= MERGE_AT {
@@ -317,9 +327,7 @@ pub fn reclaim(repo: &Arc<Repo>, ctl: &Control, out: &mut Pruned) -> Result<()> 
         }
     } else {
         for (pack, entries, _) in small {
-            let mut blobs: Vec<Entry> = entries.iter().map(|(id, l)| Entry(*id, l.kind, l.offset, l.len, l.raw)).collect();
-            blobs.sort_by_key(|e| e.2);
-            records.push(PackRecord { pack, blobs });
+            records.push(kept_record(pack, &entries));
         }
     }
 
@@ -330,9 +338,7 @@ pub fn reclaim(repo: &Arc<Repo>, ctl: &Control, out: &mut Pruned) -> Result<()> 
         if entries.is_empty() {
             return Ok(());
         }
-        let header = repo.encode(&serde_json::to_vec(&entries)?);
-        buf.extend_from_slice(&header);
-        buf.extend_from_slice(&(header.len() as u32).to_le_bytes());
+        repo.pack_bytes(buf, entries)?;
         let id = Id::random();
         repo.backend.write(&pack_path(&id), buf)?;
         records.push(PackRecord { pack: id, blobs: std::mem::take(entries) });
@@ -364,12 +370,12 @@ pub fn reclaim(repo: &Arc<Repo>, ctl: &Control, out: &mut Pruned) -> Result<()> 
         }
     }
 
-    if doomed.is_empty() && out.forgotten == 0 && old_files.len() <= 1 {
+    // As few index files as `write_index` would make of them is already tidy.
+    let fewest = records.iter().map(|r| r.blobs.len()).sum::<usize>().div_ceil(INDEX_ENTRIES).max(1);
+    if doomed.is_empty() && out.forgotten == 0 && old_files.len() <= fewest {
         return Ok(()); // nothing to tidy
     }
-    let path = format!("index/{}.idx", Id::random().hex());
-    let raw = serde_json::to_vec(&serde_json::json!({ "packs": records }))?;
-    repo.backend.write(&path, &repo.encode(&raw))?;
+    repo.write_index(records)?;
     for f in &old_files {
         repo.backend.remove(f)?;
     }
@@ -379,7 +385,14 @@ pub fn reclaim(repo: &Arc<Repo>, ctl: &Control, out: &mut Pruned) -> Result<()> 
     }
     out.packs_rewritten = rewrite.len() as u64 - out.packs_merged;
     out.packs_deleted -= rewrite.len() as u64;
-    reload_index(repo)
+    repo.load_index()
+}
+
+/// The index record for a pack kept as it is: its blobs still in use, in the order they sit.
+fn kept_record(pack: Id, entries: &Live) -> PackRecord {
+    let mut blobs: Vec<Entry> = entries.iter().map(|(id, l)| Entry(*id, l.kind, l.offset, l.len, l.raw)).collect();
+    blobs.sort_by_key(|e| e.2);
+    PackRecord { pack, blobs }
 }
 
 /// Deletes packs no index names: what a backup leaves when it's stopped hard (Keepr quit, the
@@ -388,7 +401,7 @@ pub fn reclaim(repo: &Arc<Repo>, ctl: &Control, out: &mut Pruned) -> Result<()> 
 /// has packs no index names *yet*. The index is read afresh first for the same reason.
 pub fn remove_leftovers(repo: &Arc<Repo>) -> Result<(u64, u64)> {
     let Ok(_lock) = repo.lock(true) else { return Ok((0, 0)) };
-    reload_index(repo)?;
+    repo.load_index()?;
     let known: HashSet<String> = repo.index.read().unwrap().packs.iter().map(pack_path).collect();
     let (mut n, mut bytes) = (0, 0);
     for f in repo.backend.list("packs")? {
@@ -402,30 +415,46 @@ pub fn remove_leftovers(repo: &Arc<Repo>) -> Result<(u64, u64)> {
     Ok((n, bytes))
 }
 
-fn reload_index(repo: &Repo) -> Result<()> {
-    let mut fresh = crate::repo::Index::default();
-    for f in repo.backend.list("index")? {
-        if !f.ends_with(".idx") {
-            continue;
-        }
-        let path = format!("index/{f}");
-        let plain = repo.decode(&repo.backend.read(&path)?, None)?;
-        let doc: serde_json::Value = serde_json::from_slice(&plain)?;
-        let recs: Vec<PackRecord> = serde_json::from_value(doc["packs"].clone())?;
-        for r in &recs {
-            fresh.add_record(r);
-        }
-        fresh.files.push(path);
-    }
-    *repo.index.write().unwrap() = fresh;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::backup::{self, tests::*};
     use std::fs;
+
+    #[test]
+    fn a_recent_deletion_is_seen_past_many_changed_files() {
+        let (src, _dst, repo) = setup(None);
+        // More changed files than the old search looked at, sorted before the deleted one.
+        for i in 0..600 {
+            fs::write(src.path().join(format!("a{i:03}.txt")), format!("old {i}")).unwrap();
+        }
+        fs::write(src.path().join("z.txt"), b"deleted").unwrap();
+        let s1 = backup::run(&repo, &opts(src.path()), None, &Control::default()).unwrap();
+        for i in 0..600 {
+            fs::write(src.path().join(format!("a{i:03}.txt")), format!("new {i}")).unwrap();
+        }
+        fs::remove_file(src.path().join("z.txt")).unwrap();
+        backup::run(&repo, &opts(src.path()), Some(&s1), &Control::default()).unwrap();
+        let r = Retention { all_hours: 0, daily_days: 0, weekly_weeks: 0, monthly_months: 1, keep_deleted_days: 90 };
+        assert_eq!(run(&repo, &r, &Control::default()).unwrap().forgotten, 0);
+    }
+
+    #[test]
+    fn packs_from_another_process_survive_prune() {
+        let (src, dst, repo) = setup(None);
+        fs::write(src.path().join("a.txt"), b"alpha").unwrap();
+        backup::run(&repo, &opts(src.path()), None, &Control::default()).unwrap();
+        // Another Keepr (the command line) backs up while this one has the repository open.
+        let other =
+            Arc::new(crate::repo::Repo::open(Arc::new(crate::backend::Folder::new(dst.path())), crate::repo::Secret::None).unwrap());
+        fs::write(src.path().join("b.txt"), b"beta").unwrap();
+        let parent = other.snapshots().unwrap().pop();
+        backup::run(&other, &opts(src.path()), parent.as_ref(), &Control::default()).unwrap();
+        let keep_all = Retention { all_hours: 1000, daily_days: 0, weekly_weeks: 0, monthly_months: 0, keep_deleted_days: 0 };
+        let p = run(&repo, &keep_all, &Control::default()).unwrap();
+        assert_eq!(p.packs_deleted, 0, "{p:?}");
+        assert!(crate::check::run(&repo, 1.0, &Control::default()).unwrap().problems.is_empty());
+    }
 
     #[test]
     fn small_packs_are_merged_once_there_are_enough() {

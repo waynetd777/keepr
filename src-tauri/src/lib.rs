@@ -9,6 +9,8 @@ mod about;
 mod aws_setup;
 mod b2_setup;
 mod browse;
+mod cli;
+mod cloud_setup;
 mod config;
 mod core;
 #[cfg(target_os = "macos")]
@@ -41,6 +43,18 @@ use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 type Core_ = Arc<Core>;
 
+/// Runs `f` off the main thread: anything that may wait on a disk, a share, the network or a
+/// Keychain prompt. On the main thread it would freeze the window (and the menu bar) until done.
+async fn off_main<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
+}
+
+/// `off_main`, with the app's Core.
+async fn with_core<T: Send + 'static>(core: State<'_, Core_>, f: impl FnOnce(&Core_) -> T + Send + 'static) -> Result<T, String> {
+    let core = core.inner().clone();
+    off_main(move || f(&core)).await
+}
+
 const STATE_FLAGS: StateFlags = StateFlags::SIZE.union(StateFlags::POSITION).union(StateFlags::MAXIMIZED);
 
 // ---- overview ----
@@ -63,7 +77,6 @@ struct PlanSummary {
     enabled: bool,
     sources: String,
     destination: String,
-    destination_id: String,
     schedule: String,
     encrypted: bool,
     /// "running", "waiting", "failed", "stale", "never", "off" or "ok".
@@ -145,40 +158,59 @@ fn icon_for(p: &Plan) -> String {
     }
 }
 
+/// A plan's status when it isn't running: "off", "waiting", "failed", "never", "stale" or "ok",
+/// and what to say about it. `last_backup` is its newest backup in the history.
+fn status_of(
+    p: &Plan,
+    ps: &config::PlanState,
+    last_backup: Option<&Run>,
+    stale_days: u32,
+    now: chrono::DateTime<chrono::Local>,
+) -> (&'static str, String) {
+    let stale = ps
+        .last_success
+        .as_deref()
+        .and_then(keepr_engine::retention::parse_time)
+        .is_some_and(|t| now.signed_duration_since(t).num_days() >= stale_days as i64);
+    if !p.enabled {
+        ("off", "Turned off".to_string())
+    } else if let Some(w) = &ps.waiting {
+        ("waiting", w.clone())
+    } else if let Some(r) = last_backup.filter(|r| r.result == "failed") {
+        ("failed", r.message.clone())
+    } else if !ps.created || ps.last_success.is_none() {
+        ("never", "Hasn't backed up yet".to_string())
+    } else if stale {
+        ("stale", "No backup for a while".to_string())
+    } else {
+        ("ok", last_backup.map(|r| r.message.clone()).unwrap_or_default())
+    }
+}
+
+fn is_backup(r: &Run) -> bool {
+    r.kind == "backup" || r.kind == "full"
+}
+
 fn overview_of(core: &Core) -> Overview {
     let cfg = core.config.lock().unwrap().clone();
     let st = core.state.lock().unwrap().clone();
     let job = core.status();
     let now = chrono::Local::now();
+    let paused_until = st.paused_until.as_deref().and_then(keepr_engine::retention::parse_time).filter(|t| *t > now);
     let mut plans = Vec::new();
     for p in &cfg.plans {
         let ps = st.plans.get(&p.id).cloned().unwrap_or_default();
         let runs: Vec<&Run> = st.history.iter().filter(|r| r.plan == p.id).collect();
-        let last_backup = runs.iter().rev().find(|r| r.kind == "backup" || r.kind == "full");
+        let last_backup = runs.iter().rev().find(|r| is_backup(r));
         let running = job.as_ref().is_some_and(|j| j.plan == p.id);
-        let stale = ps
-            .last_success
-            .as_deref()
-            .and_then(keepr_engine::retention::parse_time)
-            .is_some_and(|t| now.signed_duration_since(t).num_days() >= cfg.settings.stale_days as i64);
-        let (status, message) = if !p.enabled {
-            ("off", "Turned off".to_string())
-        } else if running {
+        let (status, message) = if running && p.enabled {
             ("running", job.as_ref().map(|j| j.stage.clone()).unwrap_or_default())
-        } else if let Some(w) = &ps.waiting {
-            ("waiting", w.clone())
-        } else if last_backup.is_some_and(|r| r.result == "failed") {
-            ("failed", last_backup.unwrap().message.clone())
-        } else if !ps.created || ps.last_success.is_none() {
-            ("never", "Hasn't backed up yet".to_string())
-        } else if stale {
-            ("stale", "No backup for a while".to_string())
         } else {
-            ("ok", last_backup.map(|r| r.message.clone()).unwrap_or_default())
+            status_of(p, &ps, last_backup.copied(), cfg.settings.stale_days, now)
         };
         let mut days: Vec<Day> = (0..30).map(|_| Day { added: 0, failed: false, ran: false, count: 0 }).collect();
         for r in &runs {
-            if r.kind != "backup" && r.kind != "full" {
+            if !is_backup(r) {
                 continue;
             }
             let Some(t) = keepr_engine::retention::parse_time(&r.started) else { continue };
@@ -201,14 +233,17 @@ fn overview_of(core: &Core) -> Overview {
             enabled: p.enabled,
             sources: core::source_names(p).join(", "),
             destination: dest.map(|d| d.name.clone()).unwrap_or_default(),
-            destination_id: p.destination.clone(),
             schedule: schedule_label(p),
             encrypted: p.encrypted,
             status: status.into(),
             message,
             last_success: ps.last_success.clone(),
             last_attempt: ps.last_attempt.clone(),
-            next_run: if p.enabled { Core::next_run(p, ps.last_attempt.as_deref()).map(|t| t.to_rfc3339()) } else { None },
+            next_run: if p.enabled {
+                Core::next_run(p, ps.last_attempt.as_deref()).map(|t| paused_until.map_or(t, |u| t.max(u)).to_rfc3339())
+            } else {
+                None
+            },
             repo_bytes: ps.repo_bytes,
             versions_bytes: ps.versions_bytes,
             snapshots: ps.snapshots,
@@ -258,9 +293,11 @@ fn overview_of(core: &Core) -> Overview {
     }
 }
 
+/// Off the main thread: it looks at each destination, and a share that has gone away can take a
+/// long time to say so.
 #[tauri::command]
-fn overview(core: State<Core_>) -> Overview {
-    overview_of(&core)
+async fn overview(core: State<'_, Core_>) -> Result<Overview, String> {
+    with_core(core, |c| overview_of(c)).await
 }
 
 // ---- configuration ----
@@ -299,8 +336,13 @@ fn default_excludes() -> Vec<String> {
     config::default_excludes()
 }
 
+/// Off the main thread, like every command that uses the Keychain: it may ask the user first.
 #[tauri::command]
-fn save_plan(core: State<Core_>, mut plan: Plan, password: Option<String>) -> Result<Plan, String> {
+async fn save_plan(core: State<'_, Core_>, plan: Plan, password: Option<String>) -> Result<Plan, String> {
+    with_core(core, move |c| save_plan_now(c, plan, password)).await?
+}
+
+fn save_plan_now(core: &Core, mut plan: Plan, password: Option<String>) -> Result<Plan, String> {
     if plan.name.trim().is_empty() {
         return Err("Give the plan a name.".into());
     }
@@ -358,8 +400,7 @@ fn suggest_plan_folder(name: String, id: String) -> String {
 /// Renames a plan's backup folder to match its name.
 #[tauri::command]
 async fn rename_plan_folder(core: State<'_, Core_>, id: String) -> Result<String, String> {
-    let core = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || core.rename_plan_folder(&id)).await.map_err(|e| e.to_string())?
+    with_core(core, move |c| c.rename_plan_folder(&id)).await?
 }
 
 /// Puts the plans in this order (dragged on Backup Plans); the order is used wherever plans are listed.
@@ -377,29 +418,22 @@ fn reorder_plans(core: State<Core_>, ids: Vec<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn delete_plan(core: State<Core_>, id: String) -> Result<(), String> {
-    if core.busy_with(&id) {
-        return Err("Wait for this plan's backup to finish first.".into());
-    }
-    core.config.lock().unwrap().plans.retain(|p| p.id != id);
-    core.state.lock().unwrap().plans.remove(&id);
-    keychain::delete(&keychain::plan_account(&id));
-    keychain::delete(&keychain::recovery_account(&id));
-    core.forget_repo(&id);
-    core.save_config()?;
-    core.save_state();
-    core.changed();
-    Ok(())
-}
-
-#[tauri::command]
-fn set_plan_enabled(core: State<Core_>, id: String, enabled: bool) -> Result<(), String> {
-    if let Some(p) = core.config.lock().unwrap().plans.iter_mut().find(|p| p.id == id) {
-        p.enabled = enabled;
-    }
-    core.save_config()?;
-    core.changed();
-    Ok(())
+async fn delete_plan(core: State<'_, Core_>, id: String) -> Result<(), String> {
+    with_core(core, move |core| {
+        if core.busy_with(&id) {
+            return Err("Wait for this plan's backup to finish first.".into());
+        }
+        core.config.lock().unwrap().plans.retain(|p| p.id != id);
+        core.state.lock().unwrap().plans.remove(&id);
+        keychain::delete(&keychain::plan_account(&id));
+        keychain::delete(&keychain::recovery_account(&id));
+        core.forget_repo(&id);
+        core.save_config()?;
+        core.save_state();
+        core.changed();
+        Ok(())
+    })
+    .await?
 }
 
 /// Lets a plan whose repository has gone start a new one.
@@ -417,7 +451,11 @@ fn start_new_backup(core: State<Core_>, id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn save_destination(core: State<Core_>, mut dest: Destination, password: Option<String>) -> Result<Destination, String> {
+async fn save_destination(core: State<'_, Core_>, dest: Destination, password: Option<String>) -> Result<Destination, String> {
+    with_core(core, move |c| save_destination_now(c, dest, password)).await?
+}
+
+fn save_destination_now(core: &Core, mut dest: Destination, password: Option<String>) -> Result<Destination, String> {
     dest.name = dest.name.trim().to_string();
     if dest.name.is_empty() {
         dest.name = places::default_name(&dest.place);
@@ -505,25 +543,10 @@ async fn test_place(core: State<'_, Core_>, place: Place, password: Option<Strin
                 Err(e) => fail(e),
             };
         }
-        let base = match &place {
-            Place::Smb(s) => {
-                let pw = password.filter(|p| !p.is_empty()).or_else(|| places::smb_password(s)).unwrap_or_default();
-                match smb::find_mount(&s.server, &s.share).map(Ok).unwrap_or_else(|| smb::mount(&s.server, &s.share, &s.user, &pw)) {
-                    Ok(m) => {
-                        let folder = s.folder.trim_matches('/');
-                        if folder.is_empty() {
-                            m
-                        } else {
-                            m.join(folder)
-                        }
-                    }
-                    Err(e) => return fail(e),
-                }
-            }
-            p => match places::resolve(p, &core.mounts, false, true) {
-                Ok(p) => p,
-                Err(e) => return fail(e),
-            },
+        // Through resolve, so a share this connects is noted and disconnected again when idle.
+        let base = match places::resolve_with(&place, &core.mounts, true, true, password.as_deref().filter(|p| !p.is_empty())) {
+            Ok(p) => p,
+            Err(e) => return fail(e),
         };
         if let Err(e) = std::fs::create_dir_all(&base) {
             return fail(format!("Keepr can't make its folder there: {e}"));
@@ -577,60 +600,58 @@ struct AwsSetupInfo {
 /// Whether Keepr can sign in to AWS through the browser (the AWS CLI is installed), and a free-looking bucket name.
 #[tauri::command]
 async fn aws_setup_info() -> AwsSetupInfo {
-    let cli = tauri::async_runtime::spawn_blocking(|| aws_setup::cli().is_some()).await.unwrap_or(false);
+    let cli = off_main(|| aws_setup::cli().is_some()).await.unwrap_or(false);
     AwsSetupInfo { cli, bucket: aws_setup::suggest_bucket() }
 }
 
 /// Signs in through the browser and makes the bucket and its user.
 #[tauri::command]
 async fn aws_setup_run(region: String, bucket: String, mode: aws_setup::Mode) -> Result<aws_setup::Made, String> {
-    tauri::async_runtime::spawn_blocking(move || aws_setup::with_cli(region.trim(), bucket.trim(), mode))
-        .await
-        .map_err(|e| e.to_string())?
+    off_main(move || aws_setup::with_cli(region.trim(), bucket.trim(), mode)).await?
 }
 
 /// Backblaze B2: the buckets a master key can see.
 #[tauri::command]
 async fn b2_buckets(key_id: String, key: String) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || b2_setup::list(&key_id, &key)).await.map_err(|e| e.to_string())?
+    off_main(move || b2_setup::list(&key_id, &key)).await?
 }
 
 /// Backblaze B2: makes (or finds) the bucket and a key for it alone, from a master key that
 /// isn't kept.
 #[tauri::command]
 async fn b2_setup_run(key_id: String, key: String, bucket: String, mode: aws_setup::Mode) -> Result<aws_setup::Made, String> {
-    tauri::async_runtime::spawn_blocking(move || b2_setup::setup(&key_id, &key, &bucket, mode)).await.map_err(|e| e.to_string())?
+    off_main(move || b2_setup::setup(&key_id, &key, &bucket, mode)).await?
 }
 
 /// Cloudflare R2: the buckets a setup token's account has.
 #[tauri::command]
 async fn r2_buckets(token: String, account: String) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || r2_setup::list(&token, &account)).await.map_err(|e| e.to_string())?
+    off_main(move || r2_setup::list(&token, &account)).await?
 }
 
 /// Cloudflare R2: makes (or finds) the bucket and S3 keys for it alone, then deletes the setup token.
 #[tauri::command]
 async fn r2_setup_run(token: String, account: String, bucket: String, mode: aws_setup::Mode) -> Result<aws_setup::Made, String> {
-    tauri::async_runtime::spawn_blocking(move || r2_setup::setup(&token, &account, &bucket, mode)).await.map_err(|e| e.to_string())?
+    off_main(move || r2_setup::setup(&token, &account, &bucket, mode)).await?
 }
 
 /// Signs in to AWS through the browser and lists the buckets there.
 #[tauri::command]
 async fn aws_buckets(region: String) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || aws_setup::buckets(region.trim())).await.map_err(|e| e.to_string())?
+    off_main(move || aws_setup::buckets(region.trim())).await?
 }
 
 /// Forgets a sign-in kept for choosing a bucket (the sheet was closed).
 #[tauri::command]
 async fn aws_setup_end() {
-    let _ = tauri::async_runtime::spawn_blocking(aws_setup::end_session).await;
+    let _ = off_main(aws_setup::end_session).await;
 }
 
 /// Checks a bucket as a source: that the key may list it, and how much is in it. Saves the
 /// secret once it works.
 #[tauri::command]
 async fn check_s3_source(place: Place, secret: Option<String>) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    off_main(move || {
         let Place::S3(s) = &place else { return Err("That isn't a bucket.".to_string()) };
         let b = places::s3_backend(s, secret.clone(), "")?;
         b.check_bucket().map_err(|e| e.to_string())?;
@@ -641,8 +662,7 @@ async fn check_s3_source(place: Place, secret: Option<String>) -> Result<String,
         let bytes: u64 = objects.iter().map(|o| o.size).sum();
         Ok(format!("{} files, {}", objects.len(), core::human_bytes(bytes)))
     })
-    .await
-    .map_err(|e| e.to_string())?
+    .await?
 }
 
 /// The same setup as a script to paste into AWS CloudShell.
@@ -654,16 +674,16 @@ fn aws_setup_script(region: String, bucket: String, mode: aws_setup::Mode) -> Re
 /// The line CloudShell printed at the end.
 #[tauri::command]
 async fn aws_setup_paste(text: String) -> Result<aws_setup::Made, String> {
-    tauri::async_runtime::spawn_blocking(move || aws_setup::parse(&text).and_then(aws_setup::finish)).await.map_err(|e| e.to_string())?
+    off_main(move || aws_setup::parse(&text).and_then(aws_setup::finish)).await?
 }
 
-/// SMB servers to offer: ones Keepr already uses, ones mounted now, and ones on Bonjour.
 /// The cloud services' sync folders on this Mac, for Add a destination.
 #[tauri::command]
 async fn cloud_folders() -> Vec<places::CloudFolder> {
-    tauri::async_runtime::spawn_blocking(places::cloud_folders).await.unwrap_or_default()
+    off_main(places::cloud_folders).await.unwrap_or_default()
 }
 
+/// SMB servers to offer: ones Keepr already uses, ones mounted now, and ones on Bonjour.
 #[tauri::command]
 async fn discover_servers(core: State<'_, Core_>) -> Result<Vec<String>, String> {
     let mut known: Vec<String> = {
@@ -676,7 +696,7 @@ async fn discover_servers(core: State<'_, Core_>) -> Result<Vec<String>, String>
             .collect()
     };
     known.extend(smb::mounted_servers());
-    let found = tauri::async_runtime::spawn_blocking(smb::discover).await.unwrap_or_default();
+    let found = off_main(smb::discover).await.unwrap_or_default();
     known.extend(found.into_iter().map(|n| format!("{n}.local")));
     let mut seen = std::collections::HashSet::new();
     known.retain(|s| seen.insert(s.to_lowercase()));
@@ -685,7 +705,7 @@ async fn discover_servers(core: State<'_, Core_>) -> Result<Vec<String>, String>
 
 #[tauri::command]
 async fn list_shares(server: String, user: String, password: Option<String>) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    off_main(move || {
         let pw = password
             .filter(|p| !p.is_empty())
             .or_else(|| keychain::get(&keychain::smb_account(&user, &server)))
@@ -693,8 +713,7 @@ async fn list_shares(server: String, user: String, password: Option<String>) -> 
             .unwrap_or_default();
         smb::shares(&server, &user, &pw)
     })
-    .await
-    .map_err(|e| e.to_string())?
+    .await?
 }
 
 #[derive(Serialize)]
@@ -708,31 +727,20 @@ struct SavedLogin {
 /// A login already saved for this server, so the dialogs can fill it in.
 #[tauri::command]
 async fn saved_smb_login(server: String) -> Option<SavedLogin> {
-    tauri::async_runtime::spawn_blocking(move || {
-        keychain::saved_smb_user(&server).map(|(user, source)| SavedLogin { user, source: source.into() })
-    })
-    .await
-    .ok()
-    .flatten()
+    off_main(move || keychain::saved_smb_user(&server).map(|(user, source)| SavedLogin { user, source: source.into() }))
+        .await
+        .ok()
+        .flatten()
 }
 
 #[tauri::command]
-fn save_smb_password(server: String, user: String, password: String) -> Result<(), String> {
-    keychain::set(&keychain::smb_account(&user, &server), &password)
+async fn save_smb_password(server: String, user: String, password: String) -> Result<(), String> {
+    off_main(move || keychain::set(&keychain::smb_account(&user, &server), &password)).await?
 }
 
 #[tauri::command]
-fn has_password(account_kind: String, id: String, user: Option<String>) -> bool {
-    let acct = match account_kind.as_str() {
-        "plan" => keychain::plan_account(&id),
-        _ => keychain::smb_account(user.as_deref().unwrap_or(""), &id),
-    };
-    keychain::get(&acct).is_some()
-}
-
-#[tauri::command]
-fn recovery_key(id: String) -> Option<String> {
-    keychain::get(&keychain::recovery_account(&id))
+async fn recovery_key(id: String) -> Result<Option<String>, String> {
+    off_main(move || keychain::get(&keychain::recovery_account(&id))).await
 }
 
 #[tauri::command]
@@ -742,36 +750,35 @@ fn recovery_saved(core: State<Core_>, id: String) {
     core.changed();
 }
 
+/// What the user typed as the current password: a recovery key (long, in dashed groups) or the
+/// password itself.
+fn secret_of(typed: &str) -> keepr_engine::repo::Secret<'_> {
+    if typed.contains('-') && typed.len() > 40 {
+        keepr_engine::repo::Secret::RecoveryKey(typed)
+    } else {
+        keepr_engine::repo::Secret::Password(typed)
+    }
+}
+
 #[tauri::command]
 async fn change_password(core: State<'_, Core_>, id: String, current: String, new: String) -> Result<(), String> {
-    let core = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    with_core(core, move |core| {
         if new.len() < 8 {
             return Err("Use at least 8 characters.".to_string());
+        }
+        // A backup running meanwhile would keep the repository opened with the old key.
+        if core.busy_with(&id) {
+            return Err("Wait until this plan's backup has finished.".into());
         }
         let repo = core.repo(&id, false)?;
         let backend = repo.backend.clone();
         drop(repo);
         core.forget_repo(&id);
-        let secret = if current.contains('-') && current.len() > 40 {
-            keepr_engine::repo::Secret::RecoveryKey(&current)
-        } else {
-            keepr_engine::repo::Secret::Password(&current)
-        };
-        let mut r = keepr_engine::repo::Repo::open(backend, secret).map_err(|e| e.0)?;
-        r.change_password(
-            if current.contains('-') && current.len() > 40 {
-                keepr_engine::repo::Secret::RecoveryKey(&current)
-            } else {
-                keepr_engine::repo::Secret::Password(&current)
-            },
-            &new,
-        )
-        .map_err(|e| e.0)?;
+        let mut r = keepr_engine::repo::Repo::open(backend, secret_of(&current)).map_err(|e| e.0)?;
+        r.change_password(secret_of(&current), &new).map_err(|e| e.0)?;
         keychain::set(&keychain::plan_account(&id), &new)
     })
-    .await
-    .map_err(|e| e.to_string())?
+    .await?
 }
 
 // ---- jobs ----
@@ -821,11 +828,6 @@ fn check_now(core: State<Core_>, plan: String, all: bool) -> String {
 }
 
 #[tauri::command]
-fn job_status(core: State<Core_>) -> Option<JobStatus> {
-    core.status()
-}
-
-#[tauri::command]
 fn job_cancel(core: State<Core_>, id: String) {
     core.cancel(&id)
 }
@@ -835,18 +837,14 @@ fn job_pause(core: State<Core_>, paused: bool) {
     core.pause(paused)
 }
 
-/// Pauses scheduled backups for an hour: plans count as just attempted.
+/// Pauses scheduled backups for an hour, and stops the backup that's running (a restore or
+/// check carries on). The plans' last attempts stay as they were.
 #[tauri::command]
 fn pause_hour(core: State<Core_>) {
     let later = (chrono::Local::now() + chrono::Duration::minutes(60)).to_rfc3339();
-    let ids: Vec<String> = core.config.lock().unwrap().plans.iter().map(|p| p.id.clone()).collect();
-    let mut s = core.state.lock().unwrap();
-    for id in ids {
-        s.plan(&id).last_attempt = Some(later.clone());
-    }
-    drop(s);
+    core.state.lock().unwrap().paused_until = Some(later);
     core.save_state();
-    core.cancel("");
+    core.cancel_backup();
     core.changed();
 }
 
@@ -854,24 +852,19 @@ fn pause_hour(core: State<Core_>) {
 
 #[tauri::command]
 async fn snapshots(core: State<'_, Core_>, plan: String) -> Result<Vec<browse::SnapInfo>, String> {
-    let core = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || Ok(core.snapshots(&plan)?.iter().map(browse::info).collect()))
-        .await
-        .map_err(|e| e.to_string())?
+    with_core(core, move |c| Ok(c.snapshots(&plan)?.iter().map(browse::info).collect())).await?
 }
 
 /// Show in Finder: the backed-up item where it is on the Mac now, its SMB share connected first.
 #[tauri::command]
 async fn show_in_finder(core: State<'_, Core_>, plan: String, path: String) -> Result<(), String> {
-    let core = core.inner().clone();
-    let at = tauri::async_runtime::spawn_blocking(move || browse::on_mac(&core, &plan, &path)).await.map_err(|e| e.to_string())??;
+    let at = with_core(core, move |c| browse::on_mac(c, &plan, &path)).await??;
     tauri_plugin_opener::reveal_item_in_dir(at).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn size_map(core: State<'_, Core_>, plan: String, snapshot: String, path: String) -> Result<browse::MapDir, String> {
-    let core = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || browse::size_map(&core, &plan, &snapshot, &path)).await.map_err(|e| e.to_string())?
+    with_core(core, move |c| browse::size_map(c, &plan, &snapshot, &path)).await?
 }
 
 #[tauri::command]
@@ -882,28 +875,22 @@ async fn list_dir(
     path: String,
     show_deleted: bool,
 ) -> Result<Vec<browse::Entry>, String> {
-    let core = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || browse::list(&core, &plan, &snapshot, &path, show_deleted))
-        .await
-        .map_err(|e| e.to_string())?
+    with_core(core, move |c| browse::list(c, &plan, &snapshot, &path, show_deleted)).await?
 }
 
 #[tauri::command]
 async fn file_versions(core: State<'_, Core_>, plan: String, path: String) -> Result<Vec<browse::VersionInfo>, String> {
-    let core = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || browse::versions(&core, &plan, &path)).await.map_err(|e| e.to_string())?
+    with_core(core, move |c| browse::versions(c, &plan, &path)).await?
 }
 
 #[tauri::command]
 async fn search_snapshot(core: State<'_, Core_>, plan: String, snapshot: String, query: String) -> Result<Vec<browse::Entry>, String> {
-    let core = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || browse::search(&core, &plan, &snapshot, &query)).await.map_err(|e| e.to_string())?
+    with_core(core, move |c| browse::search(c, &plan, &snapshot, &query)).await?
 }
 
 #[tauri::command]
 async fn compare(core: State<'_, Core_>, plan: String, snapshot: String, path: String) -> Result<browse::Comparison, String> {
-    let core = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || browse::compare(&core, &plan, &snapshot, &path)).await.map_err(|e| e.to_string())?
+    with_core(core, move |c| browse::compare(c, &plan, &snapshot, &path)).await?
 }
 
 #[derive(Serialize)]
@@ -916,21 +903,16 @@ struct Everywhere {
 
 #[tauri::command]
 async fn search_everywhere(core: State<'_, Core_>, query: String) -> Result<Everywhere, String> {
-    let core = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let (found, missed) = browse::search_everywhere(&core, &query);
+    with_core(core, move |c| {
+        let (found, missed) = browse::search_everywhere(c, &query);
         Everywhere { found, missed }
     })
     .await
-    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn quick_look(app: AppHandle, core: State<'_, Core_>, plan: String, snapshot: String, path: String) -> Result<(), String> {
-    let core = core.inner().clone();
-    let file = tauri::async_runtime::spawn_blocking(move || browse::preview_copy(&core, &plan, &snapshot, &path))
-        .await
-        .map_err(|e| e.to_string())??;
+    let file = with_core(core, move |c| browse::preview_copy(c, &plan, &snapshot, &path)).await??;
     #[cfg(target_os = "macos")]
     {
         let window = app.get_webview_window("main").ok_or("No window to show Quick Look over.")?;
@@ -960,7 +942,7 @@ async fn choose_folders(app: AppHandle, title: String, multiple: bool, start: Op
             let mtm = objc2::MainThreadMarker::new().expect("on the main thread");
             let _ = tx.send(folder_panel::choose(mtm, &title, multiple, start.as_deref()));
         });
-        tauri::async_runtime::spawn_blocking(move || rx.recv().unwrap_or_default()).await.unwrap_or_default()
+        off_main(move || rx.recv().unwrap_or_default()).await.unwrap_or_default()
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -1129,11 +1111,22 @@ fn show_main(app: &AppHandle) {
 }
 
 /// The menu-bar icon: plain, with a dot while backing up, with a mark when something needs attention.
+/// From what Keepr already knows, never the disks: it's worked out on the main thread at every
+/// change, and a share that has gone away would freeze the app.
 fn tray_icon_for(core: &Core) -> &'static [u8] {
-    let o = overview_of(core);
-    if o.job.is_some() {
+    let attention = || {
+        let cfg = core.config.lock().unwrap();
+        let st = core.state.lock().unwrap();
+        let now = chrono::Local::now();
+        cfg.plans.iter().any(|p| {
+            let ps = st.plans.get(&p.id).cloned().unwrap_or_default();
+            let last = st.history.iter().rev().find(|r| r.plan == p.id && is_backup(r));
+            matches!(status_of(p, &ps, last, cfg.settings.stale_days, now).0, "failed" | "waiting" | "stale")
+        })
+    };
+    if core.running() {
         include_bytes!("../icons/tray-busy@2x.png")
-    } else if o.plans.iter().any(|p| matches!(p.status.as_str(), "failed" | "waiting" | "stale")) {
+    } else if attention() {
         include_bytes!("../icons/tray-alert@2x.png")
     } else {
         include_bytes!("../icons/tray@2x.png")
@@ -1204,108 +1197,10 @@ fn toggle_tray_window(app: &AppHandle, rect: tauri::Rect) {
     let _ = w.emit("tray-opened", ());
 }
 
-/// `Keepr --back-up <plan id>…`: runs those backups without a window and exits, for scripts
-/// (tools/screenshots.py makes its demo backups this way). Exit status 1 if any didn't complete.
+/// `keepr <command>` (see cli.rs): Some(exit status) when the arguments are for the command
+/// line, None to start the app.
 pub fn cli(args: &[String]) -> Option<i32> {
-    // Before anything reads a file: both the app and these commands may meet cloud-only files.
-    system::allow_cloud_downloads();
-    match args.first().map(String::as_str) {
-        // Renames a plan's backup folder to match its name (the app must not be running).
-        Some("--rename-plan-folder") if args.len() == 2 => {
-            let core = Core::new(config::data_dir(), Box::new(|_, _| {}), Box::new(|_, _| {}), false);
-            return Some(match core.rename_plan_folder(&args[1]) {
-                Ok(n) => {
-                    println!("renamed to {n}");
-                    0
-                }
-                Err(e) => {
-                    eprintln!("{e}");
-                    1
-                }
-            });
-        }
-        // Restores a plan's latest snapshot into a folder and compares it with the sources.
-        Some("--verify-restore") if args.len() == 3 => {
-            return Some(match verify::run(&args[1], std::path::Path::new(&args[2])) {
-                Ok(true) => 0,
-                Ok(false) => 3,
-                Err(e) => {
-                    eprintln!("{e}");
-                    1
-                }
-            });
-        }
-        // Lists what's in an S3 destination's bucket, for looking into its size.
-        Some("--list-destination") if args.len() == 2 => {
-            let c: config::Config = config::read(&config::data_dir(), "config.json");
-            let Some(Place::S3(b)) = c.destinations.iter().find(|d| d.id == args[1]).map(|d| d.place.clone()) else {
-                eprintln!("no S3 destination {}", args[1]);
-                return Some(1);
-            };
-            let res = places::s3_backend(&b, None, "").and_then(|r| keepr_engine::backup::Remote::objects(&r).map_err(|e| e.to_string()));
-            match res {
-                Ok(objects) => {
-                    for o in &objects {
-                        println!("{:>12}  {}", o.size, o.key);
-                    }
-                    println!("{} objects, {} bytes", objects.len(), objects.iter().map(|o| o.size).sum::<u64>());
-                    return Some(0);
-                }
-                Err(e) => {
-                    eprintln!("{e}");
-                    return Some(1);
-                }
-            }
-        }
-        // Copies one plan's backup password to another, so a new plan can share it.
-        Some("--copy-plan-password") if args.len() == 3 => {
-            let Some(pw) = keychain::get(&keychain::plan_account(&args[1])) else {
-                eprintln!("no password for plan {}", args[1]);
-                return Some(1);
-            };
-            return Some(match keychain::set(&keychain::plan_account(&args[2]), &pw) {
-                Ok(()) => 0,
-                Err(e) => {
-                    eprintln!("{e}");
-                    1
-                }
-            });
-        }
-        // Takes a path out of every snapshot of a plan, as Restore's Remove from backup does.
-        Some("--remove-path") if args.len() == 3 => {
-            let core = Core::new(config::data_dir(), Box::new(|_, _| {}), Box::new(|t, b| eprintln!("{t}: {b}")), false);
-            core.start();
-            core.enqueue(Job::RemovePath { plan: args[1].clone(), path: args[2].clone() });
-            std::thread::sleep(std::time::Duration::from_millis(200));
-            while core.running() || core.busy_with_any() {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-            let r = core.state.lock().unwrap().history.last().cloned();
-            if let Some(r) = &r {
-                println!("{} {}: {}", r.kind, r.result, r.message);
-            }
-            return Some(if r.is_some_and(|r| r.result == "ok") { 0 } else { 1 });
-        }
-        Some("--back-up") => {}
-        _ => return None,
-    }
-    let core = Core::new(config::data_dir(), Box::new(|_, _| {}), Box::new(|t, b| eprintln!("{t}: {b}")), false);
-    core.start();
-    let before = core.state.lock().unwrap().history.len();
-    for id in &args[1..] {
-        core.enqueue(Job::Backup { plan: id.clone(), full: false });
-    }
-    std::thread::sleep(std::time::Duration::from_millis(200));
-    while core.running() || core.busy_with_any() {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-    let st = core.state.lock().unwrap();
-    let mut ok = true;
-    for r in &st.history[before..] {
-        println!("{} {}: {}", r.kind, r.result, r.message);
-        ok &= r.result == "ok" || r.result == "warning";
-    }
-    Some(if ok { 0 } else { 1 })
+    cli::wanted(args).then(|| cli::main(args))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1338,7 +1233,6 @@ pub fn run() {
             default_excludes,
             save_plan,
             delete_plan,
-            set_plan_enabled,
             start_new_backup,
             save_destination,
             delete_destination,
@@ -1349,7 +1243,6 @@ pub fn run() {
             list_shares,
             save_smb_password,
             saved_smb_login,
-            has_password,
             recovery_key,
             recovery_saved,
             change_password,
@@ -1359,7 +1252,6 @@ pub fn run() {
             check_now,
             remove_source_data,
             remove_path_data,
-            job_status,
             job_cancel,
             job_pause,
             pause_hour,
@@ -1393,6 +1285,7 @@ pub fn run() {
         })
         .setup(move |app| {
             help::add_to_menu(app.handle())?;
+            std::thread::spawn(|| (aws_setup::sweep(), browse::clear_previews()));
             about::set_about_item(app.handle())?;
             if !frozen {
                 std::thread::spawn(keychain::warm);
@@ -1408,10 +1301,19 @@ pub fn run() {
                 set_in_dock(app.handle(), false);
             }
 
+            // Held until the app ends, so the command-line jobs know it's running (see cli_core).
+            // Without it (a command-line backup holds it now) the app runs as before.
+            if !frozen {
+                match config::lock_data_dir(&config::data_dir(), false) {
+                    Ok(lock) => std::mem::forget(lock),
+                    Err(e) => eprintln!("data folder lock: {e}"),
+                }
+            }
+
             let handle = app.handle().clone();
             let emitter = handle.clone();
             let notifier = handle.clone();
-            let core = Core::new(
+            let core = match Core::new(
                 config::data_dir(),
                 Box::new(move |name, payload| {
                     let _ = emitter.emit(name, payload);
@@ -1433,7 +1335,22 @@ pub fn run() {
                     }
                 }),
                 frozen,
-            );
+            ) {
+                Ok(c) => c,
+                Err(e) => {
+                    // Nothing is shown and nothing runs: say why, and end once it's read.
+                    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+                    let h = app.handle().clone();
+                    app.dialog()
+                        .message(format!(
+                            "{e}\n\nKeepr has left its settings and history as they are. Check the disk, then open Keepr again."
+                        ))
+                        .title("Keepr can't start")
+                        .kind(MessageDialogKind::Error)
+                        .show(move |_| h.exit(1));
+                    return Ok(());
+                }
+            };
             app.manage(core.clone());
             if !frozen {
                 std::thread::spawn(still::clean_up_left_behind);
@@ -1519,7 +1436,10 @@ pub fn run() {
         .run(|app, ev| {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = ev {
-                show_main(app);
+                // Not when Keepr couldn't start (its message is up): the window would have no Core.
+                if app.try_state::<Core_>().is_some() {
+                    show_main(app);
+                }
             }
             let _ = (app, ev);
         });

@@ -38,26 +38,36 @@ To publish one: `make app`, `make dmg`, commit and push, then `gh release create
 
 ## Command line
 
-The app's binary (`Keepr.app/Contents/MacOS/Keepr`) also runs without a window:
-
-| Flag | What it does |
-|---|---|
-| `--back-up <plan id>…` | Back up those plans (incremental, straight away, whatever the plan's wait conditions), print each result; exit 1 if any didn't complete (one with warnings counts as complete) |
-| `--verify-restore <plan id> <folder>` | Restore the latest snapshot into the folder and compare it byte for byte with the sources, counting a file that changed since the backup as expected; exit 3 on a mismatch. Saves nothing to Keepr's settings or history, so it can run beside the app |
-| `--rename-plan-folder <plan id>` | Rename a plan's backup folder to match its name, and print the new name |
-| `--list-destination <destination id>` | List every object in an S3, B2 or R2 destination's bucket, with the count and total size |
-| `--copy-plan-password <from id> <to id>` | Copy one plan's password in the Keychain to another |
-| `--remove-path <plan id> <path>` | Take a file or folder, by its original full path, out of every snapshot and free the space only it used; a source's own path removes that whole source. Prints the result |
-
-Each exits 1 on an error, with the reason on stderr. An unknown flag, or the right flag with the wrong number of arguments, opens the app instead.
-
-A plan's id and a destination's id are their `id` fields in `~/Library/Application Support/Keepr/config.json`; the app doesn't show them. To list the plans:
+The app's binary also runs without a window, as `keepr <command>`. `make install-cli` links it into `~/.local/bin` (`BIN_DIR=…` for elsewhere); without that, link it yourself:
 
 ```sh
-python3 -c "import json,os; [print(p['id'], p['name']) for p in json.load(open(os.path.expanduser('~/Library/Application Support/Keepr/config.json')))['plans']]"
+ln -s /Applications/Keepr.app/Contents/MacOS/Keepr ~/.local/bin/keepr
 ```
 
-Quit Keepr before a command that changes a backup (`--back-up`, `--remove-path`, `--rename-plan-folder`): the app and the command would otherwise both work on the same backup and the same history.
+| Command | What it does |
+|---|---|
+| `keepr plans` | List the plans with their ids, destinations and schedules |
+| `keepr destinations` | List the destinations with their ids and where they are |
+| `keepr status [plan…]` | How each plan is doing: status, last backup, next backup and why. Exits 1 if any needs attention (failed, waiting, stale or never backed up), so it works as a health check |
+| `keepr snapshots <plan>` | A plan's snapshots, oldest first: id, time, kind, files, size and what each added |
+| `keepr back-up <plan>… \| --all [--full]` | Back up now, whatever the schedule and wait conditions; `--full` reads every file again. Exits 1 if any didn't complete (one with warnings counts as complete) |
+| `keepr check <plan> [--all-data]` | Check the stored data: a 5% sample, or every pack with `--all-data` |
+| `keepr tidy <plan>` | Apply the plan's version rules now and free the space of what they let go |
+| `keepr restore <plan> [path…] --to <folder> \| --original` | Restore those original full paths (everything if none) from the newest snapshot, or `--snapshot <id>` (the start of an id is enough). `--conflict keep-both\|replace\|skip` says what happens to a file already there; keep-both is the default |
+| `keepr verify-restore <plan> <folder>` | Restore the newest snapshot into the folder and compare it byte for byte with the sources, counting a file that changed since the backup as expected. Exits 3 on a mismatch |
+| `keepr remove-path <plan> <path> --yes` | Take a file or folder, by its original full path, out of every snapshot and free the space only it used; a source's own path removes that whole source. Asks for `--yes`, since it can't be undone |
+| `keepr rename-plan-folder <plan>` | Rename a plan's backup folder to match its name, and print the new name |
+| `keepr list-objects <destination>` | List every object in an S3, B2 or R2 destination's bucket |
+| `keepr copy-password <from> <to>` | Copy one plan's password in the Keychain to another |
+| `keepr completions <shell>` | Print a completion script for zsh, bash, fish, elvish or PowerShell |
+
+A plan or destination is named by its id or its name, in any case. `keepr --help` and `keepr <command> --help` say the rest; `keepr --version` prints the version.
+
+Results go to stdout, and `--json` makes them JSON for scripts; progress, warnings and errors go to stderr, and `--quiet` (`-q`) leaves out the progress. Exit status: 0 done, 1 failed, 2 the command line was wrong, 3 a restore didn't match its sources, 130 stopped with Ctrl-C. Ctrl-C stops a job at a safe point, as Stop does in the app; a second one quits at once. With no arguments the binary opens the app.
+
+The commands that change a backup or the history (`back-up`, `check`, `tidy`, `restore`, `remove-path`, `rename-plan-folder`) refuse to run while Keepr is open, so quit it first: the app and the command would otherwise both work on the same backup and the same history. The app holds `.keepr.lock` in its settings folder for as long as it runs. The others only read, and run beside it.
+
+The flags of earlier versions (`--back-up`, `--verify-restore`, `--rename-plan-folder`, `--list-destination`, `--copy-plan-password`, `--remove-path`) still work, each as its command, with a note on stderr; they'll go in a later version.
 
 `KEEPR_DATA` points Keepr at another settings folder instead of `~/Library/Application Support/Keepr`, for the app and the commands alike. `KEEPR_NO_SCHEDULE` stops the scheduler and `KEEPR_NO_STILL` the still copies; `KEEPR_SCENE` is the screenshot mode.
 

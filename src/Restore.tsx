@@ -5,99 +5,18 @@
 // Restore: pick a moment on the snapshot strip, tick files and folders as they were then, see
 // any file's versions, and put them back where they were or into another folder.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, type Comparison, type Conflict, type Entry, type SnapInfo, type Version } from "./api";
+import { FileList, onlyOnMac, RowMenu, type Sort } from "./RestoreFiles";
+import { RestoreFooter } from "./RestoreFooter";
+import { VersionsPane } from "./RestoreVersions";
 import { statusDot, useApp } from "./context";
 import { Icon } from "./icons";
 import SizeMap from "./SizeMap";
-import { ClearButton, PlanProgress, Sheet, Switch, useAct, useMenu, useToast } from "./ui";
-import { bytes, dayKey, dayLabel, longWhen, tilde, when } from "./format";
+import { ClearButton, Sheet, Switch, useAct, useToast } from "./ui";
+import { bytes, dayKey, dayLabel, longWhen, tilde } from "./format";
 
 const DAYS_SHOWN = 10;
-const ONE_ONLY = "For one item at a time: this is one of several selected";
-
-function iconFor(e: Entry): string {
-  if (e.kind === "dir") return "folder";
-  if (e.kind === "link") return "link";
-  return /\.(jpe?g|png|heic|gif|tiff?|webp|raw|cr2|nef|dng)$/i.test(e.name) ? "image" : "file";
-}
-
-/// A row's right-click menu: what the versions pane and the footer do. On one of several chosen
-/// items it acts on all of them (`count`), and what only makes sense for one item is greyed out.
-function RowMenu(p: {
-  e: Entry;
-  count: number;
-  inSnapshot: boolean;
-  /// A deleted item comes back from the last snapshot that had it, so only one never backed up can't.
-  canRestore: boolean;
-  chosen: boolean;
-  canOpen: boolean;
-  isOpen: boolean;
-  /// Where the footer restores to: "where it was", or a folder's name; "" when no folder is chosen yet.
-  restoreTo: string;
-  onMac: boolean;
-  quickLook: () => void;
-  compare: () => void;
-  restore: () => void;
-  choose: () => void;
-  toggleOpen: () => void;
-  reveal: () => void;
-  copyPath: () => void;
-  remove: () => void;
-}) {
-  const file = p.e.kind === "file";
-  const one = p.count === 1;
-  const what = one ? "" : ` ${p.count} items`;
-  return (
-    <>
-      {file && (
-        <button role="menuitem" disabled={!one || !p.inSnapshot} onClick={p.quickLook}>
-          <Icon name="eye" size={14} stroke={1.9} />
-          Quick Look
-        </button>
-      )}
-      {file && (
-        <button role="menuitem" disabled={!one || !p.inSnapshot || !p.onMac} onClick={p.compare}>
-          <Icon name="compare" size={14} />
-          Compare with current
-        </button>
-      )}
-      {p.canOpen && (
-        <button role="menuitem" disabled={!one} onClick={p.toggleOpen}>
-          <Icon name="forward" size={14} stroke={2.2} />
-          {p.isOpen ? "Collapse" : "Expand"}
-        </button>
-      )}
-      <hr />
-      <button role="menuitem" disabled={!p.canRestore || !p.restoreTo} onClick={p.restore}>
-        <Icon name="down" size={14} />
-        {!p.restoreTo
-          ? "Restore (choose a folder first)"
-          : p.restoreTo === "where it was"
-            ? `Restore${what} to where ${one ? "it was" : "they were"}`
-            : `Restore${what} into ${p.restoreTo}`}
-      </button>
-      <button role="menuitem" disabled={!p.canRestore} onClick={p.choose}>
-        <Icon name="check" size={14} />
-        {p.chosen ? `Unselect${what}` : "Select"}
-      </button>
-      <hr />
-      <button role="menuitem" disabled={!one || !p.onMac} onClick={p.reveal}>
-        <Icon name="folder" size={14} />
-        Show in Finder
-      </button>
-      <button role="menuitem" onClick={p.copyPath}>
-        <Icon name="link" size={14} />
-        {one ? "Copy path" : `Copy ${p.count} paths`}
-      </button>
-      <hr />
-      <button role="menuitem" disabled={!p.canRestore} onClick={p.remove}>
-        <Icon name="trash" size={14} />
-        {`Remove${what} from backup…`}
-      </button>
-    </>
-  );
-}
 
 function Strip({ snaps, sel, setSel }: { snaps: SnapInfo[]; sel: number; setSel: (i: number) => void }) {
   // Days with snapshots, newest last; ten at a time, paged with the earlier button.
@@ -233,38 +152,6 @@ function CompareSheet({ plan, snapshot, path, onClose }: { plan: string; snapsho
   );
 }
 
-type SortBy = "name" | "modified" | "size" | "versions";
-
-// A column heading that sorts the list: click to sort by it, again to reverse.
-function SortHead({
-  by,
-  sort,
-  setSort,
-  className,
-  style,
-  children,
-}: {
-  by: SortBy;
-  sort: { by: SortBy; up: boolean };
-  setSort: (s: { by: SortBy; up: boolean }) => void;
-  className?: string;
-  style?: React.CSSProperties;
-  children: React.ReactNode;
-}) {
-  const on = sort.by === by;
-  return (
-    <button
-      className={`sorthead${on ? " on" : ""}${className ? ` ${className}` : ""}`}
-      style={style}
-      aria-sort={on ? (sort.up ? "ascending" : "descending") : "none"}
-      onClick={() => setSort({ by, up: on ? !sort.up : true })}
-    >
-      {children}
-      {on && <span aria-hidden="true">{sort.up ? "▲" : "▼"}</span>}
-    </button>
-  );
-}
-
 export default function Restore() {
   const { ov, screen, home, go } = useApp();
   const act = useAct();
@@ -297,14 +184,11 @@ export default function Restore() {
   // The snapshot as a list of files, or as a map of what takes the space.
   const [view, setView] = useState<"files" | "map">((screen.name === "restore" && screen.view) || "files");
   // Shown from the map: that item, once the folders on the way to it are listed.
-  const [reveal, setReveal] = useState<{ path: string; parent: string } | null>(null);
+  const [reveal, setReveal] = useState<{ path: string } | null>(null);
   // Quick Look first copies the file out of the backup, which takes a while for a big one.
   const [looking, setLooking] = useState(false);
   // Folders stay first, as in Finder; within them, by the column clicked, again to reverse.
-  const [sort, setSort] = useState<{ by: SortBy; up: boolean }>({ by: "name", up: true });
-  // The row a right-click opened the menu for.
-  const [menuFor, setMenuFor] = useState<Entry | null>(null);
-  const rowMenu = useMenu();
+  const [sort, setSort] = useState<Sort>({ by: "name", up: true });
 
   useEffect(() => {
     if (!planId) return;
@@ -348,13 +232,22 @@ export default function Restore() {
   const snap = snaps?.[sel];
   const snapId = snap?.id ?? "";
   const mapLoad = useCallback((path: string) => api.sizeMap(planId ?? "", snapId, path), [planId, snapId]);
+  // Which listing the folders shown belong to. A folder asked for under another snapshot (or
+  // before the deleted switch was flipped) that answers late is dropped, not shown under this one.
+  const listing = useRef("");
+  const listingOf = `${planId}\n${snapId}\n${showDeleted}`;
+  useLayoutEffect(() => {
+    listing.current = listingOf;
+  }, [listingOf]);
   const load = useCallback(
     async (path: string) => {
       if (!planId || !snap) return;
+      const of = `${planId}\n${snap.id}\n${showDeleted}`;
       const list = await api.listDir(planId, snap.id, path, showDeleted).catch((e) => {
-        setErr(String(e));
+        if (listing.current === of) setErr(String(e));
         return [] as Entry[];
       });
+      if (listing.current !== of) return;
       setKids((k) => ({ ...k, [path]: list }));
     },
     [planId, snap, showDeleted],
@@ -391,46 +284,58 @@ export default function Restore() {
       setHits(null);
       return;
     }
+    // Typing on while a search runs: only the newest search's answer is shown.
+    let live = true;
     const t = window.setTimeout(
       () =>
         api.search(planId, snap.id, query.trim()).then(
           (h) => {
+            if (!live) return;
             setHits(h);
             const f = focus && h.find((e) => e.path === focus.path);
             if (f) setPicked(f);
           },
-          (e) => setErr(String(e)),
+          (e) => live && setErr(String(e)),
         ),
       250,
     );
-    return () => window.clearTimeout(t);
+    return () => {
+      live = false;
+      window.clearTimeout(t);
+    };
   }, [query, planId, snap, focus]);
 
   const pickedFile = picked?.kind === "file" ? picked.path : undefined;
   useEffect(() => {
     setVersions(null);
     setVer(0);
-    if (pickedFile && planId) api.versions(planId, pickedFile).then(setVersions);
+    if (!pickedFile || !planId) return;
+    // Another file picked before the answer comes: that one's versions are shown, not these. No
+    // versions to be found reads as none, rather than Finding versions… for ever.
+    let live = true;
+    api.versions(planId, pickedFile).then(
+      (v) => live && setVersions(v),
+      () => live && setVersions([]),
+    );
+    return () => {
+      live = false;
+    };
   }, [pickedFile, planId]);
 
+  const spaceLook = useRef<(() => void) | null>(null);
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest("input, select, textarea") || !snaps) return;
       if (e.key === "ArrowLeft") setSel((s) => Math.max(0, s - 1));
       if (e.key === "ArrowRight") setSel((s) => Math.min(snaps.length - 1, s + 1));
+      if (e.key === " " && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && spaceLook.current) {
+        e.preventDefault();
+        spaceLook.current();
+      }
     };
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   }, [snaps]);
-
-  // Shown from the map (showInFiles, below): pick it once its folder is listed.
-  useEffect(() => {
-    const e = reveal && kids[reveal.parent]?.find((k) => k.path === reveal.path);
-    if (!e) return;
-    setPicked(e);
-    setReveal(null);
-    requestAnimationFrame(() => document.querySelector(`[data-path="${CSS.escape(e.path)}"]`)?.scrollIntoView({ block: "center" }));
-  }, [reveal, kids]);
 
   // From the map to the list: open the folders down to it, then pick it.
   const showInFiles = (path: string) => {
@@ -451,7 +356,7 @@ export default function Restore() {
       if (!kids[p]) load(p);
     }
     setOpen(s);
-    setReveal({ path, parent: way.length > 1 ? way[way.length - 2] : "" });
+    setReveal({ path });
   };
   // Opened from the Size map: show it once the focused snapshot's sources are listed.
   useEffect(() => {
@@ -460,6 +365,21 @@ export default function Restore() {
     showInFiles(focus.path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kids[""], snap?.id]);
+
+  // The versions pane's Quick Look, also on Space while a file's version is showing and nothing
+  // else is in the way (one of several chosen, it's already opening, or a comparison is open).
+  const version = versions?.[ver];
+  const lookAtVersion = async () => {
+    if (!version || !picked || !planId) return;
+    setLooking(true);
+    await act(() => api.quickLook(planId, version.snapshot, picked.path));
+    setLooking(false);
+  };
+  const canLook =
+    view === "files" && picked?.kind === "file" && !!version && !looking && !comparing && !(checked.size > 1 && checked.has(picked.path));
+  useEffect(() => {
+    spaceLook.current = canLook ? lookAtVersion : null;
+  });
 
   if (!plan) {
     return (
@@ -484,8 +404,6 @@ export default function Restore() {
     }
     setOpen(s);
   };
-  // On the Mac and in no snapshot this far: nothing to restore or remove.
-  const onlyOnMac = (e: Entry) => e.disk === "unsaved" && e.tag !== "deleted";
   // A chosen folder brings everything in it, so what's inside shows as chosen too. Only what's
   // in this snapshot comes with it: a deleted item has to be chosen on its own.
   const comesWithFolder = (e: Entry) => e.tag !== "deleted" && !onlyOnMac(e);
@@ -521,30 +439,6 @@ export default function Restore() {
     setChecked(m);
   };
 
-  // Keyed by place in the tree as well as path: a backup made while one source was inside another
-  // holds the same path twice.
-  const rows: { e: Entry; depth: number; key: string }[] = [];
-  const sorted = (list: Entry[]) => {
-    const dir = sort.up ? 1 : -1;
-    const value = (e: Entry) => (sort.by === "modified" ? e.mtime : sort.by === "size" ? e.size : sort.by === "versions" ? e.versions : 0);
-    return [...list].sort(
-      (a, b) =>
-        Number(a.kind !== "dir") - Number(b.kind !== "dir") ||
-        dir * (value(a) - value(b)) ||
-        dir * a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }),
-    );
-  };
-  const walk = (path: string, depth: number, under: string) => {
-    sorted(kids[path] ?? []).forEach((e, i) => {
-      // By position: a source's name is its whole path, so names joined up can collide.
-      const key = `${under}.${i}`;
-      rows.push({ e, depth, key });
-      if (e.kind === "dir" && open.has(e.path) && e.tag !== "deleted" && !onlyOnMac(e)) walk(e.path, depth + 1, key);
-    });
-  };
-  if (hits) sorted(hits).forEach((e, i) => rows.push({ e, depth: 0, key: `${i}` }));
-  else walk("", 0, "");
-
   const items = [...checked.values()];
   // One of several chosen items: actions for one item at a time don't apply to it.
   const inMulti = (e: Entry) => checked.size > 1 && checked.has(e.path);
@@ -555,7 +449,7 @@ export default function Restore() {
     // A deleted item's last version is in the snapshot before this one.
     const here = es.filter((e) => e.tag !== "deleted").map((e) => e.path);
     const gone = es.filter((e) => e.tag === "deleted").map((e) => e.path);
-    if (here.length) await start(snap.id, here);
+    if (here.length && !(await start(snap.id, here))) return;
     if (gone.length && sel > 0) await start(snaps![sel - 1].id, gone);
   };
   const unchoose = (es: Entry[]) => {
@@ -575,17 +469,20 @@ export default function Restore() {
   const onMac = (e: Entry) => e.path.startsWith("/") && e.disk !== "gone";
   // Connects an SMB share first, so it can take a moment; errors say why it can't be shown.
   const showInFinder = (e: Entry) => act(() => api.showInFinder(plan.id, e.path));
-  const start = async (snapshot: string, paths: string[]) => {
+  // Whether the restore was started: when it wasn't, act's toast says why, and there's nothing to
+  // back up afterwards or announce.
+  const start = async (snapshot: string, paths: string[]): Promise<boolean> => {
     if (dest === "folder" && !folder) {
       toast("Choose a folder to restore into.");
-      return;
+      return false;
     }
     const target = dest === "folder" ? { kind: "folder" as const, path: folder } : { kind: "original" as const };
-    await act(() => api.restore(plan.id, snapshot, paths, target, conflict));
+    if ((await act(() => api.restore(plan.id, snapshot, paths, target, conflict))) === undefined) return false;
     // Back in place, a restored file is on the Mac again; a backup after it puts that in a
     // snapshot, so it stops showing as deleted.
     if (dest === "original") await api.backUp(plan.id).catch(() => {});
     toast(`Restoring ${paths.length === 1 ? paths[0].split("/").pop() : `${paths.length} items`}. Activity shows how it's going.`);
+    return true;
   };
   const chooseFolder = async () => {
     const [f] = await api.chooseFolders("Restore into this folder", false, folder || undefined);
@@ -594,7 +491,6 @@ export default function Restore() {
       setDest("folder");
     }
   };
-  const version = versions?.[ver];
   // Deleting a file or folder from every snapshot: asked twice, as it can't be undone.
   const removeFromBackup = async (es: Entry[]) => {
     if (!es.length) return;
@@ -620,8 +516,16 @@ export default function Restore() {
       cancelLabel: "Cancel",
     });
     if (!sure) return;
-    for (const e of es) await act(() => api.removePathData(plan.id, e.path));
-    toast(`Removing ${one ? es[0].name : `${es.length} items`} from the backup. Activity shows how it's going.`);
+    // Stops at the first that can't be removed (act's toast says why), and says only what was.
+    let done = 0;
+    for (const e of es) {
+      if ((await act(() => api.removePathData(plan.id, e.path))) === undefined) break;
+      done++;
+    }
+    if (!done) return;
+    toast(
+      `Removing ${done === 1 ? es[0].name : `${done} items`}${done < es.length ? ` of ${es.length}` : ""} from the backup. Activity shows how it's going.`,
+    );
   };
   // A restore from this plan running or waiting: the footer shows its progress instead.
   const restoring = ov?.job?.kind === "restore" && ov.job.plan === plan.id ? ov.job : null;
@@ -737,410 +641,91 @@ export default function Restore() {
 
         {snap && view === "files" && (
           <section className="card" style={{ flexGrow: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
-            <div className="grow" style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-              <div className="files-head caps" style={{ letterSpacing: "0.04em" }}>
-                <input
-                  type="checkbox"
-                  className="pick"
-                  aria-label={allChosen ? "Select none" : "Select all"}
-                  title={allChosen ? "Select none" : "Select all"}
-                  checked={allChosen}
-                  ref={(el) => {
-                    if (el) el.indeterminate = someChosen;
-                  }}
-                  disabled={top.length === 0}
-                  onChange={chooseAll}
+            <FileList
+              kids={kids}
+              open={open}
+              hits={hits}
+              sort={sort}
+              setSort={setSort}
+              picked={picked}
+              setPicked={setPicked}
+              reveal={reveal}
+              revealed={() => setReveal(null)}
+              home={home}
+              isChosen={isChosen}
+              partlyChosen={partlyChosen}
+              toggleCheck={toggleCheck}
+              toggleOpen={toggleOpen}
+              allChosen={allChosen}
+              someChosen={someChosen}
+              canChooseAll={top.length > 0}
+              chooseAll={chooseAll}
+              menu={(e) => (
+                <RowMenu
+                  e={e}
+                  count={targets(e).length}
+                  inSnapshot={e.tag !== "deleted" && !onlyOnMac(e)}
+                  canRestore={targets(e).every((x) => !onlyOnMac(x))}
+                  chosen={isChosen(e)}
+                  canOpen={e.kind === "dir" && !hits && e.tag !== "deleted" && !onlyOnMac(e)}
+                  isOpen={open.has(e.path)}
+                  restoreTo={dest === "folder" ? (folder.split("/").pop() ?? "") : "where it was"}
+                  onMac={onMac(e)}
+                  quickLook={() => act(() => api.quickLook(plan.id, snap.id, e.path))}
+                  compare={() => setComparing({ snapshot: snap.id, path: e.path })}
+                  restore={() => restoreItems(targets(e))}
+                  choose={() => (inMulti(e) ? unchoose(items) : toggleCheck(e))}
+                  toggleOpen={() => toggleOpen(e.path)}
+                  reveal={() => showInFinder(e)}
+                  copyPath={() =>
+                    act(() =>
+                      navigator.clipboard.writeText(
+                        targets(e)
+                          .map((x) => x.path)
+                          .join("\n"),
+                      ),
+                    )
+                  }
+                  remove={() => removeFromBackup(targets(e))}
                 />
-                <SortHead by="name" sort={sort} setSort={setSort} className="grow" style={{ paddingLeft: 40 }}>
-                  {hits ? `${hits.length} found` : "Name"}
-                </SortHead>
-                <SortHead by="modified" sort={sort} setSort={setSort} style={{ width: 140 }}>
-                  Modified
-                </SortHead>
-                <SortHead by="size" sort={sort} setSort={setSort} style={{ width: 76, justifyContent: "flex-end" }}>
-                  Size
-                </SortHead>
-                <SortHead by="versions" sort={sort} setSort={setSort} style={{ width: 70, justifyContent: "flex-end" }}>
-                  Versions
-                </SortHead>
-                <span style={{ width: 96 }} />
-              </div>
-              <div style={{ flexGrow: 1, overflow: "auto" }}>
-                {rows.map(({ e, depth, key }) => {
-                  const name = e.name.startsWith("/") ? tilde(e.name, home) : hits ? tilde(e.path, home) : e.name;
-                  return (
-                    <div
-                      key={key}
-                      data-path={e.path}
-                      className={`file-row${picked?.path === e.path ? " sel" : ""}${e.tag === "deleted" ? " gone" : ""}`}
-                      onContextMenu={(ev) => {
-                        setPicked(e);
-                        setMenuFor(e);
-                        rowMenu.openAt(ev);
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        className="pick"
-                        aria-label={`Select ${e.name}`}
-                        style={{ marginLeft: depth * 20 }}
-                        checked={isChosen(e)}
-                        ref={(el) => {
-                          if (el) el.indeterminate = partlyChosen(e);
-                        }}
-                        disabled={onlyOnMac(e)}
-                        onChange={() => toggleCheck(e)}
-                      />
-                      {/* Keeps the gap the indent had, so names stay where they were. */}
-                      <span style={{ width: 0, flexShrink: 0 }} />
-                      {e.kind === "dir" && !hits && e.tag !== "deleted" && !onlyOnMac(e) ? (
-                        <button
-                          className={`disc${open.has(e.path) ? " open" : ""}`}
-                          aria-label={`${open.has(e.path) ? "Collapse" : "Expand"} ${e.name}`}
-                          onClick={() => toggleOpen(e.path)}
-                        >
-                          <Icon name="forward" size={12} stroke={2.6} />
-                        </button>
-                      ) : (
-                        <span style={{ width: 16, flexShrink: 0 }} />
-                      )}
-                      <button className="name" onClick={() => setPicked(e)} onDoubleClick={() => e.kind === "dir" && toggleOpen(e.path)}>
-                        <span className="grow row" style={{ gap: 8 }}>
-                          <Icon
-                            name={iconFor(e)}
-                            style={{ color: e.kind === "dir" ? "var(--accent)" : "var(--ink2)", flexShrink: 0 }}
-                            fill={e.kind === "dir" ? "currentColor" : "none"}
-                            fillOpacity={e.kind === "dir" ? 0.22 : 0}
-                          />
-                          <span
-                            className="ellipsis"
-                            style={{
-                              textDecoration: e.tag === "deleted" ? "line-through" : "none",
-                              fontWeight: picked?.path === e.path ? 600 : 400,
-                            }}
-                          >
-                            {name}
-                          </span>
-                          {e.kind === "dir" && e.items > 0 && <span className="tiny faint nowrap">{e.items.toLocaleString()} items</span>}
-                        </span>
-                        <span className="muted nowrap" style={{ width: 140 }}>
-                          {e.kind === "dir" ? "" : when(new Date(e.mtime).toISOString())}
-                        </span>
-                        <span className="mono muted" style={{ width: 76, textAlign: "right", fontSize: 11 }}>
-                          {bytes(e.size)}
-                        </span>
-                        <span className="mono muted" style={{ width: 70, textAlign: "right", fontSize: 11 }}>
-                          {e.kind === "file" && e.versions ? e.versions : ""}
-                        </span>
-                        <span style={{ width: 96, display: "flex", justifyContent: "flex-end" }}>
-                          {e.disk === "gone" ? (
-                            <span className="tag deleted" title="In this backup, but no longer on your Mac">
-                              Not on Mac
-                            </span>
-                          ) : e.disk === "unsaved" ? (
-                            <span className="tag plain" title="On your Mac, but not in the backup yet">
-                              Not backed up
-                            </span>
-                          ) : (
-                            e.tag && (
-                              <span className={`tag ${e.tag}`}>
-                                {e.tag === "new" ? "New" : e.tag === "changed" ? "Changed" : "Deleted"}
-                              </span>
-                            )
-                          )}
-                        </span>
-                      </button>
-                    </div>
-                  );
-                })}
-                {rows.length === 0 && <div className="empty">{hits ? "Nothing by that name in this snapshot." : "Loading…"}</div>}
-                {menuFor && (
-                  <rowMenu.Menu width={240}>
-                    <RowMenu
-                      e={menuFor}
-                      count={targets(menuFor).length}
-                      inSnapshot={menuFor.tag !== "deleted" && !onlyOnMac(menuFor)}
-                      canRestore={targets(menuFor).every((e) => !onlyOnMac(e))}
-                      chosen={isChosen(menuFor)}
-                      canOpen={menuFor.kind === "dir" && !hits && menuFor.tag !== "deleted" && !onlyOnMac(menuFor)}
-                      isOpen={open.has(menuFor.path)}
-                      restoreTo={dest === "folder" ? (folder.split("/").pop() ?? "") : "where it was"}
-                      onMac={onMac(menuFor)}
-                      quickLook={() => act(() => api.quickLook(plan.id, snap.id, menuFor.path))}
-                      compare={() => setComparing({ snapshot: snap.id, path: menuFor.path })}
-                      restore={() => restoreItems(targets(menuFor))}
-                      choose={() => (inMulti(menuFor) ? unchoose(items) : toggleCheck(menuFor))}
-                      toggleOpen={() => toggleOpen(menuFor.path)}
-                      reveal={() => showInFinder(menuFor)}
-                      copyPath={() =>
-                        act(() =>
-                          navigator.clipboard.writeText(
-                            targets(menuFor)
-                              .map((e) => e.path)
-                              .join("\n"),
-                          ),
-                        )
-                      }
-                      remove={() => removeFromBackup(targets(menuFor))}
-                    />
-                  </rowMenu.Menu>
-                )}
-              </div>
-            </div>
-
-            <aside
-              aria-label="Versions"
-              style={{
-                width: 340,
-                flexShrink: 0,
-                borderLeft: "1px solid var(--line)",
-                background: "var(--sunk)",
-                display: "flex",
-                flexDirection: "column",
-              }}
-            >
-              <div
-                style={{
-                  padding: "18px 20px 14px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 4,
-                  borderBottom: "1px solid var(--line)",
-                }}
-              >
-                <span className="caps">{picked?.kind === "dir" ? "Folder" : "Versions"}</span>
-                <span style={{ fontSize: 17, fontWeight: 600, wordBreak: "break-word" }}>
-                  {picked ? (picked.name.startsWith("/") ? tilde(picked.name, home) : picked.name) : "Pick a file"}
-                </span>
-                {picked && <span className="small muted">{tilde(picked.path.split("/").slice(0, -1).join("/") || "/", home)}</span>}
-              </div>
-              {picked?.kind === "file" && (
-                <>
-                  <div
-                    style={{
-                      flexGrow: 1,
-                      minHeight: 0,
-                      overflow: "auto",
-                      padding: "8px 10px",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 2,
-                    }}
-                  >
-                    {!versions && (
-                      <span className="small muted" style={{ padding: 10 }}>
-                        Finding versions…
-                      </span>
-                    )}
-                    {versions?.map((v, i) => (
-                      <button key={v.snapshot} className={`version${i === ver ? " on" : ""}`} onClick={() => setVer(i)}>
-                        <span className="dot" />
-                        <span className="grow col" style={{ gap: 1 }}>
-                          <span style={{ fontWeight: 600 }}>{when(v.time)}</span>
-                          <span className="tiny muted">
-                            {v.snapshot === snap.id
-                              ? "In this snapshot"
-                              : i === 0
-                                ? "Newest version"
-                                : `Kept in ${v.keptIn + 1} snapshot${v.keptIn ? "s" : ""}`}
-                          </span>
-                        </span>
-                        <span className="mono muted" style={{ fontSize: 11 }}>
-                          {bytes(v.size)}
-                        </span>
-                      </button>
-                    ))}
-                    {versions && (
-                      <div className="small faint" style={{ padding: "8px 10px" }}>
-                        {versions.length === 1 ? "This is the only version." : `${versions.length} versions in all.`}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ padding: "12px 16px", borderTop: "1px solid var(--line)", display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button
-                      className="btn"
-                      title={inMulti(picked) ? ONE_ONLY : "Quick Look (Space)"}
-                      disabled={!version || looking || inMulti(picked)}
-                      onClick={async () => {
-                        if (!version) return;
-                        setLooking(true);
-                        await act(() => api.quickLook(plan.id, version.snapshot, picked.path));
-                        setLooking(false);
-                      }}
-                    >
-                      {looking ? (
-                        <span className="dot spin" style={{ width: 12, height: 12 }} />
-                      ) : (
-                        <Icon name="eye" size={14} stroke={1.9} />
-                      )}
-                      {looking ? "Opening…" : "Quick Look"}
-                    </button>
-                    <button
-                      className="btn"
-                      title={inMulti(picked) ? ONE_ONLY : "Show what changed from the file on your Mac"}
-                      disabled={!version || inMulti(picked)}
-                      onClick={() => version && setComparing({ snapshot: version.snapshot, path: picked.path })}
-                    >
-                      Compare with current
-                    </button>
-                    <button
-                      className="btn"
-                      disabled={!version || inMulti(picked)}
-                      title={inMulti(picked) ? ONE_ONLY : undefined}
-                      onClick={() => version && start(version.snapshot, [picked.path])}
-                    >
-                      Restore this version
-                    </button>
-                  </div>
-                </>
               )}
-              {picked && !onlyOnMac(picked) && (
-                <div style={{ padding: "0 16px 12px", display: picked.kind === "dir" ? "none" : "flex", gap: 8 }}>
-                  <button
-                    className="btn small danger"
-                    onClick={() => removeFromBackup([picked])}
-                    disabled={inMulti(picked)}
-                    title={inMulti(picked) ? ONE_ONLY : "Take this out of every snapshot and free its space"}
-                  >
-                    <Icon name="trash" size={13} />
-                    Remove from backup…
-                  </button>
-                  <button
-                    className="btn small"
-                    disabled={!onMac(picked) || inMulti(picked)}
-                    onClick={() => showInFinder(picked)}
-                    title={inMulti(picked) ? ONE_ONLY : "Show the file on your Mac in its folder"}
-                  >
-                    <Icon name="folder" size={13} />
-                    Show in Finder
-                  </button>
-                </div>
-              )}
-              {picked?.kind === "dir" && !onlyOnMac(picked) && (
-                <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 10, color: "var(--ink2)", lineHeight: 1.5 }}>
-                  <span>
-                    {picked.name.startsWith("/") ? tilde(picked.name, home) : picked.name} held {bytes(picked.size)} at this snapshot
-                    {picked.items ? `, ${picked.items.toLocaleString()} items at its top` : ""}.
-                  </span>
-                  <span>Tick the folder to restore everything in it as it was then. Pick a file to see its versions.</span>
-                  <div className="row" style={{ gap: 8 }}>
-                    <button
-                      className="btn small danger"
-                      onClick={() => removeFromBackup([picked])}
-                      disabled={inMulti(picked)}
-                      title={inMulti(picked) ? ONE_ONLY : "Take this folder out of every snapshot and free its space"}
-                    >
-                      <Icon name="trash" size={13} />
-                      Remove from backup…
-                    </button>
-                    <button
-                      className="btn small"
-                      disabled={!onMac(picked) || inMulti(picked)}
-                      onClick={() => showInFinder(picked)}
-                      title={inMulti(picked) ? ONE_ONLY : "Show the folder on your Mac in Finder"}
-                    >
-                      <Icon name="folder" size={13} />
-                      Show in Finder
-                    </button>
-                  </div>
-                </div>
-              )}
-            </aside>
+            />
+            <VersionsPane
+              picked={picked}
+              home={home}
+              snapId={snap.id}
+              versions={versions}
+              ver={ver}
+              setVer={setVer}
+              multi={!!picked && inMulti(picked)}
+              onMac={!!picked && onMac(picked)}
+              looking={looking}
+              quickLook={lookAtVersion}
+              compare={(v) => picked && setComparing({ snapshot: v.snapshot, path: picked.path })}
+              restore={(v) => picked && start(v.snapshot, [picked.path])}
+              remove={() => picked && removeFromBackup([picked])}
+              reveal={() => picked && showInFinder(picked)}
+            />
           </section>
         )}
       </div>
 
-      {snap && (restoring || restoreQueued) && (
-        <footer
-          style={{
-            height: 72,
-            flexShrink: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: 18,
-            padding: "0 32px",
-            background: "var(--surface)",
-            borderTop: "1px solid var(--line)",
-          }}
-        >
-          <div className="col" style={{ gap: 2, minWidth: 150 }}>
-            <span style={{ fontWeight: 600 }}>{restoring ? "Restoring" : "Restore waiting"}</span>
-            <span className="small muted">
-              {restoring
-                ? `${restoring.filesRead.toLocaleString()} of ${restoring.filesToRead.toLocaleString()} files · ${bytes(restoring.bytesRead)} of ${bytes(restoring.bytesToRead)}`
-                : "Starts when the current job finishes"}
-            </span>
-          </div>
-          <div className="grow">
-            <PlanProgress job={restoring} queued={restoring ? undefined : restoreQueued} />
-          </div>
-        </footer>
-      )}
-      {snap && !restoring && !restoreQueued && (
-        <footer
-          style={{
-            height: 72,
-            flexShrink: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: 18,
-            padding: "0 32px",
-            background: "var(--surface)",
-            borderTop: "1px solid var(--line)",
-          }}
-        >
-          <div className="col" style={{ gap: 2, minWidth: 150 }}>
-            <span style={{ fontWeight: 600 }}>
-              {items.length === 0 ? "Nothing selected" : `${items.length} item${items.length === 1 ? "" : "s"} selected`}
-            </span>
-            <span className="small muted">
-              {bytes(total)} · from {when(snap.time)}
-            </span>
-          </div>
-          <div style={{ width: 1, height: 36, background: "var(--line)" }} />
-          <div className="col" style={{ gap: 4 }}>
-            <span className="tiny faint">Restore to</span>
-            <div className="seg" role="group" aria-label="Restore to">
-              <button className={dest === "original" ? "on" : ""} aria-pressed={dest === "original"} onClick={() => setDest("original")}>
-                Original location
-              </button>
-              <button
-                className={dest === "folder" ? "on" : ""}
-                aria-pressed={dest === "folder"}
-                onClick={() => (folder ? setDest("folder") : chooseFolder())}
-              >
-                Another folder…
-              </button>
-            </div>
-          </div>
-          {dest === "folder" && folder && (
-            <div className="col" style={{ gap: 4, minWidth: 0 }}>
-              <span className="tiny faint">Folder</span>
-              <button className="btn" onClick={chooseFolder} style={{ maxWidth: 260 }}>
-                <Icon name="folder" size={14} />
-                <span className="ellipsis">{tilde(folder, home)}</span>
-              </button>
-            </div>
-          )}
-          <label className="col" style={{ gap: 4 }}>
-            <span className="tiny faint">{dest === "original" ? "If a file is already there" : "If the folder has one"}</span>
-            <select className="input" value={conflict} onChange={(e) => setConflict(e.target.value as Conflict)}>
-              <option value="keepBoth">Keep both (add “restored”)</option>
-              <option value="replace">Replace it</option>
-              <option value="skip">Skip it</option>
-            </select>
-          </label>
-          <span className="grow" />
-          <span className="small muted" style={{ maxWidth: 230, textAlign: "right", lineHeight: 1.4 }}>
-            {dest === "original"
-              ? "Each item goes back where it was. Folders that no longer exist are made again."
-              : "Items keep their folders inside the folder you choose."}
-          </span>
-          <button className="btn primary big" disabled={items.length === 0} onClick={() => restoreItems(items)}>
-            <Icon name="restore" size={15} stroke={2.2} />
-            {items.length === 0 ? "Restore" : `Restore ${items.length} item${items.length === 1 ? "" : "s"}`}
-          </button>
-        </footer>
+      {snap && (
+        <RestoreFooter
+          time={snap.time}
+          restoring={restoring}
+          queued={restoreQueued}
+          count={items.length}
+          total={total}
+          dest={dest}
+          setDest={setDest}
+          folder={folder}
+          chooseFolder={chooseFolder}
+          conflict={conflict}
+          setConflict={setConflict}
+          home={home}
+          restore={() => restoreItems(items)}
+        />
       )}
       {comparing && <CompareSheet plan={plan.id} snapshot={comparing.snapshot} path={comparing.path} onClose={() => setComparing(null)} />}
     </>

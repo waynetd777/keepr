@@ -53,7 +53,7 @@ For an S3 bucket as a plan's source, the same setup makes a key that can only re
 
 ## Backblaze B2
 
-Make a key in Backblaze (**Open Application Keys in Backblaze**) and enter its **Master key ID** and **Master application key**. Keepr uses it once, to make a private bucket, encrypted at rest and set to keep only the latest version of each file (so a tidy-up really frees the space), and a key for that bucket only. The master key isn't kept.
+Make a key in Backblaze (**Open Application Keys in Backblaze**) and enter its **Master key ID** and **Master application key**. Keepr uses it once, to make a private bucket, encrypted at rest and set to keep only the latest version of each file (so a tidy-up really frees the space), and a key for that bucket only. The master key isn't kept. If the account already has a bucket by that name, Keepr uses it only if Keepr made it; otherwise it asks for another name, so it never changes the rules of a bucket of yours.
 
 ## Cloudflare R2
 

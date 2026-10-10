@@ -43,6 +43,8 @@ pub fn tick(core: &Arc<Core>) {
     };
     let now = Local::now();
     let today = now.format("%Y-%m-%d").to_string();
+    // Pause for an hour holds back scheduled backups only; it doesn't move the plans' own times.
+    let paused = core.state.lock().unwrap().paused_until.as_deref().and_then(parse_time).is_some_and(|t| t > now);
     for plan in plans.iter().filter(|p| p.enabled) {
         if core.busy_with(&plan.id) {
             continue;
@@ -66,7 +68,7 @@ pub fn tick(core: &Arc<Core>) {
             }
         }
 
-        if plan.schedule.every == Every::Manual {
+        if plan.schedule.every == Every::Manual || paused {
             continue;
         }
         // Waiting (for a destination, power or another network): look again every five minutes.

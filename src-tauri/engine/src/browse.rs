@@ -13,8 +13,9 @@ use crate::{Id, Result};
 use serde::Serialize;
 use std::sync::Arc;
 
-/// Which source a path is in, and the names below it.
-fn split<'a>(snap: &Snapshot, path: &'a str) -> Option<(String, Vec<&'a str>)> {
+/// Which source a path is in (the longest that holds it, as the snapshot names it), and the
+/// names below it. A trailing '/' on either is ignored.
+pub fn split<'a>(snap: &Snapshot, path: &'a str) -> Option<(String, Vec<&'a str>)> {
     let path = path.trim_end_matches('/');
     let mut best: Option<&String> = None;
     for s in &snap.sources {

@@ -10,7 +10,7 @@
 
 use std::fs;
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Makes sure a file's data has reached its disk or server. On macOS `sync_all` asks for a full
 /// flush (F_FULLFSYNC), which SMB shares and some other file systems refuse with ENOTSUP
@@ -50,10 +50,6 @@ pub struct Folder {
 impl Folder {
     pub fn new(root: impl Into<PathBuf>) -> Folder {
         Folder { root: root.into() }
-    }
-
-    pub fn root(&self) -> &Path {
-        &self.root
     }
 
     fn at(&self, rel: &str) -> io::Result<PathBuf> {

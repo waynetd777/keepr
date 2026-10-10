@@ -6,7 +6,7 @@
 """Retake the README and docs screenshots, from demo data: docs/images/<scene>-<theme>.png.
 
 Makes a demo in .demo/ (gitignored): sample folders in a demo home, a backup folder as the
-destination, and a drive that isn't connected. It backs the folders up a few times with `Keepr --back-up`, editing
+destination, and a drive that isn't connected. It backs the folders up a few times with `keepr back-up`, editing
 files between runs, so there are snapshots and versions to show. Then it launches the dev build
 once per scene and theme with the scene in KEEPR_SCENE (the app saves and runs nothing). The
 window is invisible and takes no focus, so nothing flashes on screen: the app saves its webview's
@@ -150,7 +150,7 @@ def make_demo():
     write(DEMO / "data" / "config.json", json.dumps(config, indent=2))
 
     def back_up(*ids):
-        r = subprocess.run([str(BIN), "--back-up", *ids], env=env(), capture_output=True, text=True)
+        r = subprocess.run([str(BIN), "back-up", "--quiet", *ids], env=env(), capture_output=True, text=True)
         print("   ", r.stdout.strip().replace("\n", "\n    "))
 
     print("demo backups:")

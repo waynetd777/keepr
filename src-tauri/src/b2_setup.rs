@@ -14,7 +14,6 @@
 use crate::aws_setup::{Made, Mode};
 use base64::Engine;
 use serde_json::{json, Value};
-use std::time::Duration;
 
 struct Account {
     id: String,
@@ -23,11 +22,6 @@ struct Account {
     /// "https://s3.eu-central-003.backblazeb2.com"
     s3: String,
     agent: ureq::Agent,
-}
-
-fn agent() -> Result<ureq::Agent, String> {
-    let tls = native_tls::TlsConnector::new().map_err(|e| e.to_string())?;
-    Ok(ureq::AgentBuilder::new().tls_connector(std::sync::Arc::new(tls)).timeout(Duration::from_secs(60)).build())
 }
 
 /// B2's error ({"code": …, "message": …}) in words.
@@ -53,7 +47,7 @@ fn explain(e: ureq::Error) -> String {
 }
 
 fn authorize(key_id: &str, key: &str) -> Result<Account, String> {
-    let agent = agent()?;
+    let agent = crate::cloud_setup::http_agent()?;
     let basic = base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", key_id.trim(), key.trim()));
     let v: Value = agent
         .get("https://api.backblazeb2.com/b2api/v2/b2_authorize_account")
@@ -77,16 +71,10 @@ impl Account {
             .map_err(|e| e.to_string())
     }
 
-    /// (name, id) of each bucket in the account.
-    fn buckets(&self) -> Result<Vec<(String, String)>, String> {
+    /// Each bucket in the account, as B2 describes it.
+    fn buckets(&self) -> Result<Vec<Value>, String> {
         let v = self.call("b2_list_buckets", json!({ "accountId": self.id }))?;
-        Ok(v["buckets"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
-            .iter()
-            .map(|b| (b["bucketName"].as_str().unwrap_or_default().to_string(), b["bucketId"].as_str().unwrap_or_default().to_string()))
-            .collect())
+        Ok(v["buckets"].as_array().cloned().unwrap_or_default())
     }
 
     /// "eu-central-003", from the S3 address.
@@ -98,6 +86,11 @@ impl Account {
 /// Keep only each file's latest version; hidden (deleted) ones go a day later.
 fn keep_latest() -> Value {
     json!([{ "fileNamePrefix": "", "daysFromHidingToDeleting": 1, "daysFromUploadingToHiding": null }])
+}
+
+/// Whether Keepr made this bucket: it tags the ones it makes, in their bucket info.
+fn made_by_keepr(b: &Value) -> bool {
+    b["bucketInfo"]["created-by"].as_str() == Some("Keepr")
 }
 
 fn check_name(bucket: &str) -> Result<(), String> {
@@ -114,9 +107,7 @@ fn check_name(bucket: &str) -> Result<(), String> {
 /// The account's buckets, for choosing one to back up.
 pub fn list(key_id: &str, key: &str) -> Result<Vec<String>, String> {
     let a = authorize(key_id, key)?;
-    let mut names: Vec<String> = a.buckets()?.into_iter().map(|(n, _)| n).collect();
-    names.sort();
-    Ok(names)
+    Ok(crate::cloud_setup::sorted(a.buckets()?.iter().filter_map(|b| b["bucketName"].as_str().map(str::to_string)).collect()))
 }
 
 /// Makes (or, for a source, finds) the bucket and a key for it alone. The master key is
@@ -125,14 +116,20 @@ pub fn setup(key_id: &str, key: &str, bucket: &str, mode: Mode) -> Result<Made, 
     let bucket = bucket.trim();
     check_name(bucket)?;
     let a = authorize(key_id, key)?;
-    let existing = a.buckets()?.into_iter().find(|(n, _)| n == bucket).map(|(_, id)| id);
+    let existing = a.buckets()?.into_iter().find(|b| b["bucketName"].as_str() == Some(bucket));
+    let id = |b: &Value| b["bucketId"].as_str().unwrap_or_default().to_string();
     let bucket_id = match (mode, existing) {
-        (Mode::Source, Some(id)) => id,
+        (Mode::Source, Some(b)) => id(&b),
         (Mode::Source, None) => return Err(format!("There's no bucket called {bucket} in this account.")),
-        (Mode::Destination, Some(id)) => {
+        (Mode::Destination, Some(b)) if made_by_keepr(&b) => {
             // Ours already (a second try): make sure it keeps only the latest versions.
-            a.call("b2_update_bucket", json!({ "accountId": a.id, "bucketId": id, "lifecycleRules": keep_latest() }))?;
-            id
+            a.call("b2_update_bucket", json!({ "accountId": a.id, "bucketId": id(&b), "lifecycleRules": keep_latest() }))?;
+            id(&b)
+        }
+        // Someone's own bucket. Keepr's rule would delete its old versions a day after they were
+        // replaced, which may be exactly what the bucket is there to keep.
+        (Mode::Destination, Some(_)) => {
+            return Err(format!("This account already has a bucket called {bucket} that Keepr didn't make. Choose another name."))
         }
         (Mode::Destination, None) => {
             let v = a.call(
@@ -185,5 +182,7 @@ mod tests {
         };
         assert_eq!(a.region(), "eu-central-003");
         assert_eq!(keep_latest()[0]["daysFromHidingToDeleting"], 1);
+        assert!(made_by_keepr(&json!({ "bucketInfo": { "created-by": "Keepr" } })));
+        assert!(!made_by_keepr(&json!({ "bucketInfo": {} })) && !made_by_keepr(&json!({})));
     }
 }

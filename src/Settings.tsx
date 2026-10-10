@@ -5,9 +5,9 @@
 // Settings: opening at login, notifications, when to warn about a backup that has stopped, and
 // the appearance.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { api } from "./api";
+import { api, type Settings as SettingsData } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
 import { Seg, Switch, useAct } from "./ui";
@@ -47,17 +47,33 @@ export default function Settings() {
   const [login, setLogin] = useState<[boolean, boolean]>([false, false]);
   const [ver, setVer] = useState<[string, string]>(["", ""]);
   const [theme, setTheme] = useState<Theme>(savedTheme());
+  // What the switches show while a change is being saved, so they move at once and a second
+  // change starts from the first rather than from the settings before it.
+  const [shown, setShown] = useState<SettingsData | null>(null);
+  const saving = useRef(Promise.resolve());
+  const pending = useRef(0);
   useEffect(() => {
     api.loginItem().then(setLogin);
     api.version().then(setVer);
   }, []);
   if (!cfg) return null;
-  const s = cfg.settings;
-  const save = (patch: Partial<typeof s>) =>
-    act(async () => {
-      await api.saveSettings({ ...s, ...patch });
-      await refresh();
-    });
+  const s = shown ?? cfg.settings;
+  // Saves run one after another, so an earlier one never lands last and undoes a later one.
+  const save = (patch: Partial<SettingsData>) => {
+    const next = { ...s, ...patch };
+    setShown(next);
+    pending.current++;
+    saving.current = saving.current
+      .then(() =>
+        act(async () => {
+          await api.saveSettings(next);
+          await refresh();
+        }),
+      )
+      .then(() => {
+        if (--pending.current === 0) setShown(null);
+      });
+  };
   return (
     <div className="content col" style={{ gap: 18, maxWidth: 860 }}>
       <h1>Settings</h1>

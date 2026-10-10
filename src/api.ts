@@ -55,7 +55,6 @@ export type PlanSummary = {
   enabled: boolean;
   sources: string;
   destination: string;
-  destinationId: string;
   schedule: string;
   encrypted: boolean;
   status: "running" | "waiting" | "failed" | "stale" | "never" | "off" | "ok";
@@ -184,7 +183,6 @@ export const api = {
   defaultExcludes: () => invoke<string[]>("default_excludes"),
   savePlan: (plan: Plan, password?: string) => invoke<Plan>("save_plan", { plan, password: password ?? null }),
   deletePlan: (id: string) => invoke<void>("delete_plan", { id }),
-  setPlanEnabled: (id: string, enabled: boolean) => invoke<void>("set_plan_enabled", { id, enabled }),
   startNewBackup: (id: string) => invoke<void>("start_new_backup", { id }),
   saveDestination: (dest: Destination, password?: string) => invoke<Destination>("save_destination", { dest, password: password ?? null }),
   deleteDestination: (id: string) => invoke<void>("delete_destination", { id }),
@@ -214,8 +212,7 @@ export const api = {
   savedSmbLogin: (server: string) => invoke<{ user: string; source: "keepr" | "finder" } | null>("saved_smb_login", { server }),
   listShares: (server: string, user: string, password?: string) =>
     invoke<string[]>("list_shares", { server, user, password: password ?? null }),
-  hasPassword: (accountKind: "plan" | "smb", id: string, user?: string) =>
-    invoke<boolean>("has_password", { accountKind, id, user: user ?? null }),
+  saveSmbPassword: (server: string, user: string, password: string) => invoke<void>("save_smb_password", { server, user, password }),
   recoveryKey: (id: string) => invoke<string | null>("recovery_key", { id }),
   recoverySaved: (id: string) => invoke<void>("recovery_saved", { id }),
   changePassword: (id: string, current: string, next: string) => invoke<void>("change_password", { id, current, new: next }),
@@ -226,7 +223,6 @@ export const api = {
   checkNow: (plan: string, all: boolean) => invoke<string>("check_now", { plan, all }),
   removeSourceData: (plan: string, source: Place) => invoke<string>("remove_source_data", { plan, source }),
   removePathData: (plan: string, path: string) => invoke<string>("remove_path_data", { plan, path }),
-  jobStatus: () => invoke<JobStatus | null>("job_status"),
   cancel: (id = "") => invoke<void>("job_cancel", { id }),
   pause: (paused: boolean) => invoke<void>("job_pause", { paused }),
   pauseHour: () => invoke<void>("pause_hour"),

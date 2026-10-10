@@ -29,6 +29,14 @@ export default function Search() {
       },
     );
   }, [query]);
+  // Each plan's search stops at 300, so the note names the plans that reached it.
+  const perPlan = new Map<string, { name: string; n: number }>();
+  for (const f of found ?? []) {
+    const p = perPlan.get(f.plan) ?? { name: f.planName, n: 0 };
+    p.n++;
+    perPlan.set(f.plan, p);
+  }
+  const capped = [...perPlan.values()].filter((p) => p.n >= 300).map((p) => p.name);
   return (
     <div className="content col" style={{ gap: 16 }}>
       <div className="col" style={{ gap: 4 }}>
@@ -38,7 +46,7 @@ export default function Search() {
             ? "Looking in every backup…"
             : found.length === 0
               ? "Nothing by that name in any backup."
-              : `${found.length.toLocaleString()} found in your backups${found.length >= 300 ? " (the first 300 per plan)" : ""}. Pick one to see its versions and restore it.`}
+              : `${found.length.toLocaleString()} found in your backups${capped.length ? ` (only the first 300 from ${capped.join(", ")})` : ""}. Pick one to see its versions and restore it.`}
         </span>
       </div>
       {missed.length > 0 && (

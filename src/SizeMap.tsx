@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { MapDir } from "./api";
-import { bytes, tilde } from "./format";
+import { bytes, count, tilde } from "./format";
 import { Icon } from "./icons";
 
 /// What one block stands for: a folder, the files directly in a folder, or the folders of a
@@ -88,8 +88,6 @@ function childrenOf(d: MapDir): Item[] {
   items.sort((a, b) => b.size - a.size);
   return items;
 }
-
-const count = (n: number, one: string) => `${n.toLocaleString()} ${one}${n === 1 ? "" : "s"}`;
 
 export default function SizeMap({
   load,

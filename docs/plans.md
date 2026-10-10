@@ -74,7 +74,7 @@ The first backup copies everything. After that, each backup looks only at what c
 
 ## Before each backup
 
-A command to run before each backup, for example one that exports a database into a folder the plan backs up. It runs in your login shell, its output goes into the backup's log in [Activity](day-to-day.md#activity), and it's stopped after 15 minutes. **If it fails**, Keepr either backs up anyway and marks the backup with a warning, or doesn't back up.
+A command to run before each backup, for example one that exports a database into a folder the plan backs up. It runs in your login shell, its output goes into the backup's log in [Activity](day-to-day.md#activity), and it's stopped after 15 minutes. While it runs, Activity and the menu bar show "Running the command before the backup", since nothing is read until it ends. **If it fails**, Keepr either backs up anyway and marks the backup with a warning, or doesn't back up.
 
 ## After each backup
 

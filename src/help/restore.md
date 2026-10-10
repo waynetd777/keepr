@@ -20,7 +20,7 @@ Each file shows whether it's **New**, **Changed** or **Deleted** in this snapsho
 ## A file's versions
 Click a file to see every version kept of it, newest first. The one in the snapshot you're looking at is marked **In this snapshot**.
 
-- **Quick Look** shows the version without restoring it.
+- **Quick Look** (or `Space`) shows the version without restoring it.
 - **Compare with current** compares it with the file on the Mac now: the lines that differ for a text file, or whether they're the same.
 - **Restore this version** puts it back.
 

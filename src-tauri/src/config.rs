@@ -284,14 +284,33 @@ pub struct Run {
     /// ends (so state.json stays small) and read back only when Activity expands the run.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub log: Vec<String>,
+    /// Lines left out of the middle of a long log.
+    #[serde(skip)]
+    pub log_skipped: usize,
 }
+
+const LOG_HEAD: usize = 300;
+const LOG_TAIL: usize = 100;
 
 impl Run {
     /// Adds a line to the run's log, stamped with the time.
+    /// A long log keeps its first LOG_HEAD lines and its last LOG_TAIL, with a line saying how
+    /// many were left out between: the end ("Snapshot saved", "Failed: …") is what's looked for.
     pub fn note(&mut self, line: impl AsRef<str>) {
-        if self.log.len() < 400 {
-            self.log.push(format!("{}  {}", chrono::Local::now().format("%H:%M:%S"), line.as_ref()));
+        let line = format!("{}  {}", chrono::Local::now().format("%H:%M:%S"), line.as_ref());
+        if self.log.len() < LOG_HEAD + LOG_TAIL {
+            self.log.push(line);
+            return;
         }
+        if self.log.len() == LOG_HEAD + LOG_TAIL {
+            self.log.insert(LOG_HEAD, String::new());
+            self.log_skipped = 0;
+        }
+        // The oldest of the tail goes, the newest line comes in, and the count in the gap goes up.
+        self.log.remove(LOG_HEAD + 1);
+        self.log.push(line);
+        self.log_skipped += 1;
+        self.log[LOG_HEAD] = format!("…  {} lines left out", self.log_skipped);
     }
 }
 
@@ -354,6 +373,9 @@ pub struct State {
     pub destinations: std::collections::HashMap<String, DestState>,
     #[serde(default)]
     pub history: Vec<Run>,
+    /// Scheduled backups wait until then (Pause for an hour, in the menu bar).
+    #[serde(default)]
+    pub paused_until: Option<String>,
 }
 
 pub const HISTORY_MAX: usize = 5000;
@@ -373,22 +395,59 @@ impl State {
     }
 }
 
-pub fn read<T: serde::de::DeserializeOwned + Default>(dir: &Path, name: &str) -> T {
-    match std::fs::read(dir.join(name)) {
-        Ok(b) => serde_json::from_slice(&b).unwrap_or_else(|e| {
-            eprintln!("{name}: {e}; starting afresh, the old file kept as {name}.bad");
-            let _ = std::fs::rename(dir.join(name), dir.join(format!("{name}.bad")));
-            T::default()
-        }),
-        Err(_) => T::default(),
+/// Reads config.json or state.json. A file that isn't there is a fresh start. One that can't be
+/// read (a disk error, no permission) is an error: starting afresh would write an empty file
+/// over it on the first save. One that reads but doesn't parse is set aside as `.bad` (never over
+/// an earlier one, which may be the copy worth having) and Keepr starts afresh.
+pub fn read<T: serde::de::DeserializeOwned + Default>(dir: &Path, name: &str) -> Result<T, String> {
+    let path = dir.join(name);
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(T::default()),
+        Err(e) => return Err(format!("Keepr couldn't read {}: {e}", path.display())),
+    };
+    match serde_json::from_slice(&bytes) {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            let mut bad = dir.join(format!("{name}.bad"));
+            if bad.exists() {
+                bad = dir.join(format!("{name}.{}.bad", chrono::Local::now().format("%Y%m%d-%H%M%S")));
+            }
+            eprintln!("{name}: {e}; starting afresh, the old file kept as {}", bad.display());
+            std::fs::rename(&path, &bad).map_err(|e| format!("Keepr couldn't set aside the damaged {name}: {e}"))?;
+            Ok(T::default())
+        }
     }
 }
 
+/// Writes the file whole: to a temporary file, flushed to the disk, then renamed over the old
+/// one. Without the flush a power cut soon after can leave the rename on disk but not the data,
+/// an empty config.json.
 pub fn write<T: Serialize>(dir: &Path, name: &str, v: &T) -> Result<(), String> {
+    use std::io::Write;
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let tmp = dir.join(format!(".{name}.tmp"));
-    std::fs::write(&tmp, serde_json::to_vec_pretty(v).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let data = serde_json::to_vec_pretty(v).map_err(|e| e.to_string())?;
+    let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+    f.write_all(&data).and_then(|_| keepr_engine::backend::sync(&f)).map_err(|e| e.to_string())?;
+    drop(f);
     std::fs::rename(&tmp, dir.join(name)).map_err(|e| e.to_string())
+}
+
+/// Held (shared) by the app for as long as it runs, so the command-line jobs, which rewrite
+/// state.json too, can tell it's running: they take it exclusively and refuse if they can't.
+/// Shared, so a dev build beside the installed app doesn't shut either out. The lock goes with
+/// the process, however it ends.
+pub fn lock_data_dir(dir: &Path, exclusive: bool) -> Result<std::fs::File, String> {
+    use std::os::fd::AsRawFd;
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let f =
+        std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join(".keepr.lock")).map_err(|e| e.to_string())?;
+    let how = if exclusive { libc::LOCK_EX } else { libc::LOCK_SH };
+    if unsafe { libc::flock(f.as_raw_fd(), how | libc::LOCK_NB) } != 0 {
+        return Err("Keepr is running. Quit it first (in the menu bar: Quit Keepr).".into());
+    }
+    Ok(f)
 }
 
 pub fn new_id() -> String {
@@ -434,6 +493,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_long_log_keeps_its_start_and_its_end() {
+        let mut r: Run =
+            serde_json::from_str(r#"{"id":"r","plan":"p","kind":"backup","started":"","finished":"","result":"ok","message":""}"#).unwrap();
+        for i in 0..1000 {
+            r.note(format!("line {i}"));
+        }
+        r.note("Snapshot saved");
+        assert_eq!(r.log.len(), LOG_HEAD + LOG_TAIL + 1);
+        assert!(r.log[0].ends_with("line 0"));
+        assert!(r.log[LOG_HEAD - 1].ends_with(&format!("line {}", LOG_HEAD - 1)));
+        assert!(r.log[LOG_HEAD].ends_with(&format!("{} lines left out", 1001 - LOG_HEAD - LOG_TAIL)));
+        assert!(r.log[LOG_HEAD + 1].ends_with(&format!("line {}", 1001 - LOG_TAIL)));
+        assert!(r.log.last().unwrap().ends_with("Snapshot saved"));
+    }
+
+    #[test]
     fn spots_overlapping_sources() {
         let f = |p: &str| Place::Folder { path: p.into(), name: None };
         assert_eq!(overlapping_sources(&[f("/a/b"), f("/a/bc")]), None);
@@ -458,12 +533,22 @@ mod tests {
             disconnect_after: true,
         });
         write(t.path(), "config.json", &c).unwrap();
-        let back: Config = read(t.path(), "config.json");
+        let back: Config = read(t.path(), "config.json").unwrap();
         assert_eq!(back.destinations[0].place, c.destinations[0].place);
         std::fs::write(t.path().join("config.json"), b"{not json").unwrap();
-        let back: Config = read(t.path(), "config.json");
+        let back: Config = read(t.path(), "config.json").unwrap();
         assert!(back.destinations.is_empty());
         assert!(t.path().join("config.json.bad").exists());
+        // A second damaged file is kept beside the first, not over it.
+        std::fs::write(t.path().join("config.json"), b"{also not json").unwrap();
+        let _: Config = read(t.path(), "config.json").unwrap();
+        assert_eq!(std::fs::read(t.path().join("config.json.bad")).unwrap(), b"{not json");
+        let bads =
+            std::fs::read_dir(t.path()).unwrap().filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().ends_with(".bad")).count();
+        assert_eq!(bads, 2);
+        // One that's there but can't be read stops Keepr rather than being started over.
+        std::fs::create_dir(t.path().join("state.json")).unwrap();
+        assert!(read::<State>(t.path(), "state.json").is_err());
         assert_eq!(folder_name("Documents & Projects", "abcdef123"), "Documents-Projects abcdef");
     }
 }

@@ -31,7 +31,7 @@ struct Tally {
 }
 
 pub fn run(plan: &str, dir: &Path) -> Result<bool, String> {
-    let core = Core::new(crate::config::data_dir(), Box::new(|_, _| {}), Box::new(|_, _| {}), true);
+    let core = Core::new(crate::config::data_dir(), Box::new(|_, _| {}), Box::new(|_, _| {}), true)?;
     let name = core.config.lock().unwrap().plan(plan).map(|p| p.name.clone()).ok_or("no such plan")?;
     let repo = core.repo(plan, false)?;
     let snaps = repo.snapshots().map_err(|e| e.0)?;

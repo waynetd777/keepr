@@ -171,23 +171,49 @@ export function useMenu() {
     e.preventDefault();
     setAt({ x: e.clientX, y: e.clientY });
   };
-  const Menu = ({ children, width = 260 }: { children: ReactNode; width?: number }) =>
-    at ? (
-      <div
-        ref={(el) => {
-          ref.current = el;
-          // Near the bottom of the window, open upwards instead.
-          if (el && el.getBoundingClientRect().bottom > window.innerHeight - 8) el.style.top = `${Math.max(8, at.y - el.offsetHeight)}px`;
-        }}
-        className="menu"
-        role="menu"
-        style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - width - 12), top: at.y, width }}
-        onClick={() => setAt(null)}
-      >
-        {children}
-      </div>
-    ) : null;
+  // The same component from one render to the next while the menu stays where it is, so a parent
+  // re-rendering (a job event every second) does not remount the menu and what is in it.
+  const Menu = useCallback(
+    ({ children, width = 260 }: { children: ReactNode; width?: number }) =>
+      at ? (
+        <MenuPanel at={at} width={width} panelRef={ref} close={() => setAt(null)}>
+          {children}
+        </MenuPanel>
+      ) : null,
+    [at],
+  );
   return { open, openAt, close: () => setAt(null), Menu, isOpen: !!at };
+}
+
+/** useMenu's menu itself, at a point on the window. */
+function MenuPanel({
+  at,
+  width,
+  panelRef,
+  close,
+  children,
+}: {
+  at: { x: number; y: number };
+  width: number;
+  panelRef: React.RefObject<HTMLDivElement | null>;
+  close: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      ref={(el) => {
+        panelRef.current = el;
+        // Near the bottom of the window, open upwards instead.
+        if (el && el.getBoundingClientRect().bottom > window.innerHeight - 8) el.style.top = `${Math.max(8, at.y - el.offsetHeight)}px`;
+      }}
+      className="menu"
+      role="menu"
+      style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - width - 12), top: at.y, width }}
+      onClick={close}
+    >
+      {children}
+    </div>
+  );
 }
 
 const ToastContext = createContext<(msg: string) => void>(() => {});
@@ -229,6 +255,11 @@ export function useAct() {
     [toast],
   );
 }
+
+// A plan's own commands, run before and after the backup proper (core.rs names these stages).
+// Nothing is read while they run, so they're shown by name rather than as progress.
+export const BEFORE_COMMAND = "Running the command before the backup";
+export const AFTER_COMMAND = "Running the command after the backup";
 
 export function pct(job: JobStatus): number {
   if (job.bytesToRead > 0) return Math.min(100, (100 * job.bytesRead) / job.bytesToRead);
@@ -357,21 +388,30 @@ export function useSavedLogin(
   useEffect(() => {
     const host = server.trim();
     if (!host) return;
+    // A reply for a server since changed is dropped, so the old server's login and shares never
+    // fill in the form for the new one.
+    let live = true;
     const t = window.setTimeout(async () => {
       const saved = await api.savedSmbLogin(host).catch(() => null);
+      if (!live) return;
       if (!saved || (user && user !== saved.user)) return setSource(null);
       setUser(saved.user);
       setPassword(SAVED_PASSWORD);
       setSource(saved.source);
       onMessage("Asking for its shares…");
       try {
-        onShares(await api.listShares(host, saved.user));
+        const shares = await api.listShares(host, saved.user);
+        if (!live) return;
+        onShares(shares);
         onMessage("");
       } catch (e) {
-        onMessage(String(e));
+        if (live) onMessage(String(e));
       }
     }, 450);
-    return () => window.clearTimeout(t);
+    return () => {
+      live = false;
+      window.clearTimeout(t);
+    };
     // Only a new server looks again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [server]);

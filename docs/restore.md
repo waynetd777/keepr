@@ -31,7 +31,7 @@ Click a file to see every version the backup keeps of it, newest first, each wit
 
 <a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/versions-dark.png"><img alt="The versions of Budget 2026.numbers, with Quick Look, Compare with current and Restore this version" src="images/versions-light.png"></picture></a>
 
-- **Quick Look** opens the version in Quick Look, to see what's in it, without restoring it.
+- **Quick Look** (or `Space`) opens the version in Quick Look, to see what's in it, without restoring it.
 - **Compare with current** compares the version with the file on the Mac now. For a text file it shows the lines that differ: those only in the backup and those only on the Mac. For other files it says whether they're the same.
 - **Restore this version** puts it back, as below.
 

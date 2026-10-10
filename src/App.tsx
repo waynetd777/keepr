@@ -169,9 +169,13 @@ export default function App() {
   const [cfg, setCfg] = useState<Config | null>(null);
   const [job, setJob] = useState<JobStatus | null>(null);
   const [home, setHome] = useState("");
-  const [past, setPast] = useState<Screen[]>([]);
-  const [future, setFuture] = useState<Screen[]>([]);
-  const [screen, setScreen] = useState<Screen>({ name: "overview" });
+  // The screen and the history either side of it, in one state so each move is one pure update.
+  const [nav, setNav] = useState<{ past: Screen[]; screen: Screen; future: Screen[] }>({
+    past: [],
+    screen: { name: "overview" },
+    future: [],
+  });
+  const { past, screen, future } = nav;
 
   const refresh = useCallback(async () => {
     const [o, c] = await Promise.all([api.overview(), api.config()]);
@@ -182,12 +186,7 @@ export default function App() {
   }, []);
 
   const go = useCallback((s: Screen) => {
-    setScreen((cur) => {
-      if (JSON.stringify(cur) === JSON.stringify(s)) return cur;
-      setPast((p) => [...p.slice(-50), cur]);
-      setFuture([]);
-      return s;
-    });
+    setNav((n) => (JSON.stringify(n.screen) === JSON.stringify(s) ? n : { past: [...n.past.slice(-50), n.screen], screen: s, future: [] }));
   }, []);
 
   useEffect(() => {
@@ -201,7 +200,10 @@ export default function App() {
       const s = JSON.parse(sc) as { screen?: Screen; theme?: string; splash?: boolean; help?: HelpView };
       if (s.splash) document.documentElement.dataset.keepSplash = "1";
       if (s.theme) document.documentElement.dataset.theme = s.theme;
-      if (s.screen) setScreen(s.screen);
+      if (s.screen) {
+        const to = s.screen;
+        setNav((n) => ({ ...n, screen: to }));
+      }
       if (s.help) openHelp(s.help);
     });
     const un1 = on("changed", () => refresh());
@@ -217,20 +219,10 @@ export default function App() {
     };
   }, [refresh, go]);
 
-  const back = () => {
-    const prev = past[past.length - 1];
-    if (!prev) return;
-    setPast(past.slice(0, -1));
-    setFuture([screen, ...future]);
-    setScreen(prev);
-  };
-  const forward = () => {
-    const nxt = future[0];
-    if (!nxt) return;
-    setFuture(future.slice(1));
-    setPast([...past, screen]);
-    setScreen(nxt);
-  };
+  const back = () =>
+    setNav((n) => (n.past.length ? { past: n.past.slice(0, -1), screen: n.past[n.past.length - 1], future: [n.screen, ...n.future] } : n));
+  const forward = () =>
+    setNav((n) => (n.future.length ? { past: [...n.past, n.screen], screen: n.future[0], future: n.future.slice(1) } : n));
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => {

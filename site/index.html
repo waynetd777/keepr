@@ -207,9 +207,9 @@ Projects/keepr/design-notes.md</pre>
         </div>
       </section>
 
-      <!-- Three quiet facts -->
+      <!-- Quiet facts -->
       <section class="facts">
-        <div class="wrap three">
+        <div class="wrap three four">
           <div>
             <h3>Help where you are.</h3>
             <p>Press <kbd>?</kbd> and help for the screen you're on opens beside it, with search and step-by-step guides to get started.</p>
@@ -217,6 +217,10 @@ Projects/keepr/design-notes.md</pre>
           <div>
             <h3>Checks its own work.</h3>
             <p>A still copy of the disk means files that change mid-backup are copied as they were at one moment. Keepr reads a sample of every backup back to make sure it can be restored.</p>
+          </div>
+          <div>
+            <h3>Scriptable too.</h3>
+            <p>The <code>keepr</code> command backs up, checks, restores and reports how each plan is doing, with JSON for scripts and an exit status a health check can watch.</p>
           </div>
           <div>
             <h3>Free software.</h3>

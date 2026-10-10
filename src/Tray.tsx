@@ -11,7 +11,7 @@ import { api, on, type JobStatus, type Overview } from "./api";
 import { Mark } from "./icons";
 import { statusDot } from "./context";
 import { next, secondsLeft, when } from "./format";
-import { Switch } from "./ui";
+import { AFTER_COMMAND, BEFORE_COMMAND, pct, Switch } from "./ui";
 
 const Item = ({ label, keys, onClick, strong }: { label: string; keys?: string; onClick: () => void; strong?: boolean }) => (
   <button
@@ -91,7 +91,7 @@ export default function Tray() {
   const sub = job
     ? `One backup running${others.every((p) => p.status === "ok") ? " · everything else is up to date" : ""}`
     : (attention[0]?.message ?? (ov.plans.length ? "All plans are up to date" : "Open Keepr to set up a backup"));
-  const pct = job && job.bytesToRead ? Math.floor((100 * job.bytesRead) / job.bytesToRead) : 0;
+  const percent = job ? Math.floor(pct(job)) : 0;
   return (
     <div className="traywin">
       <div style={{ padding: "16px 18px 14px", display: "flex", flexDirection: "column", gap: 3, borderBottom: "1px solid var(--line)" }}>
@@ -108,14 +108,16 @@ export default function Tray() {
               {job.planName}
             </span>
             <span className="mono muted" style={{ fontSize: 11 }}>
-              {pct}%{job.etaSecs != null ? ` · ${secondsLeft(job.etaSecs).replace("about ", "")}` : ""}
+              {percent}%{job.etaSecs != null ? ` · ${secondsLeft(job.etaSecs).replace("about ", "")}` : ""}
             </span>
           </div>
           <div className="progress" style={{ height: 6 }}>
-            <div className="solid" style={{ width: `${pct}%` }} />
+            <div className="solid" style={{ width: `${percent}%` }} />
           </div>
           <span className="small faint">
-            {job.stage} · {job.filesToRead.toLocaleString()} files to read
+            {job.stage === BEFORE_COMMAND || job.stage === AFTER_COMMAND
+              ? `${job.stage}…`
+              : `${job.stage} · ${job.filesToRead.toLocaleString()} files to read`}
           </span>
         </div>
       )}

@@ -11,12 +11,15 @@ const PAGE = 50;
 import { api, type Run } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
-import { Seg, STOPPING, StopButton } from "./ui";
-import { bytes, duration, secondsLeft, when } from "./format";
+import { AFTER_COMMAND, BEFORE_COMMAND, pct as progressOf, Seg, STOPPING, StopButton } from "./ui";
+import { bytes, duration, secondsLeft, tilde, when } from "./format";
+import { resultLabel, resultTone } from "./runResult";
 
 const STEPS = ["Look", "Compare", "Pack", "Send", "Confirm"];
 
 function stepOf(stage: string): number {
+  // The command before comes ahead of every step, so none is ticked while it runs.
+  if (stage === BEFORE_COMMAND) return -1;
   if (stage === "Connecting" || stage === "Taking a still copy") return 0;
   if (stage === "Looking") return 1;
   if (stage === "Reading" || stage === "Sending") return 3;
@@ -28,7 +31,7 @@ function Running() {
   const { job, home } = useApp();
   if (!job) return null;
   const isBackup = job.kind === "backup" || job.kind === "full";
-  const pct = job.bytesToRead > 0 ? Math.min(100, (100 * job.bytesRead) / job.bytesToRead) : job.stage === "Saving" ? 99 : 0;
+  const pct = progressOf(job);
   const step = stepOf(job.stage);
   const verb =
     job.kind === "restore" ? "Restoring from" : job.kind === "check" ? "Checking" : job.kind === "prune" ? "Tidying up" : "Keeping";
@@ -41,7 +44,13 @@ function Running() {
           <span style={{ color: "var(--accent)" }}>…</span>
         </h1>
         <span className="muted" style={{ fontSize: 14 }}>
-          {job.kind === "full" ? "A full backup: every file is read again." : job.kind === "backup" ? "An incremental backup." : job.stage}
+          {job.stage === BEFORE_COMMAND || job.stage === AFTER_COMMAND
+            ? `${job.stage}. Its output goes in the backup's log.`
+            : job.kind === "full"
+              ? "A full backup: every file is read again."
+              : job.kind === "backup"
+                ? "An incremental backup."
+                : job.stage}
           {` Started ${when(job.startedAt).replace(/^Today /, "")}.`}
           {isBackup && " You can keep working; Keepr reads a still copy of your files."}
         </span>
@@ -121,7 +130,7 @@ function Running() {
           </div>
           {job.current && (
             <div className="mono muted ellipsis" style={{ borderTop: "1px solid var(--line)", paddingTop: 12, fontSize: 11 }}>
-              {job.current.startsWith(home) ? `~${job.current.slice(home.length)}` : job.current}
+              {tilde(job.current, home)}
             </div>
           )}
         </section>
@@ -178,16 +187,28 @@ export default function Activity() {
   const gen = useRef(0);
   const busy = useRef(false);
   const end = useRef<HTMLDivElement>(null);
+  // Why the history couldn't be read, shown in place of it.
+  const [failed, setFailed] = useState("");
   const load = useCallback(
     async (n: number) => {
       const g = ++gen.current;
       busy.current = true;
-      const page = await api.history(n, 0, filter);
-      if (g !== gen.current) return;
-      count.current = page.length;
-      setRuns(page);
-      setMore(page.length === n);
-      busy.current = false;
+      try {
+        const page = await api.history(n, 0, filter);
+        if (g !== gen.current) return;
+        count.current = page.length;
+        setRuns(page);
+        setMore(page.length === n);
+        setFailed("");
+      } catch (e) {
+        if (g !== gen.current) return;
+        // No more pages are asked for until the next refresh tries again.
+        setMore(false);
+        setFailed(String(e));
+      } finally {
+        // Only the newest load holds the list busy, so a stale one ending can't free it early.
+        if (g === gen.current) busy.current = false;
+      }
     },
     [filter],
   );
@@ -198,12 +219,18 @@ export default function Activity() {
     if (s.has(id)) s.delete(id);
     else {
       s.add(id);
-      if (!logs[id]) api.runLog(id).then((l) => setLogs((m) => ({ ...m, [id]: l })));
+      // A log that can't be read says why, rather than Loading… for ever.
+      if (!logs[id])
+        api.runLog(id).then(
+          (l) => setLogs((m) => ({ ...m, [id]: l })),
+          (e) => setLogs((m) => ({ ...m, [id]: [`Couldn't read this run's log: ${e}`] })),
+        );
     }
     setOpen(s);
   };
   // The first page when the filter changes; what's already shown, again, whenever something
-  // changes (a run finishes, or the half-minute refresh).
+  // changes (a run finishes, or the half-minute refresh). That's when the plans are read again,
+  // not on every progress tick of a running job, which rebuilds the overview many times a second.
   const shownFilter = useRef(filter);
   useEffect(() => {
     if (shownFilter.current !== filter) {
@@ -211,7 +238,7 @@ export default function Activity() {
       count.current = 0;
     }
     load(Math.max(PAGE, count.current));
-  }, [ov, filter, load]);
+  }, [ov?.plans, filter, load]);
   useEffect(() => {
     const el = end.current;
     if (!el) return;
@@ -222,7 +249,6 @@ export default function Activity() {
     return () => io.disconnect();
   }, [more, runs, load]);
   const nameOf = (id: string) => ov?.plans.find((p) => p.id === id)?.name ?? "A deleted plan";
-  const shown = runs;
   const kindName: Record<string, string> = {
     backup: "Incremental",
     full: "Full re-read",
@@ -248,7 +274,9 @@ export default function Activity() {
             ]}
           />
         </div>
-        {shown.length === 0 ? (
+        {failed && runs.length === 0 ? (
+          <div className="empty">Couldn't read the history: {failed}</div>
+        ) : runs.length === 0 ? (
           <div className="empty">Nothing here yet.</div>
         ) : (
           <table className="history">
@@ -264,9 +292,8 @@ export default function Activity() {
               </tr>
             </thead>
             <tbody>
-              {shown.map((r) => {
+              {runs.map((r) => {
                 const secs = (new Date(r.finished).getTime() - new Date(r.started).getTime()) / 1000;
-                const tone = r.result === "ok" ? "ok" : r.result === "failed" ? "bad" : r.result === "cancelled" ? "plain" : "warn";
                 const isOpen = open.has(r.id);
                 return (
                   <Fragment key={r.id}>
@@ -304,18 +331,8 @@ export default function Activity() {
                         {r.result === "waiting" ? "—" : secs >= 1 ? duration(secs) : "<1 s"}
                       </td>
                       <td style={{ maxWidth: 420 }}>
-                        <span className={`tag ${tone}`} title={r.message}>
-                          {r.result === "ok"
-                            ? r.kind === "check"
-                              ? "All intact"
-                              : "Complete"
-                            : r.result === "cancelled"
-                              ? "Stopped"
-                              : r.result === "waiting"
-                                ? "Waiting"
-                                : r.result === "warning"
-                                  ? "Done, with problems"
-                                  : "Failed"}
+                        <span className={`tag ${resultTone(r.result)}`} title={r.message}>
+                          {resultLabel(r)}
                         </span>
                         {r.message && (
                           <div className="small muted" style={{ marginTop: 3 }}>
@@ -359,10 +376,12 @@ export default function Activity() {
           </table>
         )}
         <div ref={end} className="small faint" style={{ padding: "12px 20px", textAlign: "center" }}>
-          {shown.length > 0 &&
-            (more
-              ? "Loading more…"
-              : `That's everything: ${shown.length.toLocaleString()} ${filter === "all" ? "runs" : filter === "problems" ? "problems" : "restores"}.`)}
+          {runs.length > 0 &&
+            (failed
+              ? `Couldn't read the history: ${failed}`
+              : more
+                ? "Loading more…"
+                : `That's everything: ${runs.length.toLocaleString()} ${filter === "all" ? "runs" : filter === "problems" ? "problems" : "restores"}.`)}
         </div>
       </section>
     </div>

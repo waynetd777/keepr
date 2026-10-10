@@ -75,6 +75,7 @@ describe("help topics", () => {
     const hits = searchHelp("recovery key");
     expect(hits.length).toBeGreaterThan(0);
     expect(hits.every((h) => /recover/i.test(h.topic.title + h.topic.summary + h.section.title + h.section.body))).toBe(true);
+    expect(searchHelp("B2").length).toBeGreaterThan(0);
     expect(searchHelp("zzqx")).toEqual([]);
     expect(searchHelp("  ")).toEqual([]);
   });

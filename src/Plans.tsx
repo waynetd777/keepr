@@ -7,12 +7,12 @@
 // plan is saved with Create.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { api, type Every, type Often, type Place, type Plan, type Retention } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
 import { S3SourceSheet } from "./S3Source";
-import { DestIcon, PlanProgress, SAVED_PASSWORD, Seg, Sheet, Switch, useAct, useMenu, useSavedLogin, useToast } from "./ui";
+import { DestIcon, PlanProgress, Seg, Sheet, Switch, useAct, useMenu, useToast } from "./ui";
+import { SmbFields, useSmbForm } from "./SmbFields";
 import { ago, bytes, next, tilde } from "./format";
 
 const DEFAULT_RETENTION: Retention = { allHours: 24, dailyDays: 30, weeklyWeeks: 52, monthlyMonths: 0, keepDeletedDays: 90 };
@@ -138,9 +138,11 @@ function KeepBox({
 export function RecoverySheet({ plan, name, onClose }: { plan: string; name: string; onClose: () => void }) {
   const [key, setKey] = useState<string | null>(null);
   const toast = useToast();
+  const act = useAct();
   useEffect(() => {
-    api.recoveryKey(plan).then(setKey);
-  }, [plan]);
+    // A key that can't be read says why, as a toast; the sheet then reads as before the first backup.
+    act(() => api.recoveryKey(plan)).then((k) => setKey(k ?? null));
+  }, [plan, act]);
   return (
     <Sheet
       title={`${name}: recovery key`}
@@ -162,7 +164,8 @@ export function RecoverySheet({ plan, name, onClose }: { plan: string; name: str
           <button
             className="btn primary"
             onClick={async () => {
-              await api.recoverySaved(plan);
+              // Left open if it can't be noted, so the banner asking for it isn't silently wrong.
+              if ((await act(() => api.recoverySaved(plan).then(() => true))) === undefined) return;
               onClose();
             }}
           >
@@ -256,31 +259,11 @@ function PasswordSheet({ plan, onClose }: { plan: Plan; onClose: () => void }) {
 }
 
 export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; onClose: () => void }) {
-  const [servers, setServers] = useState<string[]>([]);
-  const [server, setServer] = useState("");
-  const [user, setUser] = useState("");
-  const [password, setPassword] = useState("");
-  const [share, setShare] = useState("");
-  const [shares, setShares] = useState<string[]>([]);
-  const [folder, setFolder] = useState("/");
+  const act = useAct();
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    api.discoverServers().then(setServers);
-  }, []);
-  const savedFrom = useSavedLogin(
-    server,
-    user,
-    setUser,
-    setPassword,
-    (s) => {
-      setShares(s);
-      if (!share && s[0]) setShare(s[0]);
-    },
-    setMsg,
-  );
-  const pw = password === SAVED_PASSWORD ? undefined : password;
-  const place: Place = { kind: "smb", server: server.trim(), share: share.trim(), folder: folder.trim(), user: user.trim() };
+  const f = useSmbForm({ onMessage: setMsg });
+  const place: Place = { kind: "smb", ...f.smb };
   return (
     <Sheet
       title="Back up a folder on a share"
@@ -295,14 +278,16 @@ export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; 
           </button>
           <button
             className="btn primary"
-            disabled={!server || !share || busy}
+            disabled={!f.server || !f.share || busy}
             onClick={async () => {
               setBusy(true);
               setMsg("Connecting…");
-              const t = await api.testPlace(place, pw).catch((e) => ({ ok: false, message: String(e) }));
+              const t = await api.testPlace(place, f.pw).catch((e) => ({ ok: false, message: String(e) }));
               setBusy(false);
               if (!t.ok) return setMsg(t.message);
-              if (pw) await invoke("save_smb_password", { server: place.server, user: place.user, password: pw });
+              setMsg("");
+              // Without the password saved, the backup couldn't connect later: not added, and the toast says why.
+              if (f.pw && (await act(() => api.saveSmbPassword(place.server, place.user, f.pw!).then(() => true))) === undefined) return;
               onAdd(place);
               onClose();
             }}
@@ -313,75 +298,7 @@ export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; 
       }
     >
       <div className="sheet-body">
-        {servers.length > 0 && (
-          <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
-            {servers.map((s) => (
-              <button key={s} className={`btn small${server === s ? " primary" : ""}`} onClick={() => setServer(s)}>
-                {s.replace(/\.local$/, "")}
-              </button>
-            ))}
-          </div>
-        )}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px 14px" }}>
-          <label className="field" style={{ gridColumn: "span 2" }}>
-            <span>Server</span>
-            <input className="input mono" placeholder="keep-nas.local" value={server} onChange={(e) => setServer(e.target.value)} />
-          </label>
-          <label className="field">
-            <span>User name</span>
-            <input className="input" value={user} onChange={(e) => setUser(e.target.value)} />
-          </label>
-          <label className="field">
-            <span>Password</span>
-            <input
-              className="input"
-              type="password"
-              value={password}
-              onFocus={() => password === SAVED_PASSWORD && setPassword("")}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            {savedFrom && password === SAVED_PASSWORD && (
-              <span className="tiny faint">Saved {savedFrom === "finder" ? "by Finder" : "by Keepr"} in your Keychain</span>
-            )}
-          </label>
-          <label className="field">
-            <span>Share</span>
-            <div className="row" style={{ gap: 6 }}>
-              <input className="input grow" value={share} onChange={(e) => setShare(e.target.value)} />
-              <button
-                className="btn"
-                disabled={!server}
-                onClick={async () => {
-                  setMsg("Asking for its shares…");
-                  try {
-                    const s = await api.listShares(server, user, pw);
-                    setShares(s);
-                    if (!share && s[0]) setShare(s[0]);
-                    setMsg("");
-                  } catch (e) {
-                    setMsg(String(e));
-                  }
-                }}
-              >
-                List
-              </button>
-            </div>
-          </label>
-          {shares.length > 0 && (
-            <div className="row" style={{ gridColumn: "span 2", flexWrap: "wrap", gap: 6 }}>
-              <span className="small muted">Shares on {server}:</span>
-              {shares.map((s) => (
-                <button key={s} className={`btn small${share === s ? " primary" : ""}`} onClick={() => setShare(s)}>
-                  {s}
-                </button>
-              ))}
-            </div>
-          )}
-          <label className="field">
-            <span>Folder in the share</span>
-            <input className="input mono" placeholder="/ for all of it" value={folder} onChange={(e) => setFolder(e.target.value)} />
-          </label>
-        </div>
+        <SmbFields f={f} busy={busy} />
       </div>
     </Sheet>
   );
@@ -617,9 +534,9 @@ export default function Plans() {
               <Icon name="more" />
             </button>
             <moreMenu.Menu>
-              <button onClick={() => api.backUp(plan.id, true)}>Back up everything now (full)</button>
-              <button onClick={() => api.checkNow(plan.id, false)}>Check a sample of the backup now</button>
-              <button onClick={() => api.checkNow(plan.id, true)}>Check all of the backup now</button>
+              <button onClick={() => act(() => api.backUp(plan.id, true))}>Back up everything now (full)</button>
+              <button onClick={() => act(() => api.checkNow(plan.id, false))}>Check a sample of the backup now</button>
+              <button onClick={() => act(() => api.checkNow(plan.id, true))}>Check all of the backup now</button>
               <hr />
               <button
                 onClick={async () => {
@@ -655,7 +572,7 @@ export default function Plans() {
               </button>
             </moreMenu.Menu>
             {ov?.job?.plan === plan.id || ov?.queued.some((q) => q.plan === plan.id) ? null : (
-              <button className="btn primary" onClick={() => api.backUp(plan.id)}>
+              <button className="btn primary" onClick={() => act(() => api.backUp(plan.id))}>
                 <Icon name="up" size={14} stroke={2.2} />
                 Back up now
               </button>
@@ -1212,7 +1129,7 @@ export default function Plans() {
             const src = plan.sources[i];
             setRemoving(null);
             update((p) => ({ ...p, sources: p.sources.filter((_, j) => j !== i) }));
-            await act(() => api.removeSourceData(plan.id, src));
+            if ((await act(() => api.removeSourceData(plan.id, src))) === undefined) return;
             toast("Removing its backed-up data. Activity shows how it's going.");
           }}
         />

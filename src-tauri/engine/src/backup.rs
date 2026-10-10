@@ -103,8 +103,9 @@ impl RDir {
     fn from(objects: Vec<RemoteObject>) -> RDir {
         let mut top = RDir::default();
         for o in objects {
-            // "folder/" objects are only markers; empty names ("a//b") aren't folders anyone made.
-            let parts: Vec<String> = o.key.split('/').filter(|p| !p.is_empty()).map(str::to_string).collect();
+            // "folder/" objects are only markers; empty names ("a//b") aren't folders anyone made,
+            // and "." and ".." aren't names at all: kept, they would lead a restore out of its folder.
+            let parts: Vec<String> = o.key.split('/').filter(|p| !p.is_empty() && *p != "." && *p != "..").map(str::to_string).collect();
             if o.key.ends_with('/') || parts.is_empty() {
                 continue;
             }
@@ -291,14 +292,23 @@ impl<'a> Rules<'a> {
 
     /// Whether a backup leaves out the item at `path`, whose metadata is `m`.
     pub fn skips(&self, path: &Path, m: &fs::Metadata) -> bool {
-        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        self.skips_at(path, path, m)
+    }
+
+    /// As `skips`, for an item the backup knows as `logical` but reads at `physical` (they differ
+    /// when a source is read through a snapshot's mount). The backup itself asks this, so what
+    /// the restore screen marks as not backed up can't drift from what a backup leaves out.
+    fn skips_at(&self, logical: &Path, physical: &Path, m: &fs::Metadata) -> bool {
+        let name = logical.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         let ft = m.file_type();
         let is_dir = ft.is_dir();
+        // Sockets, pipes and devices aren't files anyone restores.
         !(is_dir || ft.is_file() || ft.is_symlink())
-            || self.opts.skip_paths.iter().any(|s| path.starts_with(s))
-            || self.ex.excluded(path, &name, is_dir)
-            || (self.opts.gitignore && gitignored(&self.ignores, path, is_dir))
-            || (self.opts.skip_marked && marked(path))
+            || self.opts.skip_paths.iter().any(|s| logical.starts_with(s))
+            || self.ex.excluded(logical, &name, is_dir)
+            // .gitignore files and apps' marks are read where the item really is.
+            || (self.opts.gitignore && gitignored(&self.ignores, physical, is_dir))
+            || (self.opts.skip_marked && marked(physical))
             || (ft.is_file() && skips_file(self.opts, m))
     }
 }
@@ -332,10 +342,10 @@ struct Walk<'a> {
     repo: &'a Repo,
     opts: &'a Options,
     ctl: &'a Control,
-    ex: Excluder,
+    /// What to leave out; its .gitignore files are those of the folders being walked.
+    rules: Rules<'a>,
     jobs: Vec<Job>,
     stats: Stats,
-    ignores: Vec<ignore::gitignore::Gitignore>,
     /// (read from, shown as): a source read through a snapshot's mount.
     map: Option<(PathBuf, PathBuf)>,
 }
@@ -384,8 +394,21 @@ impl Walk<'_> {
         }
     }
 
-    fn gitignored(&self, path: &Path, is_dir: bool) -> bool {
-        gitignored(&self.ignores, path, is_dir)
+    /// The previous snapshot's version of an item that can't be looked at now, kept and counted.
+    fn fallback(&mut self, prev: &Node) -> Entry {
+        match prev.kind {
+            NodeKind::Dir => {
+                self.stats.dirs += 1;
+                self.stats.files += prev.files;
+                self.stats.bytes += prev.size;
+            }
+            NodeKind::File => {
+                self.stats.files += 1;
+                self.stats.bytes += prev.size;
+            }
+            NodeKind::Symlink => {}
+        }
+        Entry::Kept(prev.clone())
     }
 
     fn file(&mut self, name: String, path: &Path, m: &fs::Metadata, prev: Option<&Node>) -> Option<Entry> {
@@ -446,7 +469,7 @@ impl Walk<'_> {
                 self.note(format!("{}: a folder has the same name, so this file is left out", p.display()));
                 continue;
             }
-            if self.ex.excluded(&p, &n, false) || self.opts.max_file_size.is_some_and(|max| o.size > max) {
+            if self.rules.ex.excluded(&p, &n, false) || self.opts.max_file_size.is_some_and(|max| o.size > max) {
                 continue;
             }
             self.ctl.progress.files_seen.fetch_add(1, Relaxed);
@@ -470,7 +493,7 @@ impl Walk<'_> {
         }
         for (n, sub) in dirs {
             let p = shown.join(&n);
-            if self.ex.excluded(&p, &n, true) {
+            if self.rules.ex.excluded(&p, &n, true) {
                 continue;
             }
             self.ctl.progress.files_seen.fetch_add(1, Relaxed);
@@ -503,16 +526,41 @@ impl Walk<'_> {
         }
     }
 
-    fn dir(&mut self, name: String, path: &Path, m: &fs::Metadata, prev: Option<Arc<Tree>>) -> Result<ScanDir> {
+    /// A folder, looked through; `prev` is its node in the previous snapshot.
+    fn dir(&mut self, name: String, path: &Path, m: &fs::Metadata, prev: Option<&Node>) -> Result<Entry> {
         self.ctl.checkpoint()?;
+        // A listing that fails, at the start or part-way, counts as unreadable.
+        let listing = fs::read_dir(path).and_then(|rd| {
+            rd.map(|e| e.map(|e| (e.file_name().to_string_lossy().to_string(), e.path()))).collect::<std::io::Result<Vec<_>>>()
+        });
+        let mut names: Vec<(String, PathBuf)> = match listing {
+            Ok(n) => n,
+            Err(e) => {
+                // Saved empty, the folder would look as if all in it had been deleted, and a backup
+                // going by macOS's change record would keep that empty version from then on. So
+                // its last good version is kept, as for a file that can't be read.
+                let lp = self.logical(path);
+                match prev.filter(|p| p.kind == NodeKind::Dir) {
+                    Some(p) => {
+                        self.note(format!("{}: {e}; the previous version is kept", lp.display()));
+                        return Ok(self.fallback(p));
+                    }
+                    None => {
+                        self.note(format!("{}: {e}", lp.display()));
+                        vec![]
+                    }
+                }
+            }
+        };
         self.stats.dirs += 1;
         let node = node_from(name, NodeKind::Dir, m);
+        let prev = prev.and_then(|n| n.subtree).and_then(|id| self.repo.load_tree(&id).ok());
         let pushed = if self.opts.gitignore && path.join(".gitignore").is_file() {
             let mut b = ignore::gitignore::GitignoreBuilder::new(path);
             b.add(path.join(".gitignore"));
             match b.build() {
                 Ok(g) => {
-                    self.ignores.push(g);
+                    self.rules.ignores.push(g);
                     true
                 }
                 Err(_) => false,
@@ -520,47 +568,36 @@ impl Walk<'_> {
         } else {
             false
         };
-        let mut names: Vec<(String, PathBuf)> = match fs::read_dir(path) {
-            Ok(rd) => rd.filter_map(|e| e.ok()).map(|e| (e.file_name().to_string_lossy().to_string(), e.path())).collect(),
-            Err(e) => {
-                self.note(format!("{}: {e}", self.logical(path).display()));
-                vec![]
-            }
-        };
         names.sort();
         let mut entries = Vec::with_capacity(names.len());
         for (name, p) in names {
             let lp = self.logical(&p);
-            if self.opts.skip_paths.iter().any(|s| lp.starts_with(s)) {
-                continue;
-            }
+            let prev_node = prev.as_ref().and_then(|t| t.get(&name)).cloned();
             let m = match fs::symlink_metadata(&p) {
                 Ok(m) => m,
                 Err(e) => {
-                    self.note(format!("{}: {e}", lp.display()));
+                    // Not to be looked at now: its last good version, if there is one.
+                    let kept = if prev_node.is_some() { "; the previous version is kept" } else { "" };
+                    self.note(format!("{}: {e}{kept}", lp.display()));
+                    if let Some(pn) = &prev_node {
+                        let e = self.fallback(pn);
+                        entries.push(e);
+                    }
                     continue;
                 }
             };
-            let ft = m.file_type();
-            let is_dir = ft.is_dir();
-            if self.ex.excluded(&lp, &name, is_dir)
-                || (self.opts.gitignore && self.gitignored(&p, is_dir))
-                || (self.opts.skip_marked && marked(&p))
-            {
+            if self.rules.skips_at(&lp, &p, &m) {
                 continue;
             }
+            let ft = m.file_type();
             self.ctl.progress.files_seen.fetch_add(1, Relaxed);
-            let prev_node = prev.as_ref().and_then(|t| t.get(&name)).cloned();
-            if is_dir {
+            if ft.is_dir() {
                 if let Some(kept) = self.keep(&lp, prev_node.as_ref()) {
                     entries.push(kept);
                     continue;
                 }
-                let prev_tree = match prev_node.as_ref().and_then(|n| n.subtree) {
-                    Some(id) => self.repo.load_tree(&id).ok(),
-                    None => None,
-                };
-                entries.push(Entry::Dir(self.dir(name, &p, &m, prev_tree)?));
+                let e = self.dir(name, &p, &m, prev_node.as_ref())?;
+                entries.push(e);
             } else if ft.is_file() {
                 if let Some(e) = self.file(name, &p, &m, prev_node.as_ref()) {
                     entries.push(e);
@@ -570,13 +607,12 @@ impl Walk<'_> {
                 n.target = fs::read_link(&p).ok().map(|t| t.to_string_lossy().to_string());
                 entries.push(Entry::Link(n));
             }
-            // Sockets, pipes and devices aren't files anyone restores.
         }
         if pushed {
-            self.ignores.pop();
+            self.rules.ignores.pop();
         }
         self.count_removed(&entries, &prev);
-        Ok(ScanDir { node, entries })
+        Ok(Entry::Dir(ScanDir { node, entries }))
     }
 }
 
@@ -615,8 +651,8 @@ pub fn run(repo: &Arc<Repo>, opts: &Options, parent: Option<&Snapshot>, ctl: &Co
         Some(p) => Some(repo.load_tree(&p.tree)?),
         None => None,
     };
-    let mut w =
-        Walk { repo, opts, ctl, ex: Excluder::new(&opts.excludes)?, jobs: vec![], stats: Stats::default(), ignores: vec![], map: None };
+    let rules = Rules { opts, ex: Excluder::new(&opts.excludes)?, ignores: vec![] };
+    let mut w = Walk { repo, opts, ctl, rules, jobs: vec![], stats: Stats::default(), map: None };
     let mut roots = Vec::new();
     for (i, src) in opts.sources.iter().enumerate() {
         let key = src.to_string_lossy().to_string();
@@ -643,11 +679,7 @@ pub fn run(repo: &Arc<Repo>, opts: &Options, parent: Option<&Snapshot>, ctl: &Co
                 roots.push(Entry::Kept(n));
                 continue;
             }
-            let prev_tree = match prev.and_then(|n| n.subtree) {
-                Some(id) => Some(repo.load_tree(&id)?),
-                None => None,
-            };
-            roots.push(Entry::Dir(w.dir(key, &read, &m, prev_tree)?));
+            roots.push(w.dir(key, &read, &m, prev.as_ref())?);
         } else if let Some(e) = w.file(key, &read, &m, prev.as_ref()) {
             roots.push(e);
         }
@@ -802,6 +834,35 @@ pub(crate) mod tests {
             let d = self.0.lock().unwrap().get(key).map(|x| x.0.clone()).ok_or(std::io::ErrorKind::NotFound)?;
             Ok(Box::new(std::io::Cursor::new(d)))
         }
+    }
+
+    #[test]
+    fn bucket_keys_cant_climb_out() {
+        let o = |k: &str| RemoteObject { key: k.into(), size: 1, mtime: 1, tag: "t".into() };
+        let d = RDir::from(vec![o("../evil"), o("a/./../b"), o(".."), o("ok.txt")]);
+        assert_eq!(d.files.keys().collect::<Vec<_>>(), ["evil", "ok.txt"]);
+        assert_eq!(d.dirs.keys().collect::<Vec<_>>(), ["a"]);
+        assert_eq!(d.dirs["a"].files.keys().collect::<Vec<_>>(), ["b"]);
+    }
+
+    #[test]
+    fn an_unreadable_folder_keeps_its_previous_version() {
+        let (src, _dst, repo) = setup(None);
+        write(&src.path().join("locked/a.txt"), b"alpha");
+        write(&src.path().join("b.txt"), b"beta");
+        let s1 = run(&repo, &opts(src.path()), None, &Control::default()).unwrap();
+        let locked = src.path().join("locked");
+        fs::set_permissions(&locked, std::os::unix::fs::PermissionsExt::from_mode(0o000)).unwrap();
+        let s2 = run(&repo, &opts(src.path()), Some(&s1), &Control::default());
+        fs::set_permissions(&locked, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        let s2 = s2.unwrap();
+        if fs::read_dir(&locked).is_ok() && s2.stats.error_count == 0 {
+            return; // running as root: nothing is unreadable
+        }
+        assert_eq!(s2.stats.error_count, 1, "{:?}", s2.stats.errors);
+        assert_eq!((s2.stats.files, s2.stats.removed_files), (2, 0));
+        let a = format!("{}/locked/a.txt", src.path().display());
+        assert!(crate::browse::node_at(&repo, &s2, &a).unwrap().is_some());
     }
 
     #[test]

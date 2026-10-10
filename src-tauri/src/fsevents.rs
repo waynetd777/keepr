@@ -51,9 +51,13 @@ extern "C" {
 
 extern "C" {
     fn dispatch_queue_create(label: *const std::ffi::c_char, attr: *mut c_void) -> *mut c_void;
+    fn dispatch_release(object: *mut c_void);
 }
 
 const NO_DEFER: u32 = 0x02;
+/// Without it macOS never sends ROOT_CHANGED, so a source folder moved or renamed since the last
+/// backup would leave its old record looking trustworthy.
+const WATCH_ROOT: u32 = 0x04;
 const MUST_SCAN_SUBDIRS: u32 = 0x01;
 const USER_DROPPED: u32 = 0x02;
 const KERNEL_DROPPED: u32 = 0x04;
@@ -123,8 +127,15 @@ pub fn since(roots: &[PathBuf], since: u64) -> Option<keepr_engine::backup::Chan
     };
     let arr = CFArray::from_CFTypes(&roots.iter().map(|r| CFString::new(&r.to_string_lossy())).collect::<Vec<_>>());
     let result = unsafe {
-        let stream =
-            FSEventStreamCreate(std::ptr::null(), callback, &ctx, arr.as_concrete_TypeRef() as *const c_void, since, 0.0, NO_DEFER);
+        let stream = FSEventStreamCreate(
+            std::ptr::null(),
+            callback,
+            &ctx,
+            arr.as_concrete_TypeRef() as *const c_void,
+            since,
+            0.0,
+            NO_DEFER | WATCH_ROOT,
+        );
         if stream.is_null() {
             return None;
         }
@@ -133,6 +144,7 @@ pub fn since(roots: &[PathBuf], since: u64) -> Option<keepr_engine::backup::Chan
         if !FSEventStreamStart(stream) {
             FSEventStreamInvalidate(stream);
             FSEventStreamRelease(stream);
+            dispatch_release(q);
             return None;
         }
         let guard = shared.c.lock().unwrap();
@@ -143,6 +155,9 @@ pub fn since(roots: &[PathBuf], since: u64) -> Option<keepr_engine::backup::Chan
         FSEventStreamStop(stream);
         FSEventStreamInvalidate(stream);
         FSEventStreamRelease(stream);
+        // The stream held its own reference to the queue and has let it go; this is ours, made
+        // for this one replay.
+        dispatch_release(q);
         out
     };
     let (paths, rescan) = result?;

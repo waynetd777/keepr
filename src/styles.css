@@ -337,31 +337,6 @@ p {
   font-weight: 400;
   color: var(--ink3);
 }
-.side-section {
-  margin: 26px 10px 8px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.side-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 30px;
-  padding: 4px 10px;
-  border-radius: 8px;
-  border: 0;
-  background: transparent;
-  width: 100%;
-  text-align: left;
-}
-.side-item:hover {
-  background: color-mix(in srgb, var(--ink) 6%, transparent);
-}
-.side-item.on {
-  background: var(--surface);
-  font-weight: 600;
-}
 .dot {
   width: 8px;
   height: 8px;
@@ -388,15 +363,6 @@ p {
   to {
     transform: rotate(360deg);
   }
-}
-.side-card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
 }
 .meter {
   height: 6px;

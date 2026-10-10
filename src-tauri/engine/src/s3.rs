@@ -220,6 +220,36 @@ impl S3 {
         }
     }
 
+    /// A GET and its body, tried again whole: a connection that drops part-way through the body
+    /// fails after the headers have come, which `send` alone doesn't try again. `range` is
+    /// (offset, length).
+    fn get(&self, path: &str, key: &str, range: Option<(u64, u64)>) -> io::Result<Vec<u8>> {
+        let mut last = None;
+        for attempt in 0..TRIES {
+            if attempt > 0 {
+                std::thread::sleep(Duration::from_millis(500 << attempt));
+            }
+            let r = match self.send_once("GET", key, &[], &[], range) {
+                Ok(r) => r,
+                Err(e) if e.retry() => {
+                    last = Some(e.into_io(&self.cfg));
+                    continue;
+                }
+                Err(e) => return Err(e.into_io(&self.cfg)),
+            };
+            let want: Option<u64> = match range {
+                Some((_, len)) => Some(len),
+                None => r.header("content-length").and_then(|l| l.parse().ok()),
+            };
+            match S3::body(r, range.map_or(u64::MAX, |(_, len)| len)) {
+                Ok(out) if want.is_none_or(|w| w == out.len() as u64) => return Ok(out),
+                Ok(_) => last = Some(io::Error::new(io::ErrorKind::UnexpectedEof, format!("{path} came back short"))),
+                Err(e) => last = Some(e),
+            }
+        }
+        Err(last.unwrap())
+    }
+
     fn body(r: ureq::Response, limit: u64) -> io::Result<Vec<u8>> {
         let mut out = Vec::with_capacity(r.header("content-length").and_then(|l| l.parse().ok()).unwrap_or(0).min(limit as usize));
         r.into_reader().take(limit).read_to_end(&mut out)?;
@@ -230,13 +260,7 @@ impl S3 {
 impl Backend for S3 {
     fn read(&self, path: &str) -> io::Result<Vec<u8>> {
         let key = self.key(path)?;
-        let r = self.send("GET", &key, &[], &[], None).map_err(|e| e.into_io(&self.cfg))?;
-        let want: Option<usize> = r.header("content-length").and_then(|l| l.parse().ok());
-        let out = S3::body(r, u64::MAX)?;
-        if want.is_some_and(|w| w != out.len()) {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, format!("{path} came back short")));
-        }
-        Ok(out)
+        self.get(path, &key, None)
     }
 
     fn read_at(&self, path: &str, offset: u64, len: u64) -> io::Result<Vec<u8>> {
@@ -244,12 +268,7 @@ impl Backend for S3 {
             return Ok(vec![]);
         }
         let key = self.key(path)?;
-        let r = self.send("GET", &key, &[], &[], Some((offset, len))).map_err(|e| e.into_io(&self.cfg))?;
-        let out = S3::body(r, len)?;
-        if out.len() as u64 != len {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, format!("{path} came back short")));
-        }
-        Ok(out)
+        self.get(path, &key, Some((offset, len)))
     }
 
     fn write(&self, path: &str, data: &[u8]) -> io::Result<()> {

@@ -5,13 +5,15 @@
 // Overview: are my files kept? A headline, what needs attention, each plan with its last 30
 // days, and the space the backups take.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type PlanSummary, type Run } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
 import { ago, bytes, count, longDate, next, when } from "./format";
 import { RecoverySheet } from "./Plans";
-import { DestIcon, PlanProgress, StopButton } from "./ui";
+import { DestIcon, PlanProgress, StopButton, useAct } from "./ui";
+import { Connection, SpaceMeter } from "./DestStatus";
+import { resultLabel, resultTone, TONE_COLOR } from "./runResult";
 
 /** What a day's bar means, for its tooltip: "Thursday 24 September: 12 backups, 88 MB stored". */
 function dayTip(d: PlanSummary["days"][number], daysAgo: number): string {
@@ -54,6 +56,7 @@ const TILE: Record<string, string> = { folder: "folder", photos: "image", notes:
 
 function PlanCard({ p }: { p: PlanSummary }) {
   const { go, ov } = useApp();
+  const act = useAct();
   const running = ov?.job?.plan === p.id;
   const waiting = ov?.queued.find((q) => q.plan === p.id);
   if (p.status === "waiting" || p.status === "stale" || p.status === "failed") {
@@ -82,7 +85,7 @@ function PlanCard({ p }: { p: PlanSummary }) {
         >
           Edit…
         </button>
-        <button className="btn" onClick={() => api.backUp(p.id)}>
+        <button className="btn" onClick={() => act(() => api.backUp(p.id))}>
           Try again
         </button>
         <button className="btn" onClick={() => go({ name: "restore", plan: p.id })}>
@@ -136,7 +139,7 @@ function PlanCard({ p }: { p: PlanSummary }) {
             style={{ width: 30, padding: 0 }}
             aria-label={`Cancel ${p.name}'s waiting backup`}
             title="Cancel"
-            onClick={() => api.cancel(waiting.id)}
+            onClick={() => act(() => api.cancel(waiting.id))}
           >
             <Icon name="stop" size={12} />
           </button>
@@ -146,7 +149,7 @@ function PlanCard({ p }: { p: PlanSummary }) {
             style={{ width: 30, padding: 0 }}
             aria-label={`Back up ${p.name} now`}
             title="Back up now"
-            onClick={() => api.backUp(p.id)}
+            onClick={() => act(() => api.backUp(p.id))}
           >
             <Icon name="play" size={14} />
           </button>
@@ -303,18 +306,28 @@ export default function Overview() {
   const [recovery, setRecovery] = useState<PlanSummary | null>(null);
   // As many recent runs as fit in the space left under Destinations: the list takes no height of
   // its own (flex-basis 0), so the card is as tall as the column allows, and rows are counted in.
-  const listRef = useRef<HTMLDivElement>(null);
+  // Watched from when the list appears, since it isn't there while the Welcome page shows.
   const [fits, setFits] = useState(5);
-  useEffect(() => {
-    const el = listRef.current;
+  const watch = useRef<ResizeObserver | null>(null);
+  const listRef = useCallback((el: HTMLDivElement | null) => {
+    watch.current?.disconnect();
+    watch.current = null;
     if (!el) return;
-    const ro = new ResizeObserver(() => setFits(Math.max(3, Math.floor((el.clientHeight + ROW_GAP) / (ROW_HEIGHT + ROW_GAP)))));
-    ro.observe(el);
-    return () => ro.disconnect();
-  });
+    watch.current = new ResizeObserver(() => setFits(Math.max(3, Math.floor((el.clientHeight + ROW_GAP) / (ROW_HEIGHT + ROW_GAP)))));
+    watch.current.observe(el);
+  }, []);
+  // Read again when the plans are (a run finished, or the half-minute refresh), not on every
+  // progress tick of a running job, which rebuilds the overview many times a second.
   useEffect(() => {
-    api.history(Math.min(fits, 100)).then(setRecent);
-  }, [ov, fits]);
+    let live = true;
+    api.history(Math.min(fits, 100)).then(
+      (r) => live && setRecent(r),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [ov?.plans, fits]);
   const reorder = useReorder(ov?.plans.map((p) => p.id) ?? [], async (ids) => {
     await api.reorderPlans(ids);
     await refresh();
@@ -469,15 +482,9 @@ export default function Overview() {
               <div className="grow col" style={{ gap: 5 }}>
                 <div className="row" style={{ justifyContent: "space-between" }}>
                   <span style={{ fontWeight: 600 }}>{d.name}</span>
-                  <span className="small" style={{ color: d.connection === "missing" ? "var(--amber)" : "var(--ink2)" }}>
-                    {d.connection === "missing" ? "Not connected" : d.connection === "on demand" ? "connects when needed" : "connected"}
-                  </span>
+                  <Connection d={d} lower />
                 </div>
-                {d.total != null && (
-                  <div className="meter" style={{ height: 5 }}>
-                    <div style={{ width: `${Math.round((1 - (d.free ?? 0) / d.total) * 100)}%` }} />
-                  </div>
-                )}
+                <SpaceMeter d={d} height={5} />
                 <span className="small faint">
                   {bytes(d.keeprBytes)} from Keepr{d.free != null ? ` · ${bytes(d.free)} free` : ""}
                 </span>
@@ -503,28 +510,7 @@ export default function Overview() {
                 <span className="grow ellipsis" title={r.message}>
                   {nameOf(r.plan)} · {r.message}
                 </span>
-                <span
-                  style={{
-                    color:
-                      r.result === "ok"
-                        ? "var(--accent-text)"
-                        : r.result === "failed"
-                          ? "var(--red)"
-                          : r.result === "cancelled"
-                            ? "var(--ink3)"
-                            : "var(--amber)",
-                  }}
-                >
-                  {r.result === "ok"
-                    ? "✓"
-                    : r.result === "failed"
-                      ? "Failed"
-                      : r.result === "cancelled"
-                        ? "Stopped"
-                        : r.result === "waiting"
-                          ? "Waiting"
-                          : "!"}
-                </span>
+                <span style={{ color: TONE_COLOR[resultTone(r.result)] }}>{resultLabel(r, true)}</span>
               </div>
             ))}
           </div>

@@ -102,8 +102,11 @@ export function secondsLeft(secs: number | null): string {
   return `about ${duration(secs)} left`;
 }
 
+/** A path inside the home folder written from ~. Only a whole folder name matches, so with home
+ *  /Users/wayne, /Users/wayned stays as it is. */
 export function tilde(path: string, home: string): string {
-  return home && path.startsWith(home) ? `~${path.slice(home.length)}` : path;
+  if (!home) return path;
+  return path === home || path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
 }
 
 export function dayLabel(iso: string): { short: string; today: boolean } {

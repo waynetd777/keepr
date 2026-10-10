@@ -5,26 +5,18 @@
 // Destinations: where backups are kept, and the sheet for adding one (a folder or drive, or an
 // SMB share, a cloud service's folder on this Mac, or an S3 bucket).
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type AwsMade, type Destination, type Place, type Tested } from "./api";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { B2Setup } from "./B2Setup";
 import { R2Setup } from "./R2Setup";
 import { useApp } from "./context";
 import { Icon } from "./icons";
-import { DestIcon, SAVED_PASSWORD, Seg, Sheet, useAct, useSavedLogin } from "./ui";
+import { DestIcon, Seg, Sheet, useAct } from "./ui";
+import { Connection, SpaceMeter } from "./DestStatus";
+import { SmbFields, useSmbForm } from "./SmbFields";
 import { bytes, tilde } from "./format";
-
-export type Service = "aws" | "b2" | "r2" | "other";
-
-/** The S3 service an endpoint belongs to, and what the form needs to rebuild it. */
-export function serviceOf(endpoint: string): { service: Service; r2Account: string } {
-  const host = endpoint.replace(/^[a-z]+:\/\//, "").split(/[/:]/)[0];
-  if (!endpoint || host.endsWith(".amazonaws.com")) return { service: "aws", r2Account: "" };
-  if (host.endsWith(".backblazeb2.com")) return { service: "b2", r2Account: "" };
-  if (host.endsWith(".r2.cloudflarestorage.com")) return { service: "r2", r2Account: host.split(".")[0] };
-  return { service: "other", r2Account: "" };
-}
+import { s3EndpointFor, serviceOf, type Service } from "./KeySetup";
 
 type Cloud = Awaited<ReturnType<typeof api.cloudFolders>>[number];
 
@@ -133,14 +125,6 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   const [clouds, setClouds] = useState<Cloud[]>([]);
   const [cloud, setCloud] = useState<Cloud | null>(null);
   const [inCloud, setInCloud] = useState("Keepr");
-  const [servers, setServers] = useState<string[]>([]);
-  const smb = editing?.place.kind === "smb" ? editing.place : null;
-  const [server, setServer] = useState(smb?.server ?? "");
-  const [share, setShare] = useState(smb?.share ?? "");
-  const [shares, setShares] = useState<string[]>([]);
-  const [user, setUser] = useState(smb?.user ?? "");
-  const [password, setPassword] = useState("");
-  const [folder, setFolder] = useState(smb?.folder ?? "/");
   const [path, setPath] = useState(editing?.place.kind === "folder" ? editing.place.path : "");
   const [keychain, setKeychain] = useState(true);
   const s3 = editing?.place.kind === "s3" ? editing.place : null;
@@ -156,21 +140,21 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
   // The name: suggested from the place until someone types one.
   const [name, setName] = useState(editing?.name ?? "");
   const [named, setNamed] = useState(!!editing);
-  const [tested, setTested] = useState<Tested | null>(null);
+  // Also kept where a suggestion that comes back late can see it, so it never replaces a name
+  // typed while it was on its way.
+  const namedNow = useRef(!!editing);
+  // A test's result, with the place it tested: it stands only while the fields still say that.
+  const [tested, setTested] = useState<(Tested & { of: string }) | null>(null);
   const [busy, setBusy] = useState("");
-  const savedFrom = useSavedLogin(
-    server,
-    user,
-    setUser,
-    setPassword,
-    (s) => {
-      setShares(s);
-      if (!share && s.length) setShare(s.includes("Backups") ? "Backups" : s[0]);
-    },
-    setBusy,
-  );
-  // The saved password is used where the field still shows it.
-  const pw = kind === "s3" ? secret || undefined : password === SAVED_PASSWORD ? undefined : password;
+  const smbForm = useSmbForm({
+    initial: editing?.place.kind === "smb" ? editing.place : null,
+    pickServer: true,
+    preferShare: "Backups",
+    onMessage: setBusy,
+    onError: (message) => setTested({ ok: false, message, free: null, total: null, mbps: null, of: testedOf }),
+  });
+  const { server, share, folder } = smbForm;
+  const pw = kind === "s3" ? secret || undefined : smbForm.pw;
 
   useEffect(() => {
     api.cloudFolders().then((c) => {
@@ -184,44 +168,11 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
         setInCloud(p.slice(at.root.length).replace(/^\/+/, ""));
       }
     });
-    api.discoverServers().then((s) => {
-      setServers(s);
-      if (!server && s[0]) setServer(s[0]);
-    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  useEffect(
-    () => setTested(null),
-    [
-      kind,
-      server,
-      share,
-      user,
-      password,
-      folder,
-      path,
-      cloud,
-      inCloud,
-      service,
-      r2Account,
-      endpoint,
-      region,
-      bucket,
-      prefix,
-      accessKey,
-      secret,
-    ],
-  );
 
   const cloudPath = cloud ? `${cloud.root}/${inCloud.trim().replace(/^\/+|\/+$/g, "")}`.replace(/\/$/, "") : "";
-  const s3Endpoint =
-    service === "aws"
-      ? `https://s3.${region.trim()}.amazonaws.com`
-      : service === "b2"
-        ? `https://s3.${region.trim()}.backblazeb2.com`
-        : service === "r2"
-          ? `https://${r2Account.trim()}.r2.cloudflarestorage.com`
-          : endpoint.trim();
+  const s3Endpoint = s3EndpointFor(service, region, r2Account, endpoint);
   const place: Place =
     kind === "s3"
       ? {
@@ -233,7 +184,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
           accessKey: accessKey.trim(),
         }
       : kind === "smb"
-        ? { kind: "smb", server: server.trim(), share: share.trim(), folder: folder.trim() || "/", user: user.trim() }
+        ? { kind: "smb", ...smbForm.smb }
         : { kind: "folder", path: kind === "cloud" ? cloudPath : path };
   const ready =
     kind === "s3"
@@ -248,33 +199,39 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
         : kind === "cloud"
           ? !!cloud
           : !!path;
+  // What a test result is about: the place and the password it was tried with.
+  const testedOf = JSON.stringify([kind, place, pw ?? null]);
+  const result = tested?.of === testedOf ? tested : null;
   useEffect(() => {
     if (named || !ready) return;
-    const t = window.setTimeout(() => api.suggestName(place, editing?.id).then(setName), 200);
-    return () => window.clearTimeout(t);
+    let live = true;
+    const t = window.setTimeout(
+      () =>
+        api.suggestName(place, editing?.id).then(
+          (n) => live && !namedNow.current && setName(n),
+          () => {},
+        ),
+      200,
+    );
+    return () => {
+      live = false;
+      window.clearTimeout(t);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [named, ready, kind, server, share, folder, path, cloud, inCloud, service, r2Account, endpoint, bucket]);
 
   const test = async () => {
     setBusy("Connecting…");
+    // Kept with the place as it was when the test began: fields changed while it runs make it stale.
+    const of = testedOf;
     const t = await api.testPlace(place, pw).catch((e) => ({ ok: false, message: String(e), free: null, total: null, mbps: null }));
-    setTested(t);
+    setTested({ ...t, of });
     setBusy("");
     return t;
   };
-  const listShares = async () => {
-    setBusy("Asking for its shares…");
-    try {
-      const s = await api.listShares(server, user, pw);
-      setShares(s);
-      if (!share && s.length) setShare(s.includes("Backups") ? "Backups" : s[0]);
-    } catch (e) {
-      setTested({ ok: false, message: String(e), free: null, total: null, mbps: null });
-    }
-    setBusy("");
-  };
   const add = async () => {
-    const t = tested?.ok ? tested : await test();
+    // A test of exactly these fields is trusted; anything else is tested again first.
+    const t = result?.ok ? result : await test();
     if (!t.ok) return;
     const saved = await act(() =>
       api.saveDestination(
@@ -364,7 +321,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
               <button
                 key={c.root}
                 disabled={!c.live || (!!editing && editing.place.kind !== "folder")}
-                title={c.live ? c.root.replace(/^\/Users\/[^/]+/, "~") : c.why}
+                title={c.live ? tilde(c.root, home) : c.why}
                 aria-pressed={on}
                 onClick={() => {
                   setKind("cloud");
@@ -565,94 +522,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
             </>
           ) : (
             <>
-              {servers.length > 0 && (
-                <div className="col" style={{ gap: 6 }}>
-                  <span className="caps">Servers</span>
-                  <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                    {servers.map((s) => {
-                      const on = server === s;
-                      const short = s.replace(/\.local$/, "");
-                      return (
-                        <button
-                          key={s}
-                          aria-pressed={on}
-                          onClick={() => setServer(s)}
-                          style={{
-                            flex: 1,
-                            minWidth: 160,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 10,
-                            padding: "10px 12px",
-                            border: on ? "1.5px solid var(--accent)" : "1px solid var(--line)",
-                            borderRadius: 10,
-                            background: on ? "var(--accent-soft)" : "var(--surface)",
-                            textAlign: "left",
-                          }}
-                        >
-                          <Icon name="server" size={18} />
-                          <span className="col" style={{ gap: 0 }}>
-                            <span style={{ fontWeight: 600 }}>{short}</span>
-                            <span className="tiny muted">{s}</span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px 14px" }}>
-                <label className="field">
-                  <span>Server</span>
-                  <input
-                    className="input mono"
-                    placeholder="keep-nas.local or 192.168.1.20"
-                    value={server}
-                    onChange={(e) => setServer(e.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Share</span>
-                  <div className="row" style={{ gap: 6 }}>
-                    <input className="input grow" value={share} onChange={(e) => setShare(e.target.value)} />
-                    <button className="btn" disabled={!server || !!busy} onClick={listShares} title="Ask the server which shares it has">
-                      List
-                    </button>
-                  </div>
-                </label>
-                {shares.length > 0 && (
-                  <div className="row" style={{ gridColumn: "span 2", flexWrap: "wrap", gap: 6 }}>
-                    <span className="small muted">Shares on {server}:</span>
-                    {shares.map((s) => (
-                      <button key={s} className={`btn small${share === s ? " primary" : ""}`} onClick={() => setShare(s)}>
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <label className="field">
-                  <span>User name</span>
-                  <input className="input" value={user} onChange={(e) => setUser(e.target.value)} />
-                </label>
-                <label className="field">
-                  <span>Password</span>
-                  <input
-                    className="input"
-                    type="password"
-                    placeholder={editing ? "Unchanged" : ""}
-                    value={password}
-                    onFocus={() => password === SAVED_PASSWORD && setPassword("")}
-                    onChange={(e) => setPassword(e.target.value)}
-                  />
-                  {savedFrom && password === SAVED_PASSWORD && (
-                    <span className="tiny faint">Saved {savedFrom === "finder" ? "by Finder" : "by Keepr"} in your Keychain</span>
-                  )}
-                </label>
-                <label className="field" style={{ gridColumn: "span 2" }}>
-                  <span>Folder in the share</span>
-                  <input className="input mono" value={folder} onChange={(e) => setFolder(e.target.value)} />
-                </label>
-              </div>
+              <SmbFields f={smbForm} busy={!!busy} editing={!!editing} />
               <label className="check">
                 <input type="checkbox" checked={keychain} onChange={(e) => setKeychain(e.target.checked)} />
                 Save the password in my Keychain
@@ -667,19 +537,20 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
               value={name}
               onChange={(e) => {
                 setName(e.target.value);
-                setNamed(e.target.value.trim() !== "");
+                namedNow.current = e.target.value.trim() !== "";
+                setNamed(namedNow.current);
               }}
             />
           </label>
-          {tested && (
-            <div role="status" className={`banner ${tested.ok ? "good" : "bad"}`} style={{ alignItems: "flex-start" }}>
-              <Icon name={tested.ok ? "check" : "warning"} size={18} stroke={2.4} style={{ flexShrink: 0 }} />
+          {result && (
+            <div role="status" className={`banner ${result.ok ? "good" : "bad"}`} style={{ alignItems: "flex-start" }}>
+              <Icon name={result.ok ? "check" : "warning"} size={18} stroke={2.4} style={{ flexShrink: 0 }} />
               <span className="col text" style={{ gap: 2 }}>
-                <span style={{ fontWeight: 600 }}>{tested.message}</span>
-                {tested.ok && (
+                <span style={{ fontWeight: 600 }}>{result.message}</span>
+                {result.ok && (
                   <span className="small muted">
-                    {tested.free != null && `${bytes(tested.free)} free`}
-                    {tested.mbps != null && ` · ${tested.mbps.toFixed(0)} MB/s in a quick test`}
+                    {result.free != null && `${bytes(result.free)} free`}
+                    {result.mbps != null && ` · ${result.mbps.toFixed(0)} MB/s in a quick test`}
                   </span>
                 )}
               </span>
@@ -715,16 +586,12 @@ export default function Destinations() {
                 <span className="grow" style={{ fontWeight: 600, fontSize: 15 }}>
                   {d.name}
                 </span>
-                <span className="small" style={{ color: d.connection === "missing" ? "var(--amber)" : "var(--ink2)" }}>
-                  {d.connection === "missing" ? "Not connected" : d.connection === "on demand" ? "Connects when needed" : "Connected"}
-                </span>
+                <Connection d={d} />
               </div>
               <span className="small muted mono ellipsis">{d.place}</span>
               {d.total != null && (
                 <>
-                  <div className="meter">
-                    <div style={{ width: `${Math.round((1 - (d.free ?? 0) / d.total) * 100)}%` }} />
-                  </div>
+                  <SpaceMeter d={d} />
                   <span className="small muted">
                     {bytes(d.keeprBytes)} from Keepr · {bytes(d.free)} free of {bytes(d.total)}
                   </span>
