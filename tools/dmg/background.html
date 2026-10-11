@@ -3,27 +3,37 @@
 <!-- See LICENSE for the full text. -->
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-<!-- The DMG window's background, 660×400. make_dmg.py puts the icons on it: the app centred at
-     (165, 230), Applications at (495, 230). The mark is src/icons.tsx's Mark in the light theme. -->
+<!-- The DMG window's background, 660×400, in the product page's look (site/style.css): white, the
+     mark and name as in its top bar, the hero's headline, and the arrow drawn as a row of the
+     "Only what changed" pieces, the stored ones pale and the new ones green. make_dmg.py puts the
+     icons on it: the app centred at (165, 230), Applications at (495, 230). The strip under them,
+     where Finder writes their names, is left plain. -->
 <meta charset="utf-8">
 <style>
   html, body { margin: 0; width: 660px; height: 400px; overflow: hidden; }
-  body { background: linear-gradient(#ffffff, #f0f2f1); color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; position: relative; -webkit-font-smoothing: antialiased; }
-  .brand { position: absolute; top: 34px; width: 100%; display: flex; justify-content: center; align-items: center; gap: 12px;
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; font-weight: 650; letter-spacing: -0.02em; font-size: 34px; }
-  .tag { position: absolute; top: 96px; width: 100%; text-align: center; font-size: 15px; color: #57575c; }
-  .arrow { position: absolute; left: 250px; top: 206px; width: 160px; height: 48px; }
-  .hint { position: absolute; top: 334px; width: 100%; text-align: center; font-size: 15px; color: #57575c; }
+  body { background: #ffffff; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; position: relative; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
+  .brand { position: absolute; top: 30px; width: 100%; display: flex; justify-content: center; align-items: center; gap: 9px;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; font-weight: 650; font-size: 19px; letter-spacing: -0.03em; }
+  h1 { position: absolute; top: 72px; width: 100%; margin: 0; text-align: center;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; font-weight: 650; font-size: 38px; line-height: 1; letter-spacing: -0.035em; }
+  .lede { position: absolute; top: 122px; width: 100%; text-align: center; font-size: 15px; color: #57575c; }
+  .pieces { position: absolute; left: 244px; top: 222px; display: flex; gap: 6px; align-items: center; }
+  .pieces i { width: 16px; height: 16px; box-sizing: border-box; border-radius: 5px; background: #e4f3ed; border: 1px solid #bfe3d2; }
+  .pieces i.new { background: #0f7a5c; border-color: #0f7a5c; }
+  .head { position: absolute; left: 396px; top: 216px; width: 18px; height: 28px; }
+  .foot { position: absolute; left: 0; right: 0; top: 336px; bottom: 0; background: #f5f5f7; border-top: 1px solid #e5e5ea; }
+  .hint { position: absolute; top: 356px; width: 100%; text-align: center; font-size: 15px; color: #57575c; }
   .hint b { font-weight: 600; color: #1d1d1f; }
 </style>
 <body>
   <div class="brand">
-    <svg width="40" height="40" viewBox="0 0 28 28"><rect width="28" height="28" rx="8" fill="#0f7a5c" /><path d="M8 10h12M8 14h12M8 18h7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" fill="none" /></svg>
+    <svg width="26" height="26" viewBox="0 0 28 28"><rect width="28" height="28" rx="8" fill="#0f7a5c" /><path d="M8 10h12M8 14h12M8 18h7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" fill="none" /></svg>
     Keepr
   </div>
-  <div class="tag">Backups for your Mac. Every file. Every version. Kept.</div>
-  <svg class="arrow" viewBox="0 0 160 48" fill="none" stroke="#0f7a5c" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M8 24 H146" /><path d="M126 8 L148 24 L126 40" />
-  </svg>
+  <h1>Every file. Every version. Kept.</h1>
+  <p class="lede">Back up the folders you choose, and bring back any file as it was.</p>
+  <div class="pieces"><i></i><i></i><i></i><i></i><i class="new"></i><i></i><i class="new"></i></div>
+  <svg class="head" viewBox="0 0 18 28" fill="none" stroke="#0f7a5c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4 L14 14 L4 24" /></svg>
+  <div class="foot"></div>
   <div class="hint">Drag <b>Keepr</b> onto <b>Applications</b> to install it</div>
 </body>
