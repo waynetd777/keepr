@@ -30,6 +30,7 @@ mod scheduler;
 mod smb;
 mod still;
 mod system;
+mod updates;
 mod verify;
 
 use crate::config::{Destination, Place, Plan, Run};
@@ -1023,8 +1024,24 @@ fn show_main_window(app: AppHandle, screen: Option<String>) {
 
 #[tauri::command]
 fn quit(app: AppHandle) {
-    let _ = app.save_window_state(STATE_FLAGS);
+    quitting(&app);
     app.exit(0)
+}
+
+/// What quitting does before the app ends; an update's restart does it too.
+fn quitting(app: &AppHandle) {
+    let _ = app.save_window_state(STATE_FLAGS);
+}
+
+/// An update about to install: stop jobs starting, unless one is running or queued (updates.rs).
+fn hold_for_update(app: &AppHandle) -> Option<String> {
+    app.try_state::<Core_>()?.hold().err()
+}
+
+fn release_after_update(app: &AppHandle) {
+    if let Some(c) = app.try_state::<Core_>() {
+        c.release();
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -1211,6 +1228,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             overview,
             aws_setup_info,
@@ -1281,6 +1299,8 @@ pub fn run() {
                 about::open_website(app);
             } else if ev.id() == about::ABOUT_ID {
                 about::show(app);
+            } else if ev.id() == updates::MENU_ID {
+                updates::check_now(app);
             }
         })
         .setup(move |app| {
@@ -1358,6 +1378,9 @@ pub fn run() {
             core.start();
             scheduler::start(core.clone());
             system::watch_network();
+            if !frozen {
+                updates::start(app.handle(), updates::Hooks { hold: hold_for_update, release: release_after_update, quitting })?;
+            }
 
             let icon = tauri::image::Image::from_bytes(tray_icon_for(&core)).expect("tray icon is a valid png");
             TrayIconBuilder::with_id("main")
@@ -1420,13 +1443,15 @@ pub fn run() {
                 }
                 // Closing the window hides it; Keepr stays in the menu bar and keeps backing up.
                 let w2 = w.clone();
-                w.on_window_event(move |ev| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = ev {
+                w.on_window_event(move |ev| match ev {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
                         let _ = w2.app_handle().save_window_state(STATE_FLAGS);
                         let _ = w2.hide();
                         set_in_dock(w2.app_handle(), false);
                     }
+                    tauri::WindowEvent::Focused(true) => updates::focused(w2.app_handle()),
+                    _ => {}
                 });
             }
             Ok(())

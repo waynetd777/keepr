@@ -18,6 +18,8 @@ For a Mac with Apple silicon (M1 or later) and macOS 13 or later.
 
 It opens normally after that. The first time you use some features, macOS asks for permission: see [First run](docs/features.md#first-run).
 
+After that, Keepr checks for a new version once a day and asks before installing it; Keepr › **Check for Updates…** checks now. See [Updates](docs/day-to-day.md#updates).
+
 <a href="docs/images/index.md#the-readme"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.png"><img alt="Backup Plans: three plans with their last and next backups, the space they use, and the destinations" src="docs/images/overview-light.png"></picture></a>
 
 ## What it does

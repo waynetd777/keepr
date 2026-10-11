@@ -45,6 +45,14 @@ A check that finds a problem with the stored data always tells you.
 
 The foot of Settings shows Keepr's version and build, and its licence.
 
+## Updates
+
+Keepr checks for a new version once a day, and Keepr › **Check for Updates…** checks now. When there is one, it asks once its window is in front:
+
+- **Install and Restart** installs it and opens the new version. If a backup, restore or check is running or about to, the update waits for another time.
+- **Later** asks again tomorrow.
+- **Skip This Version** doesn't ask about this version again. **Check for Updates…** still offers it.
+
 ## Help
 
 Press `?`, click **?** at the right of the toolbar, or choose Help › **Keepr Help** (⌘?) to open help for the screen you're on, at the side of the window. It stays open while you use the screen; Esc or × closes it.

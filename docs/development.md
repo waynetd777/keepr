@@ -12,7 +12,7 @@ Tauri 2, with a React and TypeScript frontend (Vite) and a Rust backend. The bac
 | `make fmt` | Reformat the Rust and TypeScript, and add the licence header where it's missing |
 | `make app` | Bump the version (1.0.0 → 1.0.1) once the current one has a release, and build the .app, signed with the identity in `signing.local` if there is one |
 | `make install-app` | Build it and replace the copy in /Applications |
-| `make dmg` | Pack the built app into `Keepr.dmg` for a release |
+| `make dmg` | Pack the built app into `Keepr.dmg` for a release, and write the update files beside it |
 | `make screenshots` | Retake the screenshots in `docs/images/` |
 | `make icons` | Redraw the icon artwork and regenerate the icon set |
 | `make sign-check` | Show how the installed app is signed |
@@ -23,7 +23,15 @@ Tauri 2, with a React and TypeScript frontend (Vite) and a Rust backend. The bac
 
 A release build moves to the next patch version once the current one has been released, that is, once `v<version>` is tagged on GitHub (`tools/bump_version.py`, which keeps `tauri.conf.json`, `package.json`, `Cargo.toml` and the lock files in step), so local builds between releases share a version. Every build gets its own build number, stamped on the app and the binary; Settings shows both. For a minor or major step, give the version: `make app VERSION=1.1.0`. Commit the bump with the release.
 
-To publish one: `make app`, `make dmg`, commit and push, then `gh release create v<version> src-tauri/target/release/bundle/dmg/Keepr.dmg`. The README's download link points at the latest release's `Keepr.dmg`, so keep that name. `tools/dmg/make_dmg.py` draws the window's background from `tools/dmg/background.html` (rendered by WebKit) and has Finder lay out the icons, so the first run asks to let the terminal control Finder.
+To publish one: `make app`, `make dmg`, commit and push, then `gh release create v<version> src-tauri/target/release/bundle/dmg/Keepr.dmg src-tauri/target/release/bundle/dmg/Keepr.app.tar.gz src-tauri/target/release/bundle/dmg/latest.json`. The README's download link points at the latest release's `Keepr.dmg`, so keep that name. `tools/dmg/make_dmg.py` draws the window's background from `tools/dmg/background.html` (rendered by WebKit) and has Finder lay out the icons, so the first run asks to let the terminal control Finder.
+
+## Updates
+
+The app checks `releases/latest/download/latest.json` on GitHub 20 seconds after it starts and then once a day, and Keepr › **Check for Updates…** checks at once (`src-tauri/src/updates.rs`; release builds only). `make dmg` runs `tools/update_files.py`, which packs the app as `Keepr.app.tar.gz`, signs it, and writes `latest.json` with the version, the signature and the download link; `--notes "…"` adds what's new, shown in the app's offer. The release needs both files beside the DMG.
+
+The package is signed with the private key in `~/.tauri/waynetd777-updater.key` (no password; `TAURI_SIGNING_PRIVATE_KEY_PATH` for another), and the app installs only what matches the public key in `tauri.conf.json` (`plugins.updater`). Keep a copy of the key somewhere safe: without it, no installed Keepr will accept another update, and everyone would have to download the next one by hand. Ordinary builds don't need it.
+
+Installing waits while a job is running or queued, then holds the job queue until the restart, so a restart never cuts a backup short. The restart skips the normal quit, so the install does what Quit does (`quitting` in `lib.rs`) first; anything added to quitting goes there.
 
 ## Where things live
 
@@ -31,6 +39,7 @@ To publish one: `make app`, `make dmg`, commit and push, then `gh release create
 |---|---|
 | Plans, destinations and settings | `~/Library/Application Support/Keepr/config.json` (`KEEPR_DATA` overrides the folder) |
 | Run state and history | `~/Library/Application Support/Keepr/state.json` |
+| When updates were last checked, and a skipped version | `~/Library/Application Support/Keepr/updates.json` |
 | Each run's log | `~/Library/Application Support/Keepr/logs/` |
 | Passwords, keys and recovery keys | One login-keychain item, service `Keepr`, account `secrets` |
 | Still copies while a backup reads them | `~/Library/Caches/Keepr/still/` |

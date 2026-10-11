@@ -82,9 +82,10 @@ install-cli:
 	@ln -sf "/Applications/Keepr.app/Contents/MacOS/Keepr" "$(BIN_DIR)/keepr"
 	@echo "linked $(BIN_DIR)/keepr; try: keepr --help"
 
-## Pack the built app into the release DMG (src-tauri/target/release/bundle/dmg/), laid out like other Mac installers.
+## Pack the built app into the release DMG (src-tauri/target/release/bundle/dmg/), laid out like other Mac installers, beside the signed update files (Keepr.app.tar.gz, latest.json).
 dmg:
 	@python3 tools/dmg/make_dmg.py
+	@python3 tools/update_files.py
 
 ## Redraw design/icon.png and the tray template, then regenerate the Tauri icon set.
 icons:

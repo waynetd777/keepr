@@ -3,7 +3,7 @@ title: Settings
 kind: screen
 screens: [settings]
 order: 8
-summary: Open at Login, notifications, the website, and appearance.
+summary: Open at Login, notifications, the website, appearance and updates.
 ---
 Settings (`⌘,`) holds what applies to Keepr as a whole; what applies to one plan is in the plan.
 
@@ -25,3 +25,6 @@ A check that finds a problem with the stored data always tells you.
 
 ## Version and licence
 The foot of Settings shows Keepr's version and build. Keepr is free software under the GNU General Public License, version 3 or later.
+
+## Updates
+Keepr checks for a new version once a day, and asks before installing it. **Check for Updates…** in the Keepr menu checks now. An update waits while a backup, restore or check is running.

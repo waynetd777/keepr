@@ -137,6 +137,8 @@ pub struct Core {
     pub frozen: bool,
     /// Read the startup disk through a still copy (off in tests, which mustn't make snapshots of the Mac).
     pub still_copies: std::sync::atomic::AtomicBool,
+    /// An update is installing and the app will restart: jobs queue up but none starts.
+    held: std::sync::atomic::AtomicBool,
 }
 
 fn now() -> String {
@@ -246,6 +248,7 @@ impl Core {
             notify,
             frozen,
             still_copies: std::sync::atomic::AtomicBool::new(std::env::var_os("KEEPR_NO_STILL").is_none()),
+            held: std::sync::atomic::AtomicBool::new(false),
         }))
     }
 
@@ -319,6 +322,35 @@ impl Core {
 
     pub fn running(&self) -> bool {
         self.current.lock().unwrap().is_some()
+    }
+
+    /// For an update that restarts the app: stops any job starting until `release`, so the restart
+    /// can't cut one short. Err(why) instead, holding nothing, while a job is running or waiting
+    /// to (a waiting one would be lost). Under the queue's lock, so no job starts in between.
+    pub fn hold(&self) -> Result<(), String> {
+        use std::sync::atomic::Ordering;
+        let q = self.queue.lock().unwrap();
+        let job =
+            self.current.lock().unwrap().as_ref().map(|c| (c.job.clone(), true)).or_else(|| q.front().map(|(_, j)| (j.clone(), false)));
+        if let Some((job, running)) = job {
+            let what = match job {
+                Job::Backup { .. } => "A backup",
+                Job::Restore { .. } => "A restore",
+                Job::Check { .. } => "A check of a backup",
+                Job::Prune { .. } => "A tidy-up of a backup",
+                Job::RemoveSource { .. } | Job::RemovePath { .. } => "A removal from a backup",
+            };
+            return Err(format!("{what} is {}.", if running { "running" } else { "waiting to run" }));
+        }
+        self.held.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// Lets jobs start again after `hold`, when the update didn't install.
+    pub fn release(&self) {
+        let _q = self.queue.lock().unwrap();
+        self.held.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.wake.notify_all();
     }
 
     pub fn cancel(&self, id: &str) {
@@ -427,7 +459,8 @@ impl Core {
             // Taken off the queue and made current under the queue's lock, so nothing sees the
             // job in neither place (and queues it again, or decides all is done).
             let cur = {
-                let mut q = me.wake.wait_while(me.queue.lock().unwrap(), |q| q.is_empty()).unwrap();
+                let held = |q: &mut VecDeque<_>| q.is_empty() || me.held.load(std::sync::atomic::Ordering::SeqCst);
+                let mut q = me.wake.wait_while(me.queue.lock().unwrap(), held).unwrap();
                 let (id, job) = q.pop_front().unwrap();
                 let cur = Arc::new(Current {
                     id,
@@ -1373,6 +1406,21 @@ mod tests {
         let run = c.state.lock().unwrap().history.last().cloned().unwrap();
         assert_eq!(run.result, "failed");
         assert_eq!(std::fs::read_to_string(&told).unwrap(), "warning p1 1\nfailed p1 0\n");
+    }
+
+    #[test]
+    fn a_hold_stops_jobs_starting_and_refuses_while_one_waits() {
+        let data = tempfile::tempdir().unwrap();
+        let c = core(data.path());
+        c.start();
+        c.hold().unwrap();
+        c.enqueue(Job::Prune { plan: "gone".into() });
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(!c.running() && !c.idle(), "the job waits while held");
+        assert_eq!(c.hold().unwrap_err(), "A tidy-up of a backup is waiting to run.");
+        c.release();
+        wait(&c);
+        c.hold().unwrap();
     }
 
     #[test]

@@ -59,5 +59,11 @@
       "minimumSystemVersion": "13.0",
       "entitlements": "Entitlements.plist"
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE5OEEwNkNDMTJFNTI5RDcKUldUWEtlVVN6QWFLR1hRL2VXRVcrNnRVZEZhT05EM0xQNERhTHE5YjRQOHZZMTU2VjJXVGdWVEQK",
+      "endpoints": ["https://github.com/waynetd777/keepr/releases/latest/download/latest.json"]
+    }
   }
 }
