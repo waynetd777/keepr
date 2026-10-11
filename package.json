@@ -2,7 +2,7 @@
   "name": "keepr",
   "private": true,
   "license": "GPL-3.0-or-later",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "type": "module",
   "scripts": {
     "dev": "vite",
