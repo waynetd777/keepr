@@ -13,6 +13,7 @@ Tauri 2, with a React and TypeScript frontend (Vite) and a Rust backend. The bac
 | `make app` | Bump the version (1.0.0 → 1.0.1) once the current one has a release, and build the .app, signed with the identity in `signing.local` if there is one |
 | `make install-app` | Build it and replace the copy in /Applications |
 | `make dmg` | Pack the built app into `Keepr.dmg` for a release, and write the update files beside it |
+| `make release NOTES="…"` | Publish a release: bump, build, DMG, commit, push, GitHub release, install (`tools/release.py`) |
 | `make screenshots` | Retake the screenshots in `docs/images/` |
 | `make icons` | Redraw the icon artwork and regenerate the icon set |
 | `make sign-check` | Show how the installed app is signed |
@@ -23,7 +24,7 @@ Tauri 2, with a React and TypeScript frontend (Vite) and a Rust backend. The bac
 
 A release build moves to the next patch version once the current one has been released, that is, once `v<version>` is tagged on GitHub (`tools/bump_version.py`, which keeps `tauri.conf.json`, `package.json`, `Cargo.toml` and the lock files in step), so local builds between releases share a version. Every build gets its own build number, stamped on the app and the binary; Settings shows both. For a minor or major step, give the version: `make app VERSION=1.1.0`. Commit the bump with the release.
 
-To publish one: `make app`, `make dmg`, commit and push, then `gh release create v<version> src-tauri/target/release/bundle/dmg/Keepr.dmg src-tauri/target/release/bundle/dmg/Keepr.app.tar.gz src-tauri/target/release/bundle/dmg/latest.json`. The README's download link points at the latest release's `Keepr.dmg`, so keep that name. `tools/dmg/make_dmg.py` draws the window's background from `tools/dmg/background.html` (rendered by WebKit) and has Finder lay out the icons, so the first run asks to let the terminal control Finder.
+To publish one: `make release NOTES="What's new"` (`tools/release.py`). It refuses to start without notes or with uncommitted changes, then bumps and builds the app, makes the DMG and update files (the notes go in the update offer), commits the bump as `Keepr <version>`, pushes, creates the GitHub release with `Keepr.dmg`, `Keepr.app.tar.gz` and `latest.json`, and installs the app, opening it again if it was running. `INSTALL=0` skips the install, `VERSION=1.1.0` sets the version, and `DRY_RUN=1` prints the steps without doing them. After a failure, run it again: the unreleased version is kept. The README's download link points at the latest release's `Keepr.dmg`, so keep that name. `tools/dmg/make_dmg.py` draws the window's background from `tools/dmg/background.html` (rendered by WebKit) and has Finder lay out the icons, so the first run asks to let the terminal control Finder.
 
 ## Updates
 

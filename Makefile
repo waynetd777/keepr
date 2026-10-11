@@ -15,7 +15,7 @@ SIGN_ID  := $(APPLE_SIGNING_IDENTITY)
 # "-" is an ad-hoc signature: an empty identity makes the bundler fail instead.
 export APPLE_SIGNING_IDENTITY := $(if $(SIGN_ID),$(SIGN_ID),-)
 
-.PHONY: check test lint fmt app install-app install-cli dmg dev icons sign-check screenshots
+.PHONY: check test lint fmt app install-app install-cli dmg release dev icons sign-check screenshots
 
 ## cargo test (the engine and the app), TypeScript type-check and tests (vitest), then make lint.
 check:
@@ -82,10 +82,14 @@ install-cli:
 	@ln -sf "/Applications/Keepr.app/Contents/MacOS/Keepr" "$(BIN_DIR)/keepr"
 	@echo "linked $(BIN_DIR)/keepr; try: keepr --help"
 
-## Pack the built app into the release DMG (src-tauri/target/release/bundle/dmg/), laid out like other Mac installers, beside the signed update files (Keepr.app.tar.gz, latest.json).
+## Pack the built app into the release DMG (src-tauri/target/release/bundle/dmg/), laid out like other Mac installers, beside the signed update files (Keepr.app.tar.gz, latest.json; NOTES="…" is what's new in them).
 dmg:
 	@python3 tools/dmg/make_dmg.py
-	@python3 tools/update_files.py
+	@python3 tools/update_files.py --notes "$$NOTES"
+
+## Release: make release NOTES="What's new" bumps the version, builds the app and the DMG, commits the bump, pushes, creates the GitHub release and installs the app (not with INSTALL=0). DRY_RUN=1 prints the steps (tools/release.py).
+release:
+	@python3 tools/release.py
 
 ## Redraw design/icon.png and the tray template, then regenerate the Tauri icon set.
 icons:
