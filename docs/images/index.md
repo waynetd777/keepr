@@ -45,4 +45,5 @@ On [Day to day](../day-to-day.md).
 - The menu bar panel: [light](menu-bar-light.png) · [dark](menu-bar-dark.png)
 - Activity's history: [light](activity-light.png) · [dark](activity-dark.png)
 - Settings: [light](settings-light.png) · [dark](settings-dark.png)
+- A new version on offer: [light](update-light.png) · [dark](update-dark.png)
 - The help drawer: [light](help-light.png) · [dark](help-dark.png)

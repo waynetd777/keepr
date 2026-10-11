@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Ctx, useApp, type AppCtx, type Screen } from "./context";
-import { api, on, type Config, type JobStatus, type Overview as OverviewData } from "./api";
+import { api, on, type Config, type JobStatus, type Overview as OverviewData, type UpdateShown } from "./api";
 import { Icon, Mark } from "./icons";
 import { ClearButton, jobTitle, pct, StopButton, ToastProvider, Tooltips } from "./ui";
 import Overview from "./Overview";
@@ -17,6 +17,7 @@ import Destinations from "./Destinations";
 import Settings from "./Settings";
 import Search from "./Search";
 import PlansMap from "./PlansMap";
+import { UpdateDialog } from "./Update";
 import { hideSplash } from "./splash";
 import { HelpButton, HelpDrawer, openHelp, type HelpView } from "./help/HelpDrawer";
 
@@ -176,6 +177,7 @@ export default function App() {
     future: [],
   });
   const { past, screen, future } = nav;
+  const [updateScene, setUpdateScene] = useState<UpdateShown | null>(null);
 
   const refresh = useCallback(async () => {
     const [o, c] = await Promise.all([api.overview(), api.config()]);
@@ -197,7 +199,7 @@ export default function App() {
       refresh();
       if (!sc) return;
       document.documentElement.dataset.scene = "1";
-      const s = JSON.parse(sc) as { screen?: Screen; theme?: string; splash?: boolean; help?: HelpView };
+      const s = JSON.parse(sc) as { screen?: Screen; theme?: string; splash?: boolean; help?: HelpView; update?: UpdateShown };
       if (s.splash) document.documentElement.dataset.keepSplash = "1";
       if (s.theme) document.documentElement.dataset.theme = s.theme;
       if (s.screen) {
@@ -205,6 +207,7 @@ export default function App() {
         setNav((n) => ({ ...n, screen: to }));
       }
       if (s.help) openHelp(s.help);
+      if (s.update) setUpdateScene(s.update);
     });
     const un1 = on("changed", () => refresh());
     const un2 = on<JobStatus>("job", (j) => setJob(j));
@@ -276,6 +279,7 @@ export default function App() {
           </main>
           <HelpDrawer />
         </div>
+        <UpdateDialog scene={updateScene} />
         <Tooltips />
       </ToastProvider>
     </Ctx.Provider>

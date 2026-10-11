@@ -14,6 +14,11 @@
 //! and Restart, Later (asked again at the next day's check) or Skip This Version. Release builds
 //! only.
 //!
+//! The offer, the download's progress and the messages ("You're up to date") are the main
+//! window's update dialog (src/Update.tsx): sent as `update` events, answered with the
+//! `update_install`, `update_later` and `update_skip` commands. Without the window they are the
+//! system's alerts.
+//!
 //! Installing waits while a job is running or queued, and holds the job queue from the moment
 //! the download is in until the restart, so the restart can't cut a backup or restore short.
 
@@ -24,7 +29,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tauri::menu::{MenuItemBuilder, MenuItemKind};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
@@ -51,9 +56,32 @@ pub struct Hooks {
 }
 
 pub struct Updates {
+    /// Found by a background check, offered when the main window is next focused.
     pending: Mutex<Option<Update>>,
+    /// Offered in the window, waiting for the answer.
+    offered: Mutex<Option<Update>>,
+    /// What the window's dialog shows, for a window that loads after it was sent.
+    showing: Mutex<Option<Shown>>,
+    /// An offer is up, or its install is under way: no second offer until it's over.
     asking: AtomicBool,
     hooks: Hooks,
+}
+
+/// The window's update dialog.
+#[derive(Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Shown {
+    Offer { version: String, current: String, notes: Option<String>, date: Option<i64> },
+    Progress { version: String, stage: Stage, downloaded: u64, total: Option<u64> },
+    Message { title: String, text: String },
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Stage {
+    Downloading,
+    Installing,
+    Restarting,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -93,7 +121,13 @@ fn app_name(app: &AppHandle) -> String {
 /// Adds Check for Updates… under About and starts the background checks. Call once from setup
 /// (the main thread), in the windowed app only.
 pub fn start(app: &AppHandle, hooks: Hooks) -> tauri::Result<()> {
-    app.manage(Updates { pending: Mutex::new(None), asking: AtomicBool::new(false), hooks });
+    app.manage(Updates {
+        pending: Mutex::new(None),
+        offered: Mutex::new(None),
+        showing: Mutex::new(None),
+        asking: AtomicBool::new(false),
+        hooks,
+    });
     if let Some(MenuItemKind::Submenu(app_menu)) = app.menu().map(|m| m.items()).transpose()?.and_then(|i| i.into_iter().next()) {
         let at = if app_menu.get(crate::about::ABOUT_ID).is_some() { 1 } else { 0 };
         app_menu.insert(&MenuItemBuilder::with_id(MENU_ID, "Check for Updates…").build(app)?, at)?;
@@ -176,13 +210,37 @@ async fn check(app: &AppHandle, asked: bool) {
 async fn offer(app: &AppHandle, update: Update) {
     let Some(state) = app.try_state::<Updates>() else { return };
     if state.asking.swap(true, Ordering::SeqCst) {
+        // Already asked, or installing: the dialog that says so is brought forward.
+        if app.get_webview_window("main").is_some() {
+            crate::show_main(app);
+        }
         return;
     }
+    if app.get_webview_window("main").is_none() {
+        return offer_natively(app, update).await;
+    }
+    let shown = Shown::Offer {
+        version: update.version.clone(),
+        current: update.current_version.clone(),
+        notes: notes(&update),
+        date: update.date.map(|d| d.unix_timestamp()),
+    };
+    *state.offered.lock().unwrap() = Some(update);
+    show(app, shown);
+}
+
+fn notes(update: &Update) -> Option<String> {
+    update.body.as_deref().map(str::trim).filter(|n| !n.is_empty()).map(String::from)
+}
+
+/// The offer as the system's alert, for when there's no window to show it in.
+async fn offer_natively(app: &AppHandle, update: Update) {
+    let state = app.state::<Updates>();
     let name = app_name(app);
     let mut text = format!("{name} {} is available. You have {}.", update.version, update.current_version);
-    if let Some(notes) = update.body.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+    if let Some(n) = notes(&update) {
         text.push_str("\n\n");
-        text.push_str(notes);
+        text.push_str(&n);
     }
     let dialog = app
         .dialog()
@@ -191,48 +249,142 @@ async fn offer(app: &AppHandle, update: Update) {
         .buttons(MessageDialogButtons::YesNoCancelCustom(INSTALL.into(), LATER.into(), SKIP.into()));
     let choice =
         tauri::async_runtime::spawn_blocking(move || dialog.blocking_show_with_result()).await.unwrap_or(MessageDialogResult::Cancel);
-    state.asking.store(false, Ordering::SeqCst);
     // Custom buttons come back as their labels; anything else (Esc, closed) is Later.
     match choice {
         MessageDialogResult::Custom(c) if c == INSTALL => install(app, update).await,
         MessageDialogResult::Custom(c) if c == SKIP => {
-            let mut saved = load();
-            saved.skipped = Some(update.version.clone());
-            save(&saved);
+            skip(&update);
+            state.asking.store(false, Ordering::SeqCst);
         }
-        _ => {}
+        _ => state.asking.store(false, Ordering::SeqCst),
     }
+}
+
+fn skip(update: &Update) {
+    let mut saved = load();
+    saved.skipped = Some(update.version.clone());
+    save(&saved);
+}
+
+/// Shows the window's update dialog (bringing the window forward for an offer or a message).
+fn show(app: &AppHandle, shown: Shown) {
+    let Some(state) = app.try_state::<Updates>() else { return };
+    if !matches!(shown, Shown::Progress { .. }) {
+        crate::show_main(app);
+    }
+    *state.showing.lock().unwrap() = Some(shown.clone());
+    let _ = app.emit_to("main", "update", Some(shown));
+}
+
+fn hide(app: &AppHandle) {
+    let Some(state) = app.try_state::<Updates>() else { return };
+    *state.showing.lock().unwrap() = None;
+    let _ = app.emit_to("main", "update", None::<Shown>);
+}
+
+/// What the update dialog shows now, for a window that has just loaded.
+#[tauri::command]
+pub fn update_dialog(app: AppHandle) -> Option<Shown> {
+    app.try_state::<Updates>()?.showing.lock().unwrap().clone()
+}
+
+/// Install and Restart.
+#[tauri::command]
+pub fn update_install(app: AppHandle) {
+    let Some(update) = app.try_state::<Updates>().and_then(|s| s.offered.lock().unwrap().take()) else { return };
+    tauri::async_runtime::spawn(async move { install(&app, update).await });
+}
+
+/// Later, Esc or closing the offer; OK on a message.
+#[tauri::command]
+pub fn update_later(app: AppHandle) {
+    let Some(state) = app.try_state::<Updates>() else { return };
+    if matches!(*state.showing.lock().unwrap(), Some(Shown::Progress { .. })) {
+        return;
+    }
+    if state.offered.lock().unwrap().take().is_some() {
+        state.asking.store(false, Ordering::SeqCst);
+    }
+    hide(&app);
+}
+
+/// Skip This Version.
+#[tauri::command]
+pub fn update_skip(app: AppHandle) {
+    let Some(state) = app.try_state::<Updates>() else { return };
+    let Some(update) = state.offered.lock().unwrap().take() else { return };
+    skip(&update);
+    state.asking.store(false, Ordering::SeqCst);
+    hide(&app);
 }
 
 async fn install(app: &AppHandle, update: Update) {
     let state = app.state::<Updates>();
+    // Whatever ends the install short of the restart lets another offer be made.
+    let done = || state.asking.store(false, Ordering::SeqCst);
     let wait = |why: String| format!("{why} {} will offer it again later.", app_name(app));
     // Asked before the download so the answer comes at once, and again after it, holding the
     // queue from there: the download can take a while, and nothing should wait for it.
     if let Some(why) = (state.hooks.hold)(app) {
+        done();
         return tell(app, "The update will wait", &wait(why)).await;
     }
     (state.hooks.release)(app);
-    let bytes = match update.download(|_, _| {}, || {}).await {
+    let version = update.version.clone();
+    let progress = |stage, downloaded, total| {
+        if app.get_webview_window("main").is_some() {
+            show(app, Shown::Progress { version: version.clone(), stage, downloaded, total });
+        }
+    };
+    progress(Stage::Downloading, 0, None);
+    let mut downloaded = 0u64;
+    let mut sent = std::time::Instant::now();
+    let got = update
+        .download(
+            |chunk, total| {
+                downloaded += chunk as u64;
+                // A few times a second is enough for the bar.
+                if sent.elapsed() >= Duration::from_millis(100) {
+                    sent = std::time::Instant::now();
+                    progress(Stage::Downloading, downloaded, total);
+                }
+            },
+            || {},
+        )
+        .await;
+    let bytes = match got {
         Ok(b) => b,
-        Err(e) => return tell(app, "The update didn't download", &e.to_string()).await,
+        Err(e) => {
+            done();
+            return tell(app, "The update didn't download", &e.to_string()).await;
+        }
     };
     if let Some(why) = (state.hooks.hold)(app) {
+        done();
         return tell(app, "The update will wait", &wait(why)).await;
     }
+    let size = bytes.len() as u64;
+    progress(Stage::Installing, size, Some(size));
     match update.install(bytes) {
         Ok(()) => {
+            progress(Stage::Restarting, size, Some(size));
+            // Long enough for the dialog to say so.
+            let _ = tauri::async_runtime::spawn_blocking(|| std::thread::sleep(Duration::from_millis(400))).await;
             (state.hooks.quitting)(app);
             app.restart()
         }
         Err(e) => {
             (state.hooks.release)(app);
+            done();
             tell(app, "The update didn't install", &e.to_string()).await
         }
     }
 }
 
 async fn tell(app: &AppHandle, title: &str, text: &str) {
+    if app.get_webview_window("main").is_some() && app.try_state::<Updates>().is_some() {
+        return show(app, Shown::Message { title: title.into(), text: text.into() });
+    }
     let dialog = app.dialog().message(text).title(title).kind(MessageDialogKind::Info);
     let _ = tauri::async_runtime::spawn_blocking(move || dialog.blocking_show()).await;
 }

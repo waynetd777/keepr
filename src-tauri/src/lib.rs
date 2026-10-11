@@ -1290,7 +1290,11 @@ pub fn run() {
             save_settings,
             scene,
             show_main_window,
-            quit
+            quit,
+            updates::update_dialog,
+            updates::update_install,
+            updates::update_later,
+            updates::update_skip
         ])
         .on_menu_event(|app, ev| {
             if ev.id() == help::MENU_ID {

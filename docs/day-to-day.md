@@ -47,11 +47,13 @@ The foot of Settings shows Keepr's version and build, and its licence.
 
 ## Updates
 
-Keepr checks for a new version once a day, and Keepr › **Check for Updates…** checks now. When there is one, it asks once its window is in front:
+Keepr checks for a new version once a day, and Keepr › **Check for Updates…** checks now. When there is one, it asks in its window, once the window is in front, with what's new in that version:
 
-- **Install and Restart** installs it and opens the new version. If a backup, restore or check is running or about to, the update waits for another time.
-- **Later** asks again tomorrow.
+- **Install and Restart** downloads it, showing how far it has got, installs it and opens the new version. If a backup, restore or check is running or about to, the update waits for another time.
+- **Later** (or Esc) asks again tomorrow.
 - **Skip This Version** doesn't ask about this version again. **Check for Updates…** still offers it.
+
+<a href="images/index.md#day-to-day"><picture><source media="(prefers-color-scheme: dark)" srcset="images/update-dark.png"><img alt="Keepr offering a new version, with what's new in it and Install and Restart" src="images/update-light.png"></picture></a>
 
 ## Help
 

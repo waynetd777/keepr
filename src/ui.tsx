@@ -116,6 +116,7 @@ export function Seg<T extends string>({
 export function Sheet({
   title,
   subtitle,
+  icon,
   width = 620,
   onClose,
   children,
@@ -123,6 +124,8 @@ export function Sheet({
 }: {
   title: string;
   subtitle?: ReactNode;
+  /** Beside the title, as the update dialog's mark is. */
+  icon?: ReactNode;
   width?: number;
   onClose: () => void;
   children: ReactNode;
@@ -136,9 +139,12 @@ export function Sheet({
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <section role="dialog" aria-modal="true" aria-label={title} className="sheet" style={{ width }}>
-        <div className="sheet-head">
-          <h2>{title}</h2>
-          {subtitle && <span className="muted">{subtitle}</span>}
+        <div className={icon ? "sheet-head with-icon" : "sheet-head"}>
+          {icon}
+          <div className="sheet-title">
+            <h2>{title}</h2>
+            {subtitle && <span className="muted">{subtitle}</span>}
+          </div>
         </div>
         {children}
         {foot && <div className="sheet-foot">{foot}</div>}

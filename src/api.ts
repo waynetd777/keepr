@@ -247,7 +247,17 @@ export const api = {
   scene: () => invoke<string | null>("scene"),
   showMain: (screen?: string) => invoke<void>("show_main_window", { screen: screen ?? null }),
   quit: () => invoke<void>("quit"),
+  updateDialog: () => invoke<UpdateShown | null>("update_dialog"),
+  updateInstall: () => invoke<void>("update_install"),
+  updateLater: () => invoke<void>("update_later"),
+  updateSkip: () => invoke<void>("update_skip"),
 };
+
+/** The update dialog (src-tauri/src/updates.rs, sent as `update` events): `date` is in seconds. */
+export type UpdateShown =
+  | { kind: "offer"; version: string; current: string; notes: string | null; date: number | null }
+  | { kind: "progress"; version: string; stage: "downloading" | "installing" | "restarting"; downloaded: number; total: number | null }
+  | { kind: "message"; title: string; text: string };
 
 export function on<T>(event: string, f: (payload: T) => void): () => void {
   let un: UnlistenFn | undefined;

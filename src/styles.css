@@ -770,6 +770,19 @@ input.pick:focus-visible {
 .sheet-head h2 {
   font-size: 24px;
 }
+.sheet-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sheet-head.with-icon {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+}
+.sheet-head.with-icon > svg {
+  flex-shrink: 0;
+}
 .sheet-body {
   padding: 20px 26px;
   display: flex;
