@@ -53,6 +53,8 @@ On the right are **Space used**, across every plan, each destination with its fr
 
 ## Ask
 
+<a href="images/index.md#features"><picture><source media="(prefers-color-scheme: dark)" srcset="images/ask-dark.png"><img alt="Ask beside the Size Map, with suggested questions about what takes the space" src="images/ask-light.png"></picture></a>
+
 **Ask** in the toolbar (⌘J) opens a chat at the side of the window, answered by an AI tool already installed and signed in on the Mac: Claude Code, Codex, Antigravity or GitHub Copilot, with no tools of its own and nothing to read but the message. Ask what takes the space, why a backup grew or failed, or how to do something in Keepr; the **Ask** buttons on the Size Map and on a run in Activity start a chat about that folder or run.
 
 The question goes with Keepr's figures: each plan's settings and status, its biggest folders with their size, growth and stored space, their file types by size, when they last changed and whether a project's .gitignore lists them, folder names that repeat (node_modules in 40 places), and the recent runs. Files aren't named, except in your own rules and when you click Ask on a run in Activity, which sends its message and the end of its log; the recent runs go with their paths taken out. Nothing of the files' contents is sent. The help's Ask page lists exactly what goes. A plan can be left out of Ask, and Ask can be turned off in Settings.

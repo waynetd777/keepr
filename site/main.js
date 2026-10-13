@@ -3,8 +3,13 @@
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // A deep link lands on its section at once; smooth scrolling is for clicks on the page.
+  // By id, not as a selector: a hash like #1 isn't a valid one, and throwing here would stop the
+  // whole page's script.
   if (location.hash) {
-    const target = document.querySelector(location.hash);
+    let target = null;
+    try {
+      target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    } catch {}
     if (target) {
       document.documentElement.style.scrollBehavior = "auto";
       target.scrollIntoView({ behavior: "instant", block: "start" });

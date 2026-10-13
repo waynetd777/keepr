@@ -19,7 +19,7 @@ import Search from "./Search";
 import PlansMap from "./PlansMap";
 import { QuitDialog } from "./Quit";
 import { UpdateDialog } from "./Update";
-import AskPanel, { AskToolbarButton, toggleAsk } from "./Ask";
+import AskPanel, { AskToolbarButton, openAsk, toggleAsk } from "./Ask";
 import { hideSplash } from "./splash";
 import { HelpButton, HelpDrawer, openHelp, type HelpView } from "./help/HelpDrawer";
 
@@ -246,7 +246,14 @@ export default function App() {
       refresh();
       if (!sc) return;
       document.documentElement.dataset.scene = "1";
-      const s = JSON.parse(sc) as { screen?: Screen; theme?: string; splash?: boolean; help?: HelpView; update?: UpdateShown };
+      const s = JSON.parse(sc) as {
+        screen?: Screen;
+        theme?: string;
+        splash?: boolean;
+        help?: HelpView;
+        update?: UpdateShown;
+        ask?: boolean;
+      };
       if (s.splash) document.documentElement.dataset.keepSplash = "1";
       if (s.theme) document.documentElement.dataset.theme = s.theme;
       if (s.screen) {
@@ -254,6 +261,7 @@ export default function App() {
         setNav((n) => ({ ...n, screen: to }));
       }
       if (s.help) openHelp(s.help);
+      if (s.ask) openAsk();
       if (s.update) setUpdateScene(s.update);
     });
     const un1 = on("changed", () => refresh());

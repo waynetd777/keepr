@@ -15,6 +15,8 @@ The tabs along the top are your plans, each with the number of snapshots it has.
 - **Find in** searches this snapshot by name.
 - **Show deleted files** also lists files that were in an earlier snapshot but not this one, however long ago they went, struck through. A deleted folder opens to show what it last held. At the latest snapshot they show as **Not on Mac**, ready to restore or to remove from the backup.
 
+<a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/deleted-dark.png"><img alt="Bond statement August.pdf, deleted from the Mac, struck through and marked Not on Mac, with Remove from backup under its versions" src="images/deleted-light.png"></picture></a>
+
 The list shows each file's modified time and size, how many versions of it are kept, and whether it's **New**, **Changed** or **Deleted** in this snapshot. Click the arrow beside a folder, or double-click it, to open it.
 
 At the latest snapshot, the list is also checked against your Mac as it is now, so you don't have to wait for the next backup to see what has changed since:

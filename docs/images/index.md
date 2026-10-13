@@ -14,6 +14,7 @@ On [Features](../features.md).
 
 - Backup Plans: [light](overview-light.png) · [dark](overview-dark.png)
 - The size map of every plan: [light](plans-map-light.png) · [dark](plans-map-dark.png)
+- Ask beside the Size Map, with its suggested questions: [light](ask-light.png) · [dark](ask-dark.png)
 - The splash screen: [light](splash-light.png) · [dark](splash-dark.png)
 
 ## Backup plans
@@ -28,6 +29,7 @@ On [Restore](../restore.md).
 
 - Documents & Projects at its latest snapshot: [light](restore-light.png) · [dark](restore-dark.png)
 - The versions of Budget 2026.numbers: [light](versions-light.png) · [dark](versions-dark.png)
+- A deleted file, no longer on the Mac: [light](deleted-light.png) · [dark](deleted-dark.png)
 - The size map of a snapshot: [light](sizemap-light.png) · [dark](sizemap-dark.png)
 - Searching every backup for “notes”: [light](search-light.png) · [dark](search-dark.png)
 

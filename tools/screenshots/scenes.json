@@ -12,6 +12,13 @@
     }
   },
   {
+    "name": "ask",
+    "screen": {
+      "name": "sizemap"
+    },
+    "ask": true
+  },
+  {
     "name": "restore",
     "screen": {
       "name": "restore",
@@ -26,6 +33,17 @@
       "focus": {
         "snapshot": "",
         "path": "{home}/Documents/Finance/Budget 2026.numbers"
+      }
+    }
+  },
+  {
+    "name": "deleted",
+    "screen": {
+      "name": "restore",
+      "plan": "docs00000001",
+      "focus": {
+        "snapshot": "",
+        "path": "{home}/Documents/Finance/Bond statement August.pdf"
       }
     }
   },

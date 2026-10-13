@@ -64,6 +64,7 @@
         </a>
         <div class="links">
           <a href="#what">What it does</a>
+          <a href="#ask">Ask</a>
           <a href="#menubar">Menu bar</a>
           <a href="https://github.com/waynetd777/keepr">GitHub</a>
           <a class="pill" href="#download">Download</a>
@@ -111,24 +112,29 @@
             <img class="frame" data-shot="restore" src="img/restore-light.webp" width="1400" height="875" alt="" loading="lazy" />
             <img class="frame" data-shot="versions" src="img/versions-light.webp" width="1400" height="875" alt="" loading="lazy" />
             <img class="frame" data-shot="search" src="img/search-light.webp" width="1400" height="875" alt="" loading="lazy" />
-            <img class="frame" data-shot="sizemap" src="img/sizemap-light.webp" width="1400" height="875" alt="" loading="lazy" />
+            <img class="frame" data-shot="deleted" src="img/deleted-light.webp" width="1400" height="875" alt="" loading="lazy" />
+            <img class="frame" data-shot="plansmap" src="img/plans-map-light.webp" width="1400" height="875" alt="" loading="lazy" />
           </div>
           <div class="steps">
             <section class="step" id="plan" data-shot="plan" data-focus="0 0 100 100">
               <h3>Choose what to keep.</h3>
               <p>Folders on your Mac, a drive, an SMB share, a cloud folder or an S3 bucket. Backed up every 15 minutes, hourly, daily, weekly, or when you ask.</p>
             </section>
-            <section class="step" id="exclude" data-shot="plan" data-focus="17 44 46 34">
+            <section class="step" id="exclude" data-shot="plan" data-focus="18 47 42 33">
               <h3>Leave things out.</h3>
               <p>Rules and <code>.gitignore</code> files exclude what you don't need. Skip files that live only in the cloud, or that apps mark as not worth backing up.</p>
             </section>
-            <section class="step" id="retention" data-shot="plan" data-focus="17 76 46 24">
+            <section class="step" id="retention" data-shot="plan" data-focus="18 80 42 20">
               <h3>Keep the versions you want.</h3>
-              <p>Every backup for a day, one a day for a month, one a week for a year, one a month for ever. Deleted files are kept for at least 90 days.</p>
+              <p>Every backup for a day, one a day for a month, one a week for a year, one a month for ever, or as you choose. A sentence under the choices says what they keep. Deleted files are kept for at least 90 days.</p>
             </section>
             <section class="step" id="restore" data-shot="restore" data-focus="16.5 7 83.5 40">
               <h3>Go back to any moment.</h3>
               <p>Step through the snapshots and see your files as they were on that day, folder by folder. Restore them to where they were, or somewhere else.</p>
+            </section>
+            <section class="step" id="deleted" data-shot="deleted" data-focus="16.5 36 83.5 52">
+              <h3>Find what was deleted.</h3>
+              <p>Deleted files show too, however long ago they went. Bring one back, or remove it from every backup to free the space.</p>
             </section>
             <section class="step" id="versions" data-shot="versions" data-focus="60 36 40 52">
               <h3>Every version of a file.</h3>
@@ -138,9 +144,9 @@
               <h3>Find a file in every backup at once.</h3>
               <p>Type part of a name and Keepr searches every plan and every snapshot. Pick a result to see its versions.</p>
             </section>
-            <section class="step" id="sizemap" data-shot="sizemap" data-focus="0 0 100 100">
+            <section class="step" id="sizemap" data-shot="plansmap" data-focus="0 0 100 100">
               <h3>See what takes the space.</h3>
-              <p>A size map draws each folder as big as the files it holds, in one snapshot or across every plan. Click to zoom in.</p>
+              <p>Two maps side by side: your files as they are now, and the space every version takes in the backup. Outlines show what grew this week. Click to zoom both in.</p>
             </section>
           </div>
         </div>
@@ -171,6 +177,21 @@ Letters/To the bank.pages
 Projects/keepr/design-notes.md</pre>
             </div>
           </figure>
+        </div>
+      </section>
+
+      <!-- Ask -->
+      <section class="ask" id="ask">
+        <div class="wrap two">
+          <div class="text">
+            <h2>Ask about your backups.</h2>
+            <p>Ask what takes the space, or why a backup failed. An AI you already use on your Mac answers: Claude Code, Codex, Antigravity or GitHub Copilot.</p>
+            <p>It sees Keepr's figures and folder names, never your files or what's in them. Leave a plan out, or turn Ask off in Settings. <a href="https://github.com/waynetd777/keepr/blob/main/docs/features.md#ask">What it sends</a></p>
+            <p>It can suggest a change to a plan. Keepr shows what would change before you apply it, and you can undo it.</p>
+          </div>
+          <div data-shimmer>
+            <img class="shot" src="img/ask-light.webp" width="1400" height="875" alt="Keepr's Ask panel beside the Size Map, with suggested questions about what takes the space" loading="lazy" />
+          </div>
         </div>
       </section>
 
