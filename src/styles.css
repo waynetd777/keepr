@@ -1899,6 +1899,10 @@ html.tray body {
 .btn.askbtn.on {
   border-color: var(--accent);
 }
+/* An icon button has no border: the outline is drawn inside it, so nothing moves. */
+.help-btn.on {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
 
 /* The size map's growth layer (src/growth.ts): in ink, so it stands out on the coloured blocks. */
 .blk.grew {
