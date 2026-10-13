@@ -617,6 +617,58 @@ export default function Plans() {
     }, 500);
   };
 
+  const deletePlan = async () => {
+    if (
+      await confirm({
+        title: "Delete plan",
+        text: `Delete the plan ${plan.name}? Its backup stays at ${dest?.name} and isn't deleted.`,
+        ok: "Delete Plan",
+        danger: true,
+      })
+    ) {
+      await act(() => api.deletePlan(plan.id));
+      await refresh();
+      go({ name: "overview" });
+    }
+  };
+
+  // Taking a folder out, saved straight away rather than after the usual pause: deleting its
+  // backed-up data waits for this, so the data never goes while the plan still backs it up.
+  const saveNow = async (f: (p: Plan) => Plan): Promise<boolean> => {
+    window.clearTimeout(saveTimer.current);
+    const next = f(structuredClone(plan));
+    const saved = await act(async () => {
+      try {
+        return await api.savePlan(next);
+      } catch (e) {
+        throw `Not saved: ${String(e).replace(/^Error: /, "")}`;
+      }
+    });
+    if (!saved) return false;
+    setPlan({ ...next, rev: saved.rev });
+    dismissError();
+    await refresh();
+    return true;
+  };
+
+  // A plan backs up at least one folder: its last can't be taken out, only the plan deleted.
+  const removeSource = async (i: number) => {
+    if (plan.id && plan.sources.length === 1) {
+      const name = plan.sources[0].name?.trim() || defaultNames(plan.sources, home)[0];
+      if (
+        await confirm({
+          title: `${name} is the only folder ${plan.name} backs up`,
+          text: `A plan backs up at least one folder. To stop backing up ${name}, delete the plan; to back up something else instead, add that first, then remove ${name}.`,
+          ok: "Delete Plan…",
+        })
+      )
+        await deletePlan();
+      return;
+    }
+    if (created) setRemoving(i);
+    else update((p) => ({ ...p, sources: p.sources.filter((_, j) => j !== i) }));
+  };
+
   const create = async () => {
     if (plan.encrypted && (newPassword.length < 8 || newPassword !== newPassword2)) {
       toast(newPassword.length < 8 ? "Use a password of at least 8 characters." : "The two passwords aren't the same.");
@@ -735,23 +787,7 @@ export default function Plans() {
               >
                 Start a new backup…
               </button>
-              <button
-                style={{ color: "var(--red)" }}
-                onClick={async () => {
-                  if (
-                    await confirm({
-                      title: "Delete plan",
-                      text: `Delete the plan ${plan.name}? Its backup stays at ${dest?.name} and isn't deleted.`,
-                      ok: "Delete Plan",
-                      danger: true,
-                    })
-                  ) {
-                    await act(() => api.deletePlan(plan.id));
-                    await refresh();
-                    go({ name: "overview" });
-                  }
-                }}
-              >
+              <button style={{ color: "var(--red)" }} onClick={deletePlan}>
                 Delete plan…
               </button>
             </moreMenu.Menu>
@@ -812,12 +848,7 @@ export default function Plans() {
                     />
                     <span className="small muted ellipsis">{l.sub}</span>
                   </div>
-                  <button
-                    className="iconbtn"
-                    aria-label={`Remove ${l.title}`}
-                    title="Remove source"
-                    onClick={() => (created ? setRemoving(i) : update((p) => ({ ...p, sources: p.sources.filter((_, j) => j !== i) })))}
-                  >
+                  <button className="iconbtn" aria-label={`Remove ${l.title}`} title="Remove source" onClick={() => void removeSource(i)}>
                     <Icon name="close" size={14} stroke={2} />
                   </button>
                 </div>
@@ -1304,13 +1335,13 @@ export default function Plans() {
           onKeep={() => {
             const i = removing;
             setRemoving(null);
-            update((p) => ({ ...p, sources: p.sources.filter((_, j) => j !== i) }));
+            void saveNow((p) => ({ ...p, sources: p.sources.filter((_, j) => j !== i) }));
           }}
           onDelete={async () => {
             const i = removing;
             const src = plan.sources[i];
             setRemoving(null);
-            update((p) => ({ ...p, sources: p.sources.filter((_, j) => j !== i) }));
+            if (!(await saveNow((p) => ({ ...p, sources: p.sources.filter((_, j) => j !== i) })))) return;
             if ((await act(() => api.removeSourceData(plan.id, src))) === undefined) return;
             toast("Removing its backed-up data. Activity shows how it's going.");
           }}

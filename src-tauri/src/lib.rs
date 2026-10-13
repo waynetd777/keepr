@@ -822,10 +822,16 @@ fn restore(
     core.enqueue(Job::Restore { plan, snapshot, items, target, conflict })
 }
 
-/// Takes a source's data out of every snapshot of the plan (after the user has confirmed).
+/// Takes a source's data out of every snapshot of the plan (after the user has confirmed). Only
+/// once the plan no longer backs it up: the plan is saved without it first, or its next backup
+/// would store it all again.
 #[tauri::command]
-fn remove_source_data(core: State<Core_>, plan: String, source: Place) -> String {
-    core.enqueue(Job::RemoveSource { plan, source })
+fn remove_source_data(core: State<Core_>, plan: String, source: Place) -> Result<String, String> {
+    let still = core.config.lock().unwrap().plans.iter().find(|p| p.id == plan).is_some_and(|p| p.sources.contains(&source));
+    if still {
+        return Err("The plan still backs this up: take it out of the plan first, then delete its backed-up data.".into());
+    }
+    Ok(core.enqueue(Job::RemoveSource { plan, source }))
 }
 
 /// Takes a file or folder out of every snapshot of the plan (after the user has confirmed).

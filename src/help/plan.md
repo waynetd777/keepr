@@ -15,7 +15,7 @@ A plan is a set of folders backed up to one destination, on a schedule, with rul
 - **In iCloud Drive…**, **In Google Drive…**, **In OneDrive…** and so on: a folder in a cloud service synced to this Mac.
 - **S3 bucket…**: a bucket at Amazon S3, Backblaze B2, Cloudflare R2 or another S3 service. **Check** tells you how much is in it.
 
-Keepr only reads your sources; it never changes or moves them. Click a source's name to change it. Removing a source that has been backed up asks whether to **Keep its versions** or **Delete its backed-up data…**.
+Keepr only reads your sources; it never changes or moves them. Click a source's name to change it. Removing a source that has been backed up asks whether to **Keep its versions** or **Delete its backed-up data…**. A plan backs up at least one source: to stop backing up its last, delete the plan.
 
 ## What to leave out
 Rules leave files and folders out. Type one in **+ Rule** and press Return; click × on a rule to remove it.

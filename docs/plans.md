@@ -19,7 +19,7 @@ A new plan starts on: hourly, every backup kept for a day, then one a day for 30
 
 Keepr only reads your sources. It never changes or moves them. Each source can have its own name; click it to change it.
 
-Removing a source that has been backed up asks what to do with it: **Keep its versions**, so you can still restore them, or **Delete its backed-up data…**, which takes it out of every snapshot.
+Removing a source that has been backed up asks what to do with it: **Keep its versions**, so you can still restore them, or **Delete its backed-up data…**, which takes it out of every snapshot. A plan backs up at least one source, so its last can't be removed: to stop backing it up, delete the plan.
 
 ## What to leave out
 
