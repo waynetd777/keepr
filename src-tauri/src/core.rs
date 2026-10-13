@@ -1352,6 +1352,7 @@ mod tests {
         Plan {
             id: "p1".into(),
             name: "Docs".into(),
+            rev: 0,
             enabled: true,
             sources: vec![Place::Folder { path: src.to_string_lossy().into(), name: None }],
             destination: "d1".into(),
@@ -1436,6 +1437,16 @@ mod tests {
         crate::ask::undo(&c, &id).unwrap();
         assert!(c.config.lock().unwrap().plans[0].excludes.is_empty());
         assert!(crate::ask::undoable(&c).is_empty());
+
+        // An editor still holding the plan from before a change made elsewhere can't save over it.
+        let held = c.config.lock().unwrap().plans[0].clone();
+        let made = crate::ask::apply(&c, &serde_json::json!({"plan": "p1", "skipMarked": false})).unwrap();
+        let mut stale = held;
+        stale.name = "Renamed".into();
+        let e = crate::save_plan_now(&c, stale, None).unwrap_err();
+        assert!(e.contains(crate::PLAN_CHANGED), "{e}");
+        assert!(!c.config.lock().unwrap().plans[0].skip_marked, "Ask's change stayed");
+        crate::ask::undo(&c, &made).unwrap();
 
         // Undo puts back only what the change changed: an edit made since stays.
         let id = crate::ask::apply(&c, &change).unwrap();

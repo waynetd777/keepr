@@ -32,7 +32,7 @@ Tick what you want back: files, folders, or a mix. A ticked folder comes back wi
 - **Restore to**: **Original location**, or **Another folder…**.
 - **If a file is already there**: **Keep both (add "restored")**, **Replace it** or **Skip it**.
 
-Click **Restore**. A file only takes its real name once it's complete, so a stopped restore never leaves half a file. A deleted file comes from the last snapshot that had it. The restore shows in [Activity](app:activity). Files backed up from an S3 bucket can only be restored to a folder on the Mac.
+Click **Restore**. A file only takes its real name once it's complete, so a stopped restore never leaves half a file. A deleted file comes from the last snapshot that had it. The restore shows in [Activity](app:activity), and in the top bar with **Pause** and **Stop**. Files backed up from an S3 bucket can only be restored to a folder on the Mac.
 
 ## See what takes the space
 **Size map**, beside **Files** above the list, shows the snapshot as a map: each folder a block as big as what it holds. Click a folder to zoom in, the path bar to come back out. `⌘`-click a folder, or click a dashed block, to find it in **Files**. For every plan in one map, see [Size map](help:sizemap).

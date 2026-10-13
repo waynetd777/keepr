@@ -50,7 +50,7 @@ Tick what you want back: files, folders, or a mix. A ticked folder comes back wi
 
 Then click **Restore**. Each file is written under a temporary name and only takes its real name once it's complete, so a restore that's stopped never leaves half a file. Files get back their modified times and permissions. A deleted file comes from the last snapshot that had it. After a restore to the original location, Keepr backs the plan up, so what you restored is in the latest snapshot and stops showing as deleted.
 
-A restore runs like a backup, one job at a time, and shows in [Activity](day-to-day.md#activity). Files backed up from an S3 bucket can only be restored to a folder on the Mac, never back into the bucket.
+A restore runs like a backup, one job at a time, and shows in [Activity](day-to-day.md#activity), and in the toolbar with **Pause** and **Stop**. Files backed up from an S3 bucket can only be restored to a folder on the Mac, never back into the bucket.
 
 ## Seeing what takes the space
 

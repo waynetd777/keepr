@@ -146,6 +146,11 @@ pub enum Often {
 pub struct Plan {
     pub id: String,
     pub name: String,
+    /// Goes up with every save. A save carries the number it was made against, so one made
+    /// against an older plan (the editor's, while Ask changed it) is refused rather than putting
+    /// the other change back.
+    #[serde(default)]
+    pub rev: u64,
     #[serde(default = "yes")]
     pub enabled: bool,
     pub sources: Vec<Place>,

@@ -347,6 +347,9 @@ async fn save_plan(core: State<'_, Core_>, plan: Plan, password: Option<String>)
     with_core(core, move |c| save_plan_now(c, plan, password)).await?
 }
 
+/// What a save made against an older plan answers; the editor takes the newer one in and saves again.
+pub(crate) const PLAN_CHANGED: &str = "was changed elsewhere while this change was being made";
+
 pub(crate) fn save_plan_now(core: &Core, mut plan: Plan, password: Option<String>) -> Result<Plan, String> {
     if plan.name.trim().is_empty() {
         return Err("Give the plan a name.".into());
@@ -378,6 +381,10 @@ pub(crate) fn save_plan_now(core: &Core, mut plan: Plan, password: Option<String
             // The folder only changes through rename_plan_folder: a page still holding the old
             // name must not point the plan back at a folder that has gone.
             plan.folder = old.folder.clone();
+            if plan.rev != old.rev {
+                return Err(format!("{} {PLAN_CHANGED}. Try again.", old.name));
+            }
+            plan.rev = old.rev + 1;
             if created && (old.encrypted != plan.encrypted || old.destination != plan.destination) {
                 return Err(if old.encrypted != plan.encrypted {
                     "Encryption can't be turned on or off for a backup that already exists. Make a new plan instead.".into()

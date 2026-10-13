@@ -28,6 +28,7 @@ function blankPlan(dest: string, excludes: string[]): Plan {
   return {
     id: "",
     name: "",
+    rev: 0,
     enabled: true,
     sources: [],
     destination: dest,
@@ -464,6 +465,9 @@ function RemoveSourceSheet({
 
 // ---- the editor ----
 
+// What a save made against an older plan answers (lib.rs PLAN_CHANGED).
+const PLAN_CHANGED = "was changed elsewhere while this change was being made";
+
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 /** `saved` (the plan as the config has it now) with what `mine` changed from `base` (as the config
  * had it before), field by field: a change from elsewhere stays unless it's to a field edited here. */
@@ -568,7 +572,20 @@ export default function Plans() {
       // The editor's plan by now, which has taken in any change saved from elsewhere meanwhile.
       const latest = mine.current?.id === nextPlan.id ? mine.current : nextPlan;
       void act(async () => {
-        await api.savePlan(latest);
+        let saved: Plan;
+        try {
+          saved = await api.savePlan(latest);
+        } catch (e) {
+          // Changed elsewhere since the editor last had it (a change applied in Ask): take that
+          // in, keeping what was edited here, and save again.
+          if (!String(e).includes(PLAN_CHANGED)) throw e;
+          const now = (await api.config()).plans.find((p) => p.id === latest.id);
+          if (!now) throw e;
+          const base = JSON.parse(seen.current || JSON.stringify(now)) as Plan;
+          saved = await api.savePlan(rebase(now, base, latest));
+        }
+        // What this save was made against is now the plan: the next one goes from its number.
+        setPlan((p) => (p && p.id === saved.id ? { ...p, rev: saved.rev } : p));
         await refresh();
       });
     }, 500);

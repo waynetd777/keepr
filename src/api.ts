@@ -34,6 +34,8 @@ export type Retention = {
 export type Plan = {
   id: string;
   name: string;
+  /** Goes up with every save; a save made against an older one is refused (PLAN_CHANGED). */
+  rev: number;
   enabled: boolean;
   sources: Place[];
   destination: string;
