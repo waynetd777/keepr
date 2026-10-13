@@ -112,18 +112,25 @@ function KeepBox({
   label,
   value,
   options,
+  unit,
   onChange,
 }: {
   label: string;
   value: number;
   options: [number, string][];
+  /// Names a value that isn't one of the options (set by Ask or by hand in the config), so the
+  /// box shows what the plan keeps rather than the first option.
+  unit: (v: number) => string;
   onChange: (v: number) => void;
 }) {
+  const all = options.some(([v]) => v === value)
+    ? options
+    : [...options, [value, unit(value)] as [number, string]].sort((a, b) => (a[0] || Infinity) - (b[0] || Infinity));
   return (
     <label className="keep-box">
       <span className="tiny faint">{label}</span>
       <select value={value} onChange={(e) => onChange(Number(e.target.value))}>
-        {options.map(([v, t]) => (
+        {all.map(([v, t]) => (
           <option key={v} value={v}>
             {t}
           </option>
@@ -800,6 +807,7 @@ export default function Plans() {
                 label="Every backup"
                 value={r.allHours}
                 onChange={(v) => setR("allHours", v)}
+                unit={(v) => (v % 24 === 0 ? `for ${v / 24} days` : `for ${v} hours`)}
                 options={[
                   [0, "not kept"],
                   [24, "for 24 hours"],
@@ -811,6 +819,7 @@ export default function Plans() {
                 label="One a day"
                 value={r.dailyDays}
                 onChange={(v) => setR("dailyDays", v)}
+                unit={(v) => `for ${v} day${v === 1 ? "" : "s"}`}
                 options={[
                   [0, "not kept"],
                   [7, "for 7 days"],
@@ -824,6 +833,7 @@ export default function Plans() {
                 label="One a week"
                 value={r.weeklyWeeks}
                 onChange={(v) => setR("weeklyWeeks", v)}
+                unit={(v) => `for ${v} week${v === 1 ? "" : "s"}`}
                 options={[
                   [0, "not kept"],
                   [4, "for 4 weeks"],
@@ -836,6 +846,7 @@ export default function Plans() {
                 label="One a month"
                 value={r.monthlyMonths}
                 onChange={(v) => setR("monthlyMonths", v)}
+                unit={(v) => (v % 12 === 0 ? `for ${v / 12} years` : `for ${v} month${v === 1 ? "" : "s"}`)}
                 options={[
                   [12, "for a year"],
                   [24, "for 2 years"],

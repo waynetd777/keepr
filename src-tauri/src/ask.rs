@@ -548,7 +548,7 @@ pub struct Checked {
     lines: Vec<Line>,
     left_out: Option<LeftOut>,
     /// Snapshots kept now, and after the change.
-    snapshots: Option<(u32, u32)>,
+    snapshots: Option<(u32, u32, u32)>,
     warnings: Vec<String>,
 }
 
@@ -800,13 +800,17 @@ pub fn check(core: &Core, raw: &serde_json::Value) -> Result<Checked, String> {
         let times: Vec<chrono::DateTime<chrono::Local>> = snaps.iter().filter_map(|s| retention::parse_time(&s.time)).collect();
         let now = chrono::Local::now();
         let (x, y) = (retention::keep(&a.retention, &times, now).len() as u32, retention::keep(&b.retention, &times, now).len() as u32);
+        // There can be more snapshots than the current settings keep: the tidy-up runs at most
+        // once a day. What this change adds to it is what it should be judged on.
+        let there = snaps.len() as u32;
         if y < x {
+            let gone = there.saturating_sub(y);
+            let ours = if gone > x - y { format!(", {} of them because of this change", x - y) } else { String::new() };
             warnings.push(format!(
-                "The next tidy-up removes {} snapshots, and the versions only they hold can't be restored afterwards.",
-                x - y
+                "The next tidy-up removes {gone} snapshots{ours}, and the versions only they hold can't be restored afterwards."
             ));
         }
-        snapshots = Some((x, y));
+        snapshots = Some((there, x, y));
     }
     let _ = total;
     Ok(Checked { plan_id: a.id.clone(), plan_name: a.name.clone(), why: c.why, lines, left_out: lo, snapshots, warnings })

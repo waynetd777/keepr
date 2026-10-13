@@ -59,7 +59,8 @@ export type AskChecked = {
   why: string;
   lines: { what: string; before: string; after: string }[];
   leftOut: { files: number; bytes: number; recentFiles: number; folders: [string, number][] } | null;
-  snapshots: [number, number] | null;
+  /** The snapshots there now, how many the current settings keep, and how many the change keeps. */
+  snapshots: [number, number, number] | null;
   warnings: string[];
 };
 export type Config = { destinations: Destination[]; plans: Plan[]; settings: Settings };

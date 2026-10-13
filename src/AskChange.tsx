@@ -95,7 +95,8 @@ export function AskChange({ raw, bad }: { raw: unknown; bad?: string }) {
       )}
       {checked.snapshots && (
         <span>
-          Keeps {checked.snapshots[1].toLocaleString()} of the {checked.snapshots[0].toLocaleString()} snapshots kept now.
+          Keeps {checked.snapshots[2].toLocaleString()} of the {checked.snapshots[0].toLocaleString()} snapshots there now
+          {checked.snapshots[1] < checked.snapshots[0] ? ` (the settings now keep ${checked.snapshots[1].toLocaleString()})` : ""}.
         </span>
       )}
       {checked.warnings.map((w) => (
