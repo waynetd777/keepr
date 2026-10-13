@@ -31,7 +31,7 @@ describe("help topics", () => {
   });
 
   it("has the getting-started guides, each with steps that link into the app", () => {
-    expect(GUIDES.map((g) => g.title)).toEqual(["Start here", "Get a file back", "Keep an eye on it"]);
+    expect(GUIDES.map((g) => g.title)).toEqual(["Start here", "Get a file back", "Keep an eye on it", "Ask about your backups"]);
     for (const g of GUIDES) {
       expect(g.sections.length, g.id).toBeGreaterThanOrEqual(3);
       for (const s of g.sections) expect(s.body, `${g.id} › ${s.title}`).toMatch(/\]\(app:/);

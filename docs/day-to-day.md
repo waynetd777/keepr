@@ -62,7 +62,7 @@ Press `?`, click **?** at the right of the toolbar, or choose Help › **Keepr H
 <a href="images/index.md#day-to-day"><picture><source media="(prefers-color-scheme: dark)" srcset="images/help-dark.png"><img alt="Help for Restore, at the side of the window, with the getting-started guides below" src="images/help-light.png"></picture></a>
 
 - **Search the help** searches every topic.
-- **Getting started** has three guides, **Start here**, **Get a file back** and **Keep an eye on it**, a step at a time, with links that take you to the screen each step is about. A finished guide is marked **Done**.
+- **Getting started** has four guides, **Start here**, **Get a file back**, **Keep an eye on it** and **Ask about your backups**, a step at a time, with links that take you to the screen each step is about. A finished guide is marked **Done**.
 - **Keyboard** lists the keys for the screen, and **All topics** the help for the others.
 
 ## In the background

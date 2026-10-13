@@ -36,10 +36,11 @@ macro_rules! help_pages {
         [$(($name, include_str!(concat!("../../../src/help/", $name, ".md")))),*]
     };
 }
-const HELP: [(&str, &str); 16] = help_pages![
+const HELP: [(&str, &str); 17] = help_pages![
     "guide-start",
     "guide-watch",
     "guide-restore",
+    "guide-ask",
     "overview",
     "plan",
     "sizemap",
