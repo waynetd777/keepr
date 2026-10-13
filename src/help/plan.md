@@ -29,7 +29,7 @@ The switches below also skip what a project's `.gitignore` leaves out, files onl
 **Leave this plan out of Ask** keeps the plan's folders and runs out of [Ask](help:ask): it sees only the plan's name, its Ask buttons are greyed out, and Ask can't suggest changes to it.
 
 ## Versions to keep
-Every backup is a snapshot of all the plan's files. Older snapshots are thinned out: **Every backup** for a while, then **One a day**, **One a week** and **One a month**, each for as long as you choose. The newest snapshot is always kept.
+Every backup is a snapshot of all the plan's files. Older snapshots are thinned out: **Every backup** for a while, then **One a day**, **One a week** and **One a month**, each for as long as you choose, or not kept. The sentence under them says what they keep, counting back from now. The newest snapshot is always kept.
 
 **Keep deleted files for at least 90 days** keeps the last copy of anything deleted in the last 90 days, whatever the rules say. Thinning out happens in a tidy-up after a backup, at most once a day.
 

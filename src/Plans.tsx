@@ -15,7 +15,14 @@ import { confirm, DestIcon, PlanProgress, Seg, Sheet, Switch, useAct, useMenu, u
 import { SmbFields, useSmbForm } from "./SmbFields";
 import { ago, bytes, next, tilde } from "./format";
 
-const DEFAULT_RETENTION: Retention = { allHours: 24, dailyDays: 30, weeklyWeeks: 52, monthlyMonths: 0, keepDeletedDays: 90 };
+const DEFAULT_RETENTION: Retention = {
+  allHours: 24,
+  dailyDays: 30,
+  weeklyWeeks: 52,
+  monthlyMonths: 0,
+  monthlyOff: false,
+  keepDeletedDays: 90,
+};
 
 function blankPlan(dest: string, excludes: string[]): Plan {
   return {
@@ -82,18 +89,37 @@ function defaultNames(sources: Place[], home: string): string[] {
 
 // ---- versions to keep ----
 
+// The ages the strip's sixty ticks stand for, in days: now to a day, to a month, to a year, then
+// to the end of what's kept (the label under the strip's right end).
+function tickAge(i: number, end: number) {
+  if (i < 12) return i / 12;
+  if (i < 30) return 1 + ((i - 12) / 18) * 29;
+  if (i < 48) return 30 + ((i - 30) / 18) * 335;
+  return 365 + ((i - 48) / 12) * (end - 365);
+}
+// The right end of the strip, in days, and its label: as far as monthly versions go.
+function stripEnd(r: Retention): [number, string] {
+  if (!r.monthlyOff && r.monthlyMonths === 0) return [5 * 365, "Forever"];
+  if (!r.monthlyOff && r.monthlyMonths > 12) return [(r.monthlyMonths / 12) * 365, `${r.monthlyMonths / 12} years`];
+  return [2 * 365, ""];
+}
+
 function Ticks({ r }: { r: Retention }) {
-  // Sixty ticks from now into the past, denser where more versions are kept.
+  // Sixty ticks from now into the past, each as dense as the versions kept at its age: every
+  // tick for every backup, every second for one a day, every fourth a week, every sixth a month.
   const ticks = useMemo(() => {
+    const [end] = stripEnd(r);
     const out: { h: number; on: boolean }[] = [];
     for (let i = 0; i < 60; i++) {
-      let on: boolean;
-      let h: number;
-      if (i < 12) [on, h] = [r.allHours > 0, 24];
-      else if (i < 30) [on, h] = [r.dailyDays > 0 && i % 2 === 0, 20];
-      else if (i < 48) [on, h] = [r.weeklyWeeks > 0 && i % 4 === 0, 16];
-      else [on, h] = [(r.monthlyMonths === 0 || i < 48 + r.monthlyMonths / 2) && i % 6 === 0, 12];
-      out.push({ h: on ? h : 4, on });
+      const age = tickAge(i, end);
+      const tiers: [boolean, number, number][] = [
+        [age * 24 < r.allHours, 1, 24],
+        [age < r.dailyDays, 2, 20],
+        [age < r.weeklyWeeks * 7, 4, 16],
+        [!r.monthlyOff && (r.monthlyMonths === 0 || age < r.monthlyMonths * 30.44), 6, 12],
+      ];
+      const hit = tiers.find(([covers, every]) => covers && i % every === 0);
+      out.push(hit ? { h: hit[2], on: true } : { h: 4, on: false });
     }
     return out;
   }, [r]);
@@ -106,6 +132,57 @@ function Ticks({ r }: { r: Retention }) {
       ))}
     </div>
   );
+}
+
+// What each box offers, and how a value that isn't one of them reads.
+const NOT_KEPT_MONTHLY = -1;
+const KEEP_EVERY: [number, string][] = [
+  [0, "not kept"],
+  [24, "for 24 hours"],
+  [48, "for 2 days"],
+  [168, "for a week"],
+];
+const KEEP_DAILY: [number, string][] = [
+  [0, "not kept"],
+  [7, "for 7 days"],
+  [14, "for 14 days"],
+  [21, "for 21 days"],
+  [30, "for 30 days"],
+  [90, "for 90 days"],
+];
+const KEEP_WEEKLY: [number, string][] = [
+  [0, "not kept"],
+  [4, "for 4 weeks"],
+  [12, "for 3 months"],
+  [26, "for 6 months"],
+  [52, "for 12 months"],
+];
+const KEEP_MONTHLY: [number, string][] = [
+  [NOT_KEPT_MONTHLY, "not kept"],
+  [12, "for a year"],
+  [24, "for 2 years"],
+  [60, "for 5 years"],
+  [0, "forever"],
+];
+const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
+const everyUnit = (v: number) =>
+  v % 168 === 0 ? `for ${plural(v / 168, "week")}` : v % 24 === 0 ? `for ${plural(v / 24, "day")}` : `for ${plural(v, "hour")}`;
+const dailyUnit = (v: number) => `for ${plural(v, "day")}`;
+const weeklyUnit = (v: number) => `for ${plural(v, "week")}`;
+const monthlyUnit = (v: number) => (v % 12 === 0 ? `for ${plural(v / 12, "year")}` : `for ${plural(v, "month")}`);
+const labelOf = (options: [number, string][], unit: (v: number) => string, v: number) => options.find(([o]) => o === v)?.[1] ?? unit(v);
+
+/** What the boxes keep, in a sentence. */
+function keepsSentence(r: Retention): string {
+  const parts: string[] = [];
+  if (r.allHours > 0) parts.push(`every backup ${labelOf(KEEP_EVERY, everyUnit, r.allHours)}`);
+  if (r.dailyDays > 0) parts.push(`the last of each day ${labelOf(KEEP_DAILY, dailyUnit, r.dailyDays)}`);
+  if (r.weeklyWeeks > 0) parts.push(`the last of each week ${labelOf(KEEP_WEEKLY, weeklyUnit, r.weeklyWeeks)}`);
+  const forever = !r.monthlyOff && r.monthlyMonths === 0;
+  if (!r.monthlyOff) parts.push(`the last of each month ${labelOf(KEEP_MONTHLY, monthlyUnit, r.monthlyMonths)}`);
+  if (!parts.length) return "Keeps only the latest backup: every older one is removed at the next tidy-up.";
+  const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+  return `Keeps ${list}, counting back from now.${forever ? "" : " Anything older is removed, except the latest backup."}`;
 }
 
 function KeepBox({
@@ -123,9 +200,13 @@ function KeepBox({
   unit: (v: number) => string;
   onChange: (v: number) => void;
 }) {
-  const all = options.some(([v]) => v === value)
-    ? options
-    : [...options, [value, unit(value)] as [number, string]].sort((a, b) => (a[0] || Infinity) - (b[0] || Infinity));
+  // An unlisted value goes in order among the lengths; "not kept" and "forever" stay put.
+  let all = options;
+  if (!options.some(([v]) => v === value)) {
+    const after = options.findIndex(([v]) => v > 0 && v > value);
+    const at = after >= 0 ? after : options.length - [...options].reverse().findIndex(([v]) => v > 0);
+    all = [...options.slice(0, at), [value, unit(value)], ...options.slice(at)];
+  }
   return (
     <label className="keep-box">
       <span className="tiny faint">{label}</span>
@@ -800,61 +881,43 @@ export default function Plans() {
               <span>1 month</span>
               <span>1 year</span>
               {/* A year is the mark before this one, so only a longer history gets a label here. */}
-              <span>{r.monthlyMonths === 0 ? "Forever" : r.monthlyMonths > 12 ? `${r.monthlyMonths / 12} years` : ""}</span>
+              <span>{stripEnd(r)[1]}</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
               <KeepBox
                 label="Every backup"
                 value={r.allHours}
                 onChange={(v) => setR("allHours", v)}
-                unit={(v) => (v % 24 === 0 ? `for ${v / 24} days` : `for ${v} hours`)}
-                options={[
-                  [0, "not kept"],
-                  [24, "for 24 hours"],
-                  [48, "for 2 days"],
-                  [168, "for a week"],
-                ]}
+                unit={everyUnit}
+                options={KEEP_EVERY}
               />
-              <KeepBox
-                label="One a day"
-                value={r.dailyDays}
-                onChange={(v) => setR("dailyDays", v)}
-                unit={(v) => `for ${v} day${v === 1 ? "" : "s"}`}
-                options={[
-                  [0, "not kept"],
-                  [7, "for 7 days"],
-                  [14, "for 14 days"],
-                  [21, "for 21 days"],
-                  [30, "for 30 days"],
-                  [90, "for 90 days"],
-                ]}
-              />
+              <KeepBox label="One a day" value={r.dailyDays} onChange={(v) => setR("dailyDays", v)} unit={dailyUnit} options={KEEP_DAILY} />
               <KeepBox
                 label="One a week"
                 value={r.weeklyWeeks}
                 onChange={(v) => setR("weeklyWeeks", v)}
-                unit={(v) => `for ${v} week${v === 1 ? "" : "s"}`}
-                options={[
-                  [0, "not kept"],
-                  [4, "for 4 weeks"],
-                  [12, "for 3 months"],
-                  [26, "for 6 months"],
-                  [52, "for 12 months"],
-                ]}
+                unit={weeklyUnit}
+                options={KEEP_WEEKLY}
               />
               <KeepBox
                 label="One a month"
-                value={r.monthlyMonths}
-                onChange={(v) => setR("monthlyMonths", v)}
-                unit={(v) => (v % 12 === 0 ? `for ${v / 12} years` : `for ${v} month${v === 1 ? "" : "s"}`)}
-                options={[
-                  [12, "for a year"],
-                  [24, "for 2 years"],
-                  [60, "for 5 years"],
-                  [0, "forever"],
-                ]}
+                value={r.monthlyOff ? NOT_KEPT_MONTHLY : r.monthlyMonths}
+                onChange={(v) =>
+                  update((p) => ({
+                    ...p,
+                    retention:
+                      v === NOT_KEPT_MONTHLY
+                        ? { ...p.retention, monthlyOff: true }
+                        : { ...p.retention, monthlyOff: false, monthlyMonths: v },
+                  }))
+                }
+                unit={monthlyUnit}
+                options={KEEP_MONTHLY}
               />
             </div>
+            <p className="small muted" style={{ margin: 0 }}>
+              {keepsSentence(r)}
+            </p>
             <label className="check muted">
               <input type="checkbox" checked={r.keepDeletedDays > 0} onChange={(e) => setR("keepDeletedDays", e.target.checked ? 90 : 0)} />
               Keep deleted files for at least 90 days, whatever the rules above say

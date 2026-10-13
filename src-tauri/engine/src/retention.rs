@@ -17,8 +17,12 @@ pub struct Retention {
     pub daily_days: u32,
     /// the last of each week for this many weeks,
     pub weekly_weeks: u32,
-    /// and the last of each month for this many months (0: forever).
+    /// and the last of each month for this many months (0: forever),
     pub monthly_months: u32,
+    /// unless monthly ones aren't kept at all. (0 already meant forever, so not keeping them is
+    /// its own setting.)
+    #[serde(default)]
+    pub monthly_off: bool,
     /// Whatever the rules above say, a deleted file's last version is kept this many days after
     /// it was deleted (0: no such promise).
     #[serde(default = "ninety")]
@@ -31,7 +35,7 @@ fn ninety() -> u32 {
 
 impl Default for Retention {
     fn default() -> Retention {
-        Retention { all_hours: 24, daily_days: 30, weekly_weeks: 52, monthly_months: 0, keep_deleted_days: 90 }
+        Retention { all_hours: 24, daily_days: 30, weekly_weeks: 52, monthly_months: 0, monthly_off: false, keep_deleted_days: 90 }
     }
 }
 
@@ -62,7 +66,7 @@ pub fn keep(r: &Retention, times: &[DateTime<Local>], now: DateTime<Local>) -> H
         }
         let month = (t.year(), t.month());
         let months_old = (now.year() - t.year()) * 12 + now.month() as i32 - t.month() as i32;
-        if (r.monthly_months == 0 || months_old < r.monthly_months as i32) && months.insert(month) {
+        if !r.monthly_off && (r.monthly_months == 0 || months_old < r.monthly_months as i32) && months.insert(month) {
             out.insert(i);
         }
     }
@@ -94,8 +98,21 @@ mod tests {
         let oldest_month = (times[times.len() - 1].year(), times[times.len() - 1].month());
         assert!(k.iter().any(|&i| (times[i].year(), times[i].month()) == oldest_month));
 
-        let r = Retention { all_hours: 0, daily_days: 0, weekly_weeks: 0, monthly_months: 1, keep_deleted_days: 0 };
+        let r = Retention { all_hours: 0, daily_days: 0, weekly_weeks: 0, monthly_months: 1, monthly_off: false, keep_deleted_days: 0 };
         let k = keep(&r, &times, now);
         assert_eq!(k.len(), 1, "only this month's newest");
+    }
+
+    #[test]
+    fn no_monthly_ones_keeps_only_the_rest() {
+        let now = Local.with_ymd_and_hms(2026, 9, 28, 15, 0, 0).unwrap();
+        let times: Vec<_> = (0..400).map(|d| now - Duration::days(d)).collect();
+        let r = Retention { all_hours: 0, daily_days: 3, weekly_weeks: 0, monthly_months: 0, monthly_off: true, keep_deleted_days: 0 };
+        assert_eq!(keep(&r, &times, now).len(), 3, "three days, and no month's newest");
+        // A plan saved before the setting existed still keeps monthly ones forever.
+        let old: Retention =
+            serde_json::from_str(r#"{"allHours":0,"dailyDays":3,"weeklyWeeks":0,"monthlyMonths":0,"keepDeletedDays":0}"#).unwrap();
+        assert!(!old.monthly_off);
+        assert!(keep(&old, &times, now).len() > 3);
     }
 }

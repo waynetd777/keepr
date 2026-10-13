@@ -20,7 +20,16 @@ export type Destination = { id: string; name: string; place: Place; disconnectAf
 export type Every = "minutes15" | "hourly" | "daily" | "weekly" | "manual";
 export type Often = "weekly" | "monthly" | "never";
 
-export type Retention = { allHours: number; dailyDays: number; weeklyWeeks: number; monthlyMonths: number; keepDeletedDays: number };
+export type Retention = {
+  allHours: number;
+  dailyDays: number;
+  weeklyWeeks: number;
+  /** 0 keeps monthly versions forever. */
+  monthlyMonths: number;
+  /** No monthly versions at all; missing in a plan saved before it existed. */
+  monthlyOff?: boolean;
+  keepDeletedDays: number;
+};
 
 export type Plan = {
   id: string;

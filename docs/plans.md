@@ -42,11 +42,11 @@ Rules leave files and folders out of the backup. A new plan leaves out `node_mod
 Every backup is a snapshot of all the plan's files as they were then. To keep the backup from growing for ever, older snapshots are thinned out, and the timeline shows what's left:
 
 - **Every backup** — for 24 hours, 2 days or a week.
-- **One a day** — for 7, 14, 30 or 90 days.
+- **One a day** — for 7, 14, 21, 30 or 90 days.
 - **One a week** — for 4 weeks, 3, 6 or 12 months.
 - **One a month** — for 1, 2 or 5 years, or forever.
 
-Any of the first three can be **not kept**. The newest snapshot is always kept. **Keep deleted files for at least 90 days, whatever the rules above say** keeps the last copy of anything you've deleted in the last 90 days, even if the rules would have thinned it out.
+Each can be **not kept**, and a length set another way (by [Ask](features.md#ask), say) shows as it is. A sentence under the boxes says what they keep, counting back from now. The newest snapshot is always kept. **Keep deleted files for at least 90 days, whatever the rules above say** keeps the last copy of anything you've deleted in the last 90 days, even if the rules would have thinned it out.
 
 Thinning out happens in a **Tidy up** after a backup, at most once a day. The space goes back only when nothing else uses the data: a file that hasn't changed is stored once, however many snapshots hold it.
 

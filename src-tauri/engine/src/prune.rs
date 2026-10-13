@@ -435,7 +435,7 @@ mod tests {
         }
         fs::remove_file(src.path().join("z.txt")).unwrap();
         backup::run(&repo, &opts(src.path()), Some(&s1), &Control::default()).unwrap();
-        let r = Retention { all_hours: 0, daily_days: 0, weekly_weeks: 0, monthly_months: 1, keep_deleted_days: 90 };
+        let r = Retention { all_hours: 0, daily_days: 0, weekly_weeks: 0, monthly_months: 1, monthly_off: false, keep_deleted_days: 90 };
         assert_eq!(run(&repo, &r, &Control::default()).unwrap().forgotten, 0);
     }
 
@@ -450,7 +450,8 @@ mod tests {
         fs::write(src.path().join("b.txt"), b"beta").unwrap();
         let parent = other.snapshots().unwrap().pop();
         backup::run(&other, &opts(src.path()), parent.as_ref(), &Control::default()).unwrap();
-        let keep_all = Retention { all_hours: 1000, daily_days: 0, weekly_weeks: 0, monthly_months: 0, keep_deleted_days: 0 };
+        let keep_all =
+            Retention { all_hours: 1000, daily_days: 0, weekly_weeks: 0, monthly_months: 0, monthly_off: false, keep_deleted_days: 0 };
         let p = run(&repo, &keep_all, &Control::default()).unwrap();
         assert_eq!(p.packs_deleted, 0, "{p:?}");
         assert!(crate::check::run(&repo, 1.0, &Control::default()).unwrap().problems.is_empty());
@@ -459,7 +460,8 @@ mod tests {
     #[test]
     fn small_packs_are_merged_once_there_are_enough() {
         let (src, dst, repo) = setup(None);
-        let keep_all = Retention { all_hours: 1000, daily_days: 0, weekly_weeks: 0, monthly_months: 0, keep_deleted_days: 0 };
+        let keep_all =
+            Retention { all_hours: 1000, daily_days: 0, weekly_weeks: 0, monthly_months: 0, monthly_off: false, keep_deleted_days: 0 };
         let packs = |r: &Repo| r.backend.list("packs").unwrap().iter().filter(|f| f.ends_with(".pack")).count();
         let mut parent = None;
         for i in 0..MERGE_AT + 1 {
@@ -586,7 +588,8 @@ mod tests {
         let _s2 = backup::run(&repo, &opts(src.path()), Some(&s1), &Control::default()).unwrap();
         // Forget the first by making the policy keep only the newest.
         // Keeping deleted files for 90 days keeps the first snapshot, which has gone.bin.
-        let mut r = Retention { all_hours: 0, daily_days: 0, weekly_weeks: 0, monthly_months: 1, keep_deleted_days: 90 };
+        let mut r =
+            Retention { all_hours: 0, daily_days: 0, weekly_weeks: 0, monthly_months: 1, monthly_off: false, keep_deleted_days: 90 };
         let p = run(&repo, &r, &Control::default()).unwrap();
         assert_eq!(p.forgotten, 0);
         r.keep_deleted_days = 0;

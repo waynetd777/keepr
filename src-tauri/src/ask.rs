@@ -206,7 +206,13 @@ fn every(s: &Schedule) -> String {
 }
 
 fn keeps(r: &Retention) -> String {
-    let months = if r.monthly_months == 0 { "monthly forever".to_string() } else { format!("monthly for {} months", r.monthly_months) };
+    let months = if r.monthly_off {
+        "no monthly ones".to_string()
+    } else if r.monthly_months == 0 {
+        "monthly forever".to_string()
+    } else {
+        format!("monthly for {} months", r.monthly_months)
+    };
     format!(
         "every backup for {} hours, then daily for {} days, weekly for {} weeks, {months}; a deleted file's last version for {} days",
         r.all_hours, r.daily_days, r.weekly_weeks, r.keep_deleted_days
@@ -684,8 +690,16 @@ fn diff(a: &Plan, b: &Plan) -> Vec<Line> {
     line("Keep every backup for", n(x.all_hours, "hour"), n(y.all_hours, "hour"));
     line("Then one a day for", n(x.daily_days, "day"), n(y.daily_days, "day"));
     line("Then one a week for", n(x.weekly_weeks, "week"), n(y.weekly_weeks, "week"));
-    let months = |m: u32| if m == 0 { "ever".to_string() } else { n(m, "month") };
-    line("Then one a month for", months(x.monthly_months), months(y.monthly_months));
+    let months = |r: &Retention| {
+        if r.monthly_off {
+            "not kept".to_string()
+        } else if r.monthly_months == 0 {
+            "ever".to_string()
+        } else {
+            n(r.monthly_months, "month")
+        }
+    };
+    line("Then one a month for", months(x), months(y));
     line("A deleted file's last version for", n(x.keep_deleted_days, "day"), n(y.keep_deleted_days, "day"));
     line("Back up", every(&a.schedule), every(&b.schedule));
     out
@@ -985,7 +999,7 @@ mod tests {
 
     #[test]
     fn overlay_keeps_what_isnt_named() {
-        let r = Retention { all_hours: 24, daily_days: 30, weekly_weeks: 8, monthly_months: 0, keep_deleted_days: 90 };
+        let r = Retention { all_hours: 24, daily_days: 30, weekly_weeks: 8, monthly_months: 0, monthly_off: false, keep_deleted_days: 90 };
         let r2: Retention = overlay(&r, &serde_json::json!({"dailyDays": 14}), "retention").unwrap();
         assert_eq!((r2.all_hours, r2.daily_days, r2.monthly_months), (24, 14, 0));
         assert!(overlay::<Retention>(&r, &serde_json::json!({"forever": 1}), "retention").is_err());
