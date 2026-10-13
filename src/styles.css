@@ -1891,9 +1891,13 @@ html.tray body {
   font-size: 11.5px;
   color: var(--accent-text);
 }
-.help-btn.on {
+.help-btn.on,
+.btn.askbtn.on {
   background: var(--accent-soft);
   color: var(--accent-text);
+}
+.btn.askbtn.on {
+  border-color: var(--accent);
 }
 
 /* The size map's growth layer (src/growth.ts): in ink, so it stands out on the coloured blocks. */

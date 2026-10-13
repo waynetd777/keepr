@@ -14,6 +14,7 @@ import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { GROUP_NAME, loadModel, modelGroups, pickModel, providerOf, saveModel, useAssistant, type Provider } from "./assistant";
 import { AskChange, splitChanges } from "./AskChange";
+import { AskIcon } from "./AskButton";
 import { useApp } from "./context";
 import { closeHelp, useHelpOpen } from "./help/HelpDrawer";
 import { mdToHtml } from "./md";
@@ -76,6 +77,17 @@ const useAskState = () =>
     },
     () => (shown ? (seedNow ? seedNow.n : 1) : 0),
   );
+
+/** The toolbar's Ask button: green while the panel is open, as Help's is. */
+export function AskToolbarButton() {
+  const open = useAskState() !== 0;
+  return (
+    <button className={`btn askbtn${open ? " on" : ""}`} aria-pressed={open} onClick={toggleAsk} title="Ask an AI about your backups ⌘J">
+      <AskIcon />
+      Ask
+    </button>
+  );
+}
 
 const uid = () => (typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 

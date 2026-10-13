@@ -19,8 +19,7 @@ import Search from "./Search";
 import PlansMap from "./PlansMap";
 import { QuitDialog } from "./Quit";
 import { UpdateDialog } from "./Update";
-import AskPanel, { toggleAsk } from "./Ask";
-import { AskIcon } from "./AskButton";
+import AskPanel, { AskToolbarButton, toggleAsk } from "./Ask";
 import { hideSplash } from "./splash";
 import { HelpButton, HelpDrawer, openHelp, type HelpView } from "./help/HelpDrawer";
 
@@ -164,10 +163,7 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
           Back up now
         </button>
       )}
-      <button className="btn askbtn" onClick={toggleAsk} title="Ask an AI about your backups ⌘J">
-        <AskIcon />
-        Ask
-      </button>
+      <AskToolbarButton />
       <HelpButton />
     </header>
   );
