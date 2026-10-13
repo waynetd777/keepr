@@ -9,7 +9,9 @@
     let target = null;
     try {
       target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
-    } catch {}
+    } catch {
+      // A malformed escape (#%E0): no section to go to.
+    }
     if (target) {
       document.documentElement.style.scrollBehavior = "auto";
       target.scrollIntoView({ behavior: "instant", block: "start" });

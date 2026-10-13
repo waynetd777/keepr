@@ -10,7 +10,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
 
 export default tseslint.config(
-  { ignores: ["dist/", "src-tauri/", "node_modules/", "_sift/", "design/", "tools/"] },
+  { ignores: ["dist/", "src-tauri/", "node_modules/", "_sift/", "design/", "tools/", ".demo/"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   // The product page's script runs in a browser with no bundler.
