@@ -24,7 +24,7 @@ If the Mac sleeps or the destination drops off, the next backup picks up the wor
 
 <a href="images/index.md#day-to-day"><picture><source media="(prefers-color-scheme: dark)" srcset="images/activity-dark.png"><img alt="Activity's history: backups, checks and a tidy-up, one waiting for its drive" src="images/activity-light.png"></picture></a>
 
-Below it is the **History** of every backup, full re-read, check, tidy-up and restore, with when it ran, how many files and how much data, how long it took and its result. **All**, **Problems** and **Restores** filter it. Click a row for its log, which says what was backed up, skipped or couldn't be read.
+Below it is the **History** of every backup, full re-read, check, tidy-up and restore, with when it ran, how many files and how much data, how long it took and its result. Each change to a plan made with Ask is there too, with **Undo**, which puts back the settings it changed. **All**, **Problems** and **Restores** filter it. Click a row for its log, which says what was backed up, skipped or couldn't be read; **Ask**, under the log, asks an AI what happened.
 
 ## Notifications
 
@@ -50,7 +50,7 @@ The foot of Settings shows Keepr's version and build, and its licence.
 
 Keepr checks for a new version once a day, and Keepr › **Check for Updates…** checks now. When there is one, it asks in its window, once the window is in front, with what's new in that version:
 
-- **Install and Restart** downloads it, showing how far it has got, installs it and opens the new version. If a backup, restore or check is running or about to, the update waits for another time.
+- **Install and Restart** downloads it, showing how far it has got, installs it and opens the new version. If a backup, restore or check is running or about to, or Ask is answering, the update waits for another time.
 - **Later** (or Esc) asks again tomorrow.
 - **Skip This Version** doesn't ask about this version again. **Check for Updates…** still offers it.
 

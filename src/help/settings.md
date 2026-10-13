@@ -30,4 +30,4 @@ A check that finds a problem with the stored data always tells you.
 The foot of Settings shows Keepr's version and build. Keepr is free software under the GNU General Public License, version 3 or later.
 
 ## Updates
-Keepr checks for a new version once a day, and asks in its window before installing it, with what's new: **Install and Restart**, **Later** (asked again tomorrow) or **Skip This Version**. **Check for Updates…** in the Keepr menu checks now. An update waits while a backup, restore or check is running.
+Keepr checks for a new version once a day, and asks in its window before installing it, with what's new: **Install and Restart**, **Later** (asked again tomorrow) or **Skip This Version**. **Check for Updates…** in the Keepr menu checks now. An update waits while a backup, restore or check is running, or while Ask is answering.

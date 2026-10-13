@@ -14,7 +14,7 @@ Keepr's icon in the menu bar shows a dot while it's backing up, and a mark when 
 Click the icon for whether everything is kept, the backup that's running with its time left, and each plan's last and next backup or its problem. Click a plan to open Keepr.
 
 ## Its menu
-**Back up all now** (`⌘B`), **Pause backups for an hour** (which also stops the backup that's running), **Restore a file…** (`⌘R`), **Open Keepr** (`⌘O`), **Settings…** (`⌘,`) and **Quit Keepr** (`⌘Q`), which asks first, and says so if a job is running. Quit Keepr, here or in the Keepr menu, is the only way to stop it backing up.
+**Back up all now** (`⌘B`), **Pause backups for an hour** (which also stops the backup that's running), **Restore a file…** (`⌘R`), **Open Keepr** (`⌘O`), **Settings…** (`⌘,`) and **Quit Keepr** (`⌘Q`), which asks first, and says so if a job is running. Quit Keepr, here or in the Keepr menu, is the way to stop it backing up. Quit in the Dock quits straight away, without asking.
 
 ## Open at Login
 The switch above Open Keepr is the same as [Open at Login](app:settings) in Settings: it starts Keepr in the menu bar when you log in. It's only there in the installed app.

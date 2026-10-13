@@ -82,7 +82,7 @@ describe("help topics", () => {
 
   it("gives the shortcut list to the drawer", () => {
     expect(keyRows("- `⌘[` `⌘]` — Back, forward\nnot a row")).toEqual([["⌘[  ⌘]", "Back, forward"]]);
-    expect(KEYS.map(([t]) => t)).toEqual(["Anywhere", "Restore", "Menu bar panel"]);
+    expect(KEYS.map(([t]) => t)).toEqual(["Anywhere", "Restore", "Size Map", "Menu bar panel"]);
     expect(KEYS[0][1]).toContainEqual(["?", "Help for this screen"]);
   });
 });

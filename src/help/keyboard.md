@@ -29,6 +29,9 @@ The shortcuts, by where they work.
 - `Space` — Quick Look the picked file
 - `⌘ click` — In the size map, find a folder in Files
 
+## Size Map
+- `⌘ click` — Open a folder in Restore
+
 ## Menu bar panel
 - `⌘B` — Back up all now
 - `⌘R` — Restore a file

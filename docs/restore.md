@@ -43,7 +43,7 @@ Right-click a file or folder in the list for the same things in one place: **Qui
 
 ## Restoring
 
-Tick what you want back: files, folders, or a mix. A ticked folder comes back with everything in it as it was then, and what's inside it shows ticked too; untick one of those to leave just that out. A folder with only some of what's inside it ticked shows a dash. The box above the list ticks everything, or nothing. The bar at the bottom says how much you've selected, and:
+Tick what you want back: files, folders, or a mix. A ticked folder comes back with everything in it as it was then, and what's inside it shows ticked too; untick one of those to leave just that out. A folder with only some of what's inside it ticked shows a dash. The box above the list ticks everything, or nothing. Ticks are for one snapshot: going to another clears them, and so does a removal or tidy-up that rewrites the snapshots. The bar at the bottom says how much you've selected, and:
 
 - **Restore to** — **Original location**, where each item was, making any folders that no longer exist; or **Another folder…**, where items keep their folders inside the folder you choose.
 - **If a file is already there** — **Keep both (add "restored")**, which names the restored copy "Budget (restored).numbers"; **Replace it**; or **Skip it**.
@@ -70,4 +70,4 @@ A plan whose destination can't be reached (an unplugged drive, say) isn't search
 
 ## Removing something from a backup
 
-**Remove from backup…**, under a file's or folder's versions (a deleted one's too), takes it out of every snapshot, to free the space or because it should never have been backed up. Keepr lists what will go and asks twice first; it can't be undone. A folder the plan backs up can't be removed here: take it out of the plan's folders instead. To stop it being backed up again, add a rule for it in the plan's [What to leave out](plans.md#what-to-leave-out).
+**Remove from backup…**, under a file's or folder's versions (a deleted one's too), takes it out of every snapshot, to free the space or because it should never have been backed up. Keepr lists what will go and asks twice first; it can't be undone. A folder, share or bucket the plan backs up can't be removed here: take it out of the plan's folders instead. To stop it being backed up again, add a rule for it in the plan's [What to leave out](plans.md#what-to-leave-out).

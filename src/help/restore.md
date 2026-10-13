@@ -27,7 +27,7 @@ Click a file to see every version kept of it, newest first. The one in the snaps
 **Show in Finder** opens the folder it's in on your Mac. Right-click a file or folder for all of these in one place, and for several ticked items at once.
 
 ## Put files back
-Tick what you want back: files, folders, or a mix. A ticked folder comes back with everything in it. Then choose, in the bar at the bottom:
+Tick what you want back: files, folders, or a mix. A ticked folder comes back with everything in it. Ticks are for one snapshot: going to another clears them, and so does a removal or tidy-up that rewrites the snapshots. Then choose, in the bar at the bottom:
 
 - **Restore to**: **Original location**, or **Another folder…**.
 - **If a file is already there**: **Keep both (add "restored")**, **Replace it** or **Skip it**.
@@ -40,4 +40,4 @@ Click **Restore**. A file only takes its real name once it's complete, so a stop
 ## Remove something from a backup
 **Remove from backup…**, under a file's or folder's versions, takes it out of every snapshot, to free the space or because it should never have been backed up. Keepr asks twice; it can't be undone. To stop it being backed up again, add a rule to the plan's What to leave out.
 
-Right-click a ticked item to remove all the ticked items at once; Keepr lists what will go before it asks. A folder the plan backs up can't be removed from here: take it out of the plan's folders instead, which asks whether to delete its backed-up data.
+Right-click a ticked item to remove all the ticked items at once; Keepr lists what will go before it asks. A folder with only some of what's in it ticked isn't removed whole: tick the folder itself to remove all of it. A folder, share or bucket the plan backs up can't be removed from here: take it out of the plan's folders instead, which asks whether to delete its backed-up data.
