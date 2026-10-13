@@ -14,7 +14,7 @@ import { statusDot, useApp } from "./context";
 import { Icon } from "./icons";
 import SizeMap from "./SizeMap";
 import { ClearButton, confirm, Sheet, Switch, useAct, useToast } from "./ui";
-import { bytes, dayKey, dayLabel, longWhen, tilde } from "./format";
+import { bytes, count, dayKey, dayLabel, longWhen, tilde } from "./format";
 
 const DAYS_SHOWN = 10;
 
@@ -498,21 +498,35 @@ export default function Restore() {
     }
   };
   // Deleting a file or folder from every snapshot: asked twice, as it can't be undone.
+  // What's being removed, as "2 files from ~/Desktop" or "the folder Old from ~/Desktop and
+  // everything in it", so it's plain that only those go, not the folder they're in.
+  const describe = (es: Entry[]) => {
+    const parentOf = (p: string) => p.slice(0, p.lastIndexOf("/")) || "/";
+    const parents = new Set(es.map((e) => parentOf(e.path)));
+    const from = parents.size === 1 ? ` from ${tilde([...parents][0], home)}` : "";
+    if (es.length === 1) {
+      const e = es[0];
+      return e.kind === "dir" ? `the folder ${e.name}${from} and everything in it` : `${e.name}${from}`;
+    }
+    const dirs = es.filter((e) => e.kind === "dir").length;
+    const files = es.length - dirs;
+    const what = [dirs && count(dirs, "folder"), files && count(files, "file")].filter(Boolean).join(" and ");
+    return `${what}${from || " from different folders"}${dirs ? ", with everything in the folders" : ""}`;
+  };
+  // Deleting a file or folder from every snapshot: asked twice, as it can't be undone.
   const removeFromBackup = async (es: Entry[]) => {
     if (!es.length) return;
     const one = es.length === 1;
-    const where = one ? tilde(es[0].path, home) : `these ${es.length} items`;
+    const what = describe(es);
     const first = await confirm({
-      title: one ? `Remove ${es[0].name} from the backup` : `Remove ${es.length} items from the backup`,
-      text: one
-        ? `Remove ${where} from every snapshot of ${plan.name}? Its space is freed, and none of its versions can be restored afterwards.`
-        : `Remove ${where} from every snapshot of ${plan.name}? Their space is freed, and none of their versions can be restored afterwards.`,
+      title: `Remove ${one ? es[0].name : describe(es).split(" from ")[0]} from the backup`,
+      text: `Remove ${what} from every snapshot of ${plan.name}? Only ${one ? "it goes" : "they go"}; nothing else is touched. ${one ? "Its" : "Their"} space is freed, and none of ${one ? "its" : "their"} versions can be restored afterwards.`,
       ok: "Continue",
     });
     if (!first) return;
     const sure = await confirm({
       title: "Are you sure?",
-      text: `Delete every backed-up version of ${where}? This can't be undone.`,
+      text: `Delete every backed-up version of ${what}? This can't be undone.`,
       ok: "Delete",
       danger: true,
     });
@@ -524,9 +538,7 @@ export default function Restore() {
       done++;
     }
     if (!done) return;
-    toast(
-      `Removing ${done === 1 ? es[0].name : `${done} items`}${done < es.length ? ` of ${es.length}` : ""} from the backup. Activity shows how it's going.`,
-    );
+    toast(`Removing ${done < es.length ? `${done} of ${es.length} items` : describe(es)} from the backup. Activity shows how it's going.`);
   };
   // A restore from this plan running or waiting: the footer shows its progress instead.
   const restoring = ov?.job?.kind === "restore" && ov.job.plan === plan.id ? ov.job : null;
