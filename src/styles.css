@@ -2196,14 +2196,3 @@ html.tray body {
   width: 13px;
   height: 13px;
 }
-.ask-sent {
-  white-space: pre-wrap;
-  font: 11px/1.5 var(--mono);
-  max-height: 60vh;
-  overflow: auto;
-  background: var(--sunk);
-  border-radius: 8px;
-  padding: 10px 12px;
-  user-select: text;
-  -webkit-user-select: text;
-}

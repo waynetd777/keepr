@@ -5,7 +5,7 @@
 // Ask: a chat about the backups, answered by an AI CLI already signed in on this Mac (as
 // Tidemark's Ask is; src-tauri/src/assistant/). The first message carries what Keepr knows
 // (src-tauri/src/ask.rs: the plans, their biggest folders and growth, the space stored, the recent
-// runs), which "What's sent" shows word for word; a follow-up resumes the CLI's session. An Ask
+// runs), as the help's Ask page describes it; a follow-up resumes the CLI's session. An Ask
 // button elsewhere (a size map's folder, a run in Activity) opens it with a question and its own
 // details. A change an answer proposes is shown, checked and applied in AskChange.tsx.
 
@@ -18,7 +18,6 @@ import { AskIcon } from "./AskButton";
 import { useApp } from "./context";
 import { closeHelp, useHelpOpen } from "./help/HelpDrawer";
 import { mdToHtml } from "./md";
-import { Sheet } from "./ui";
 
 const SUGGESTIONS = [
   "What takes the most space, and does all of it need backing up?",
@@ -108,9 +107,6 @@ export default function AskPanel() {
   const [q, setQ] = useState("");
   const [detail, setDetail] = useState<AskDetail | null>(null);
   const [plan, setPlan] = useState<string | undefined>();
-  // What the chat sent, for What's sent; or, before the first question, what it would send.
-  const [sent, setSent] = useState<string | null>(null);
-  const [showSent, setShowSent] = useState<string | null>(null);
   const sessionTool = useRef<Provider | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const composedAt = useRef(0);
@@ -199,8 +195,7 @@ export default function AskPanel() {
       if (!resume) {
         const ctx = await api.askContext(plan);
         prompt = `${ctx}\n\n${prompt}`;
-        setSent(prompt);
-      } else setSent((s) => (s ? `${s}\n\n---\n\n${prompt}` : prompt));
+      }
       await api.ask(chatId, prompt, model, resume);
     } catch (e) {
       setMessages((m) => [...m.slice(0, -1), { role: "assistant", text: String(e), error: true }]);
@@ -213,7 +208,6 @@ export default function AskPanel() {
     setChatId(uid());
     setMessages([]);
     setSession(null);
-    setSent(null);
     setPlan(undefined);
     sessionTool.current = null;
     setBusy(false);
@@ -230,15 +224,6 @@ export default function AskPanel() {
     }
   };
 
-  const whatsSent = () => {
-    if (sent) return setShowSent(sent);
-    setShowSent("Working it out…");
-    api.askContext(plan).then(
-      (c) => setShowSent(`${c}\n\n${detail ? `About this — ${detail.label}:\n${detail.text}\n\n` : ""}Question: (your question)`),
-      (e) => setShowSent(String(e)),
-    );
-  };
-
   const toolName = GROUP_NAME[providerOf(model)];
 
   return (
@@ -247,7 +232,7 @@ export default function AskPanel() {
       hidden={!open}
       aria-label="Ask about your backups"
       onKeyDown={(e) => {
-        if (e.key === "Escape" && showSent === null) {
+        if (e.key === "Escape") {
           e.stopPropagation();
           closeAsk();
         }
@@ -278,11 +263,6 @@ export default function AskPanel() {
           </select>
         )}
         <div className="grow" />
-        {!off && (
-          <button className="btn small" onClick={whatsSent} title="The exact text that goes, or would go, to the AI">
-            What's sent
-          </button>
-        )}
         {messages.length > 0 && (
           <button className="btn small" onClick={fresh} title="Start a new chat">
             New chat
@@ -309,7 +289,7 @@ export default function AskPanel() {
             <p>
               Ask what takes the space in your backups, why a backup grew or failed, or how to do something in Keepr. Your question goes to{" "}
               {toolName} with Keepr's figures: your plans' settings, their folders and how big they are, and the recent runs. Files aren't
-              named and nothing of their contents goes. <b>What's sent</b> shows the exact text.
+              named and nothing of their contents goes. The help's Ask page says exactly what goes.
             </p>
             <p>An answer can suggest a change to a plan. Nothing changes until you apply it, and you can undo it.</p>
             <div className="ask-chips">
@@ -401,23 +381,6 @@ export default function AskPanel() {
           </button>
         )}
       </form>
-      {showSent !== null && (
-        <Sheet
-          title="What's sent"
-          subtitle={`To ${toolName}, with each new chat. Follow-ups send only the question.`}
-          width={720}
-          onClose={() => setShowSent(null)}
-          foot={
-            <button className="btn primary" autoFocus title="Close" onClick={() => setShowSent(null)}>
-              Done
-            </button>
-          }
-        >
-          <div className="sheet-body">
-            <div className="ask-sent">{showSent}</div>
-          </div>
-        </Sheet>
-      )}
     </aside>
   );
 }

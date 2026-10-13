@@ -11,7 +11,16 @@ summary: Ask an AI about what takes the space in your backups and why a run fail
 Ask uses an AI tool already installed and signed in on this Mac: Claude Code, Codex, Antigravity or GitHub Copilot. Choose the model at the top of the chat. With none installed, Ask is greyed out and says what to install.
 
 ## What's sent
-Your question goes to that tool with what Keepr knows: each plan's settings and status, its biggest folders and what grew in them, the space they take stored, folder names that repeat (such as node_modules in 40 places), and the recent runs. Folders are named, with their file types by size, when they last changed and whether a project's .gitignore lists them. Files aren't named, and nothing of their contents is sent. An Ask button for a run adds that run's message and log. **What's sent** in the chat shows the exact text.
+With the first question of each chat, Ask sends the AI tool what Keepr knows about your backups. Follow-up questions send only the question.
+
+- **Each plan:** its name, whether it's on, its schedule, whether it's encrypted, the folders it backs up, its destination's name, what it leaves out (its rules, and whether it leaves out what .gitignore lists, cloud-only files, what apps mark and files over a size), how long it keeps versions, how many snapshots it has, and when it last backed up.
+- **Its biggest folders**, and those that grew most this week: each folder's path, its size, how much it grew, the space it takes stored and stored this week, its file types by share of size (such as "60% .js"), when its newest file changed, how much of it changed in the last 30 days, and whether its project's .gitignore lists it.
+- **Folder names that repeat**, with their total size and how many there are, such as node_modules in 40 places.
+- **Folders whose old versions are still stored** though they're not in the latest backup, with the space they take, and the space the folder listings and data no snapshot uses take.
+- **The last 15 runs:** when, which plan, what kind, the result, the space stored and the run's message.
+- **The space used** in all destinations, and the date and time.
+
+Files are never named, and nothing of their contents is sent. An Ask button adds what it's about: on the Size Map, the folders in the folder on screen with their sizes; on a run in Activity, its message and the end of its log, which can name a file.
 
 To keep a plan out of it, turn on **Leave this plan out of Ask** in the plan; Ask then sees only its name. To stop Ask altogether, turn it off in [Settings](app:settings).
 

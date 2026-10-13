@@ -5,7 +5,7 @@
 //! Ask's side of Keepr (the AI itself runs in assistant/): what a question carries, and the plan
 //! changes an answer proposes.
 //!
-//! The context is Keepr's own figures, as text the user can read before it goes ("What's sent"):
+//! The context is Keepr's own figures, as the help's Ask page (src/help/ask.md) lists them:
 //! each plan's settings and status, its biggest folders and what grew in them, the space they take
 //! stored, folder names that repeat (42 node_modules folders), and the recent runs. Folders are
 //! named; files never are, and nothing of their contents goes. A plan left out of Ask is named
