@@ -612,6 +612,8 @@ export default function Restore() {
       done++;
     }
     if (!done) return;
+    // What's on its way out is no longer ticked, so the folders it's in don't show as partly chosen.
+    unchoose(es.slice(0, done));
     toast(`Removing ${done < es.length ? `${done} of ${es.length} items` : describe(es)} from the backup. Activity shows how it's going.`);
   };
   // A restore from this plan running or waiting: the footer shows its progress instead.
