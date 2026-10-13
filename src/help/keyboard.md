@@ -31,5 +31,5 @@ The shortcuts, by where they work.
 - `⌘R` — Restore a file
 - `⌘O` — Open Keepr
 - `⌘,` — Settings
-- `⌘Q` — Quit Keepr
+- `⌘Q` — Quit Keepr (asks first)
 - `Esc` — Close the panel

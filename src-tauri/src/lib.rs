@@ -1022,8 +1022,28 @@ fn show_main_window(app: AppHandle, screen: Option<String>) {
     }
 }
 
+/// Quit from the menu window or ⌘Q: the main window comes up and asks first (src/Quit.tsx),
+/// then calls quit_now.
 #[tauri::command]
 fn quit(app: AppHandle) {
+    ask_to_quit(&app);
+}
+
+fn ask_to_quit(app: &AppHandle) {
+    if let Some(t) = app.get_webview_window("tray") {
+        let _ = t.hide();
+    }
+    show_main(app);
+    let _ = app.emit_to("main", "quit-requested", ());
+}
+
+/// Set once the window's question has been answered Quit, so the exit it asks for goes through.
+static QUIT_OK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Quits, after the window has asked.
+#[tauri::command]
+fn quit_now(app: AppHandle) {
+    QUIT_OK.store(true, std::sync::atomic::Ordering::SeqCst);
     quitting(&app);
     app.exit(0)
 }
@@ -1291,6 +1311,7 @@ pub fn run() {
             scene,
             show_main_window,
             quit,
+            quit_now,
             updates::update_dialog,
             updates::update_install,
             updates::update_later,
@@ -1463,6 +1484,19 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, ev| {
+            // ⌘Q (or Quit from the Dock): the window asks first, then calls quit_now. An exit the
+            // app asks for itself (code set) goes ahead, as does one before Keepr could start.
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = &ev {
+                if code.is_none()
+                    && !QUIT_OK.load(std::sync::atomic::Ordering::SeqCst)
+                    && scene().is_none()
+                    && app.try_state::<Core_>().is_some()
+                {
+                    api.prevent_exit();
+                    ask_to_quit(app);
+                    return;
+                }
+            }
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = ev {
                 // Not when Keepr couldn't start (its message is up): the window would have no Core.

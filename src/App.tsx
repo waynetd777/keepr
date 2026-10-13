@@ -17,6 +17,7 @@ import Destinations from "./Destinations";
 import Settings from "./Settings";
 import Search from "./Search";
 import PlansMap from "./PlansMap";
+import { QuitDialog } from "./Quit";
 import { UpdateDialog } from "./Update";
 import { hideSplash } from "./splash";
 import { HelpButton, HelpDrawer, openHelp, type HelpView } from "./help/HelpDrawer";
@@ -280,6 +281,7 @@ export default function App() {
           <HelpDrawer />
         </div>
         <UpdateDialog scene={updateScene} />
+        <QuitDialog />
         <Tooltips />
       </ToastProvider>
     </Ctx.Provider>

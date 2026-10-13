@@ -246,7 +246,9 @@ export const api = {
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
   scene: () => invoke<string | null>("scene"),
   showMain: (screen?: string) => invoke<void>("show_main_window", { screen: screen ?? null }),
+  /** Asks first: the main window's Quit dialog (src/Quit.tsx). */
   quit: () => invoke<void>("quit"),
+  quitNow: () => invoke<void>("quit_now"),
   updateDialog: () => invoke<UpdateShown | null>("update_dialog"),
   updateInstall: () => invoke<void>("update_install"),
   updateLater: () => invoke<void>("update_later"),
