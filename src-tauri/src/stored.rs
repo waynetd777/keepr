@@ -59,7 +59,8 @@ struct Shares {
 type Cache = HashMap<String, (String, Arc<Shares>)>;
 static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
 
-fn shares(repo: &Repo) -> Result<Shares, String> {
+/// `read` hears how many listings have been read, every few hundred.
+fn shares(repo: &Repo, read: &dyn Fn(u64)) -> Result<Shares, String> {
     let snaps = repo.snapshots().map_err(|e| e.0)?;
     let blobs: HashMap<Id, (u64, Kind)> = repo.index.read().unwrap().blobs.iter().map(|(id, l)| (*id, (l.len as u64, l.kind))).collect();
     let then = snaps.last().and_then(|l| week_before(&snaps, l));
@@ -68,6 +69,7 @@ fn shares(repo: &Repo) -> Result<Shares, String> {
     let mut seen: HashSet<Id> = HashSet::new();
     let mut top = Folder::default();
     let mut listings = (0u64, 0u64);
+    let mut listed = 0u64;
     // Oldest first, so data counts where it was first stored.
     for s in &snaps {
         let this_week = match (at, chrono::DateTime::parse_from_rfc3339(&s.time).ok()) {
@@ -76,6 +78,10 @@ fn shares(repo: &Repo) -> Result<Shares, String> {
         };
         let mut todo: Vec<(Id, Vec<String>)> = vec![(s.tree, vec![])];
         while let Some((tid, path)) = todo.pop() {
+            listed += 1;
+            if listed.is_multiple_of(256) {
+                read(listed);
+            }
             // A listing already counted holds nothing new: everything below it was counted with it.
             if !seen.insert(tid) {
                 continue;
@@ -127,7 +133,7 @@ fn shares(repo: &Repo) -> Result<Shares, String> {
     Ok(Shares { top, listings, unused, since: then.map(|t| t.time.clone()), weekly })
 }
 
-fn cached(core: &Core, plan: &str) -> Result<Arc<Shares>, String> {
+fn cached(core: &Core, plan: &str, read: &dyn Fn(u64)) -> Result<Arc<Shares>, String> {
     let repo = core.repo(plan, false)?;
     let snaps = repo.snapshots().map_err(|e| e.0)?;
     let key = format!("{}:{}", snaps.iter().map(|s| s.id.hex()).collect::<Vec<_>>().join(","), repo.index.read().unwrap().blobs.len());
@@ -136,7 +142,7 @@ fn cached(core: &Core, plan: &str) -> Result<Arc<Shares>, String> {
             return Ok(s.clone());
         }
     }
-    let s = Arc::new(shares(&repo)?);
+    let s = Arc::new(shares(&repo, read)?);
     CACHE.lock().unwrap().get_or_insert_with(HashMap::new).insert(plan.to_string(), (key, s.clone()));
     Ok(s)
 }
@@ -156,15 +162,20 @@ fn find<'a>(sh: &'a Shares, path: &str) -> Option<&'a Folder> {
     Some(here)
 }
 
+/// Works the plan's shares out now, if they aren't already, telling `read` how far it's got.
+pub fn warm(core: &Core, plan: &str, read: &dyn Fn(u64)) {
+    let _ = cached(core, plan, read);
+}
+
 /// What a folder holds stored, and what this week's backups stored in it, for Ask (ask.rs).
 pub fn stored_of(core: &Core, plan: &str, path: &str) -> Option<(u64, u64)> {
-    let sh = cached(core, plan).ok()?;
+    let sh = cached(core, plan, &|_| {}).ok()?;
     find(&sh, path).map(|f| (f.size, f.week))
 }
 
 /// The stored map of `path` ("" for the plan's top), as the size map draws it.
 pub fn stored_map(core: &Core, plan: &str, path: &str) -> Result<MapDir, String> {
-    let sh = cached(core, plan)?;
+    let sh = cached(core, plan, &|_| {})?;
     let here = find(&sh, path).ok_or("Nothing from that folder is stored.")?;
     let compare = sh.since.is_some();
     let grew = |w: u64| compare.then_some(w as i64);

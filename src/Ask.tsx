@@ -158,6 +158,34 @@ export default function AskPanel() {
     if (open) box.current?.focus();
   }, [open]);
 
+  // What Keepr is reading for the question's figures (src-tauri/src/ask.rs), while it does.
+  const [reading, setReading] = useState<string | null>(null);
+  useEffect(() => {
+    const un = listen<string>("ask-progress", (e) => setReading(e.payload));
+    return () => void un.then((f) => f());
+  }, []);
+  // The figures, read as Ask opens so the first question needn't wait for them; a question within
+  // two minutes uses them, a later one reads them again.
+  const figures = useRef<{ plan?: string; at: number; text: Promise<string> } | null>(null);
+  const figuresFor = (p?: string) => {
+    const f = figures.current;
+    if (f && f.plan === p && Date.now() - f.at < 120_000) return f.text;
+    const text = api.askContext(p);
+    figures.current = { plan: p, at: Date.now(), text };
+    text.then(
+      () => setReading(null),
+      () => {
+        setReading(null);
+        figures.current = null;
+      },
+    );
+    return text;
+  };
+  useEffect(() => {
+    if (open && !off && assistant.available && !session) void figuresFor(plan).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, off, assistant.available, plan]);
+
   // A new seed is typed into the box as it arrives, ready to finish or send.
   const [seen, setSeen] = useState(0);
   if (state > 1 && state !== seen && seedNow) {
@@ -194,7 +222,7 @@ export default function AskPanel() {
     try {
       let prompt = `${about}Question: ${text}`;
       if (!resume) {
-        const ctx = await api.askContext(plan);
+        const ctx = await figuresFor(plan);
         prompt = `${ctx}\n\n${prompt}`;
       }
       await api.ask(chatId, prompt, model, resume);
@@ -314,7 +342,7 @@ export default function AskPanel() {
             if (!m.text)
               return (
                 <div key={i} className="ask-a working" role="status">
-                  Thinking
+                  {busy && reading && i === messages.length - 1 ? reading.replace(/…$/, "") : "Thinking"}
                   <span className="dots" aria-hidden="true">
                     <i>.</i>
                     <i>.</i>

@@ -83,7 +83,7 @@ struct Facts {
 type SurveyCache = HashMap<String, Arc<Survey>>;
 static SURVEYS: Mutex<Option<SurveyCache>> = Mutex::new(None);
 
-fn survey(repo: &Repo, tree: Id, listed: &HashSet<String>, key: String) -> Result<Arc<Survey>, String> {
+fn survey(repo: &Repo, tree: Id, listed: &HashSet<String>, key: String, read: &dyn Fn(u64)) -> Result<Arc<Survey>, String> {
     if let Some(s) = SURVEYS.lock().unwrap().get_or_insert_with(HashMap::new).get(&key) {
         return Ok(s.clone());
     }
@@ -91,7 +91,12 @@ fn survey(repo: &Repo, tree: Id, listed: &HashSet<String>, key: String) -> Resul
     let mut sv = Survey::default();
     // (tree, its path, the listed folders it's in, the folder names above it)
     let mut todo: Vec<(Id, String, Vec<String>, Vec<String>)> = vec![(tree, String::new(), vec![], vec![])];
+    let mut n = 0u64;
     while let Some((tid, path, inside, above)) = todo.pop() {
+        n += 1;
+        if n.is_multiple_of(256) {
+            read(n);
+        }
         let t = repo.load_tree(&tid).map_err(|e| e.0)?;
         for n in &t.nodes {
             let p = if path.is_empty() { n.name.clone() } else { format!("{path}/{}", n.name) };
@@ -214,6 +219,24 @@ fn flatten<'a>(d: &'a MapDir, out: &mut Vec<&'a MapDir>) {
     }
 }
 
+/// Tells the Ask panel what the context is being made from, while it's made.
+fn say(core: &Core, what: String) {
+    (core.emit)("ask-progress", serde_json::Value::String(what));
+}
+
+/// "12,345".
+fn thousands(n: u64) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// One plan's part of the context.
 fn plan_text(core: &Core, p: &Plan, out: &mut String) -> Result<(), String> {
     let cfg = core.config.lock().unwrap().clone();
@@ -262,6 +285,7 @@ fn plan_text(core: &Core, p: &Plan, out: &mut String) -> Result<(), String> {
         let _ = writeln!(out, "- No backup yet.");
         return Ok(());
     };
+    say(core, format!("Measuring the folders in {}…", p.name));
     let map = browse::size_map(core, &p.id, &latest.id.hex(), "")?;
     let total = map.size;
     let _ = writeln!(
@@ -311,7 +335,12 @@ fn plan_text(core: &Core, p: &Plan, out: &mut String) -> Result<(), String> {
         latest.tree,
         &listed,
         format!("{}:{}", latest.id.hex(), key.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("|")),
+        &|n| say(core, format!("Reading {}'s latest backup: {} folders…", p.name, thousands(n))),
     )?;
+    say(core, format!("Working out the space {}'s versions take…", p.name));
+    crate::stored::warm(core, &p.id, &|n| {
+        say(core, format!("Working out the space {}'s versions take: {} listings read…", p.name, thousands(n)))
+    });
     let _ = writeln!(out, "\nBiggest folders in the latest backup (size · change since the comparison · stored · stored this week · file types by size · newest file · changed in 30 days · .gitignore):");
     for d in &big {
         let f = sv.facts.get(&d.path).cloned().unwrap_or_default();
