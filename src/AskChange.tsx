@@ -127,10 +127,34 @@ export function AskChange({ raw, bad }: { raw: unknown; bad?: string }) {
       ))}
       {err && <span className="err">{err}</span>}
       <div className="row" style={{ gap: 8 }}>
-        {applied === "undone" ? (
-          <span className="muted">Undone: the plan is as it was.</span>
-        ) : applied === "gone" ? (
-          <span className="muted">Undone in Activity.</span>
+        {applied === "undone" || applied === "gone" ? (
+          <>
+            <span className="muted">{applied === "undone" ? "Undone: the plan is as it was." : "Undone in Activity."}</span>
+            {/* Worked out again first: the plan may have changed since, and the card shows what
+                applying it would do now. */}
+            <button
+              className="btn small"
+              disabled={busy}
+              title={`Make this change to ${checked.planName} again`}
+              onClick={() => {
+                setBusy(true);
+                setErr("");
+                api
+                  .askCheck(raw)
+                  .then((c) => {
+                    setChecked(c);
+                    return api.askApply(raw);
+                  })
+                  .then(
+                    (id) => setApplied(id),
+                    (e) => setErr(String(e)),
+                  )
+                  .finally(() => setBusy(false));
+              }}
+            >
+              Apply Again
+            </button>
+          </>
         ) : applied ? (
           <>
             <span className="muted">Applied. It's in Activity too.</span>

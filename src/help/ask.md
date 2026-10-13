@@ -31,4 +31,4 @@ When a change to a plan would help, the answer can suggest one: things to leave 
 Ask can't change the folders a plan backs up, its destination or its encryption, and can't remove snapshots, tidy up or remove a plan. Keeping fewer versions does mean the next tidy-up removes snapshots, which the card says first.
 
 ## Undo
-**Undo** is on the card once a change is applied, and each change applied from Ask is in [Activity](app:activity) as a plan change, with **Undo**. It puts back only the settings the change made; if you've changed those since, Keepr says so and leaves the plan as it is.
+**Undo** is on the card once a change is applied, and each change applied from Ask is in [Activity](app:activity) as a plan change, with **Undo**. It puts back only the settings the change made; if you've changed those since, Keepr says so and leaves the plan as it is. Once it's undone, **Apply Again** on the card makes the change again, checked against the plan as it is now.
