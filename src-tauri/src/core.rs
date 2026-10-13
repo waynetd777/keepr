@@ -127,6 +127,9 @@ pub struct Core {
     pub state: Mutex<State>,
     pub mounts: Mounts,
     repos: Mutex<HashMap<String, (PathBuf, Arc<Repo>)>>,
+    /// When each open repository was last found still there: browsing asks for one many times a
+    /// minute, and on S3 each look is a request.
+    repo_seen: Mutex<HashMap<String, Instant>>,
     queue: Mutex<VecDeque<(String, Job)>>,
     wake: Condvar,
     current: Mutex<Option<Arc<Current>>>,
@@ -241,6 +244,7 @@ impl Core {
             state: Mutex::new(state),
             mounts: Mounts::default(),
             repos: Mutex::new(HashMap::new()),
+            repo_seen: Mutex::new(HashMap::new()),
             queue: Mutex::new(VecDeque::new()),
             wake: Condvar::new(),
             current: Mutex::new(None),
@@ -274,6 +278,7 @@ impl Core {
 
     pub fn forget_repo(&self, plan: &str) {
         self.repos.lock().unwrap().remove(plan);
+        self.repo_seen.lock().unwrap().remove(plan);
     }
 
     // ---- the queue ----
@@ -518,7 +523,10 @@ impl Core {
         // Out of the map before asking the backend: exists() may be a network round trip, and
         // other plans' jobs and the window need the map meanwhile.
         let known = self.repos.lock().unwrap().get(plan).filter(|(at, _)| *at == path).map(|(_, r)| r.clone());
-        if let Some(r) = known.filter(|r| r.backend.exists(CONFIG)) {
+        // Not for a backup (create): it always looks, so one never writes into a backup deleted since.
+        let recent = !create && self.repo_seen.lock().unwrap().get(plan).is_some_and(|t| t.elapsed() < Duration::from_secs(30));
+        if let Some(r) = known.filter(|r| recent || r.backend.exists(CONFIG)) {
+            self.repo_seen.lock().unwrap().insert(plan.to_string(), Instant::now());
             return Ok(r);
         }
         let backend: Arc<dyn Backend> = if p.conditions.limit_mbps > 0 {

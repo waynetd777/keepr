@@ -142,6 +142,10 @@ pub struct Repo {
     /// their blobs in that pack were stored, so the flush must fail and no snapshot be saved.
     failed: Mutex<Option<Error>>,
     trees: Mutex<HashMap<Id, Arc<Tree>>>,
+    /// The snapshots read so far, by file name. A snapshot's file is never changed (a rewrite
+    /// saves a new one and forgets the old), so only a name not seen before is read: listing the
+    /// folder is one request, reading every snapshot one each.
+    snaps: Mutex<HashMap<String, Snapshot>>,
     pub counters: Counters,
 }
 
@@ -200,6 +204,7 @@ impl Repo {
             written: Mutex::new(Vec::new()),
             failed: Mutex::new(None),
             trees: Mutex::new(HashMap::new()),
+            snaps: Mutex::new(HashMap::new()),
             counters: Counters::default(),
         }
     }
@@ -507,14 +512,24 @@ impl Repo {
     // ---- snapshots ----
 
     pub fn snapshots(&self) -> Result<Vec<Snapshot>> {
-        let mut out = Vec::new();
-        for f in self.backend.list("snapshots")? {
+        let names = self.backend.list("snapshots")?;
+        let known: HashMap<String, Snapshot> = self.snaps.lock().unwrap().clone();
+        let mut now: HashMap<String, Snapshot> = HashMap::new();
+        for f in names {
             let Some(hexid) = f.strip_suffix(".snap") else { continue };
             let Ok(id) = Id::parse(hexid) else { continue };
-            let mut s: Snapshot = self.read_doc(&format!("snapshots/{f}"))?;
-            s.id = id;
-            out.push(s);
+            let s = match known.get(&f) {
+                Some(s) => s.clone(),
+                None => {
+                    let mut s: Snapshot = self.read_doc(&format!("snapshots/{f}"))?;
+                    s.id = id;
+                    s
+                }
+            };
+            now.insert(f, s);
         }
+        let mut out: Vec<Snapshot> = now.values().cloned().collect();
+        *self.snaps.lock().unwrap() = now;
         out.sort_by(|a, b| a.time.cmp(&b.time));
         Ok(out)
     }
