@@ -141,23 +141,31 @@ fn cached(core: &Core, plan: &str) -> Result<Arc<Shares>, String> {
     Ok(s)
 }
 
+/// A folder by its path, "" for the top. The top's folders are the sources, named by their whole
+/// path ("/Users/me/Documents").
+fn find<'a>(sh: &'a Shares, path: &str) -> Option<&'a Folder> {
+    if path.is_empty() {
+        return Some(&sh.top);
+    }
+    let (src, rest) =
+        sh.top.kids.keys().find_map(|k| (path == k).then_some((k, "")).or_else(|| path.strip_prefix(&format!("{k}/")).map(|r| (k, r))))?;
+    let mut here = &sh.top.kids[src];
+    for seg in rest.split('/').filter(|s| !s.is_empty()) {
+        here = here.kids.get(seg)?;
+    }
+    Some(here)
+}
+
+/// What a folder holds stored, and what this week's backups stored in it, for Ask (ask.rs).
+pub fn stored_of(core: &Core, plan: &str, path: &str) -> Option<(u64, u64)> {
+    let sh = cached(core, plan).ok()?;
+    find(&sh, path).map(|f| (f.size, f.week))
+}
+
 /// The stored map of `path` ("" for the plan's top), as the size map draws it.
 pub fn stored_map(core: &Core, plan: &str, path: &str) -> Result<MapDir, String> {
     let sh = cached(core, plan)?;
-    // The top's folders are the sources, named by their whole path ("/Users/me/Documents").
-    let mut here = &sh.top;
-    if !path.is_empty() {
-        let (src, rest) = sh
-            .top
-            .kids
-            .keys()
-            .find_map(|k| (path == k).then_some((k, "")).or_else(|| path.strip_prefix(&format!("{k}/")).map(|r| (k, r))))
-            .ok_or("Nothing from that folder is stored.")?;
-        here = &sh.top.kids[src];
-        for seg in rest.split('/').filter(|s| !s.is_empty()) {
-            here = here.kids.get(seg).ok_or("Nothing from that folder is stored.")?;
-        }
-    }
+    let here = find(&sh, path).ok_or("Nothing from that folder is stored.")?;
     let compare = sh.since.is_some();
     let grew = |w: u64| compare.then_some(w as i64);
     let name = if path.is_empty() { String::new() } else { path.rsplit('/').next().unwrap_or(path).to_string() };

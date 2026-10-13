@@ -43,9 +43,25 @@ export type Plan = {
   before?: string;
   beforeMustSucceed?: boolean;
   after?: string;
+  /** Not described to Ask (src-tauri/src/ask.rs). */
+  askExclude?: boolean;
 };
 
-export type Settings = { notifyFailures: boolean; notifySuccess: boolean; staleDays: number };
+export type Settings = { notifyFailures: boolean; notifySuccess: boolean; staleDays: number; ask: boolean };
+
+/** The AI CLIs on this Mac and their models (src-tauri/src/assistant/). */
+export type Cli = { path: string | null; version: string | null; models: { id: string; name: string }[] };
+export type AssistantStatus = { claude: Cli; codex: Cli; antigravity: Cli; copilot: Cli };
+/** What a change Ask proposes would do (src-tauri/src/ask.rs `check`). */
+export type AskChecked = {
+  planId: string;
+  planName: string;
+  why: string;
+  lines: { what: string; before: string; after: string }[];
+  leftOut: { files: number; bytes: number; recentFiles: number; folders: [string, number][] } | null;
+  snapshots: [number, number] | null;
+  warnings: string[];
+};
 export type Config = { destinations: Destination[]; plans: Plan[]; settings: Settings };
 
 export type Day = { added: number; failed: boolean; ran: boolean; count: number };
@@ -117,7 +133,7 @@ export type Overview = {
 export type Run = {
   id: string;
   plan: string;
-  kind: "backup" | "full" | "check" | "prune" | "restore" | "remove";
+  kind: "backup" | "full" | "check" | "prune" | "restore" | "remove" | "change";
   started: string;
   finished: string;
   result: "ok" | "warning" | "failed" | "cancelled" | "waiting";
@@ -259,6 +275,14 @@ export const api = {
   quit: () => invoke<void>("quit"),
   quitNow: () => invoke<void>("quit_now"),
   quitCancelled: () => invoke<void>("quit_cancelled"),
+  assistantStatus: () => invoke<AssistantStatus>("assistant_status"),
+  ask: (chatId: string, prompt: string, model: string, session: string | null) => invoke<void>("ask", { chatId, prompt, model, session }),
+  askCancel: (chatId: string) => invoke<void>("ask_cancel", { chatId }),
+  askContext: (plan?: string) => invoke<string>("ask_context", { plan: plan ?? null }),
+  askCheck: (change: unknown) => invoke<AskChecked>("ask_check", { change }),
+  askApply: (change: unknown) => invoke<string>("ask_apply", { change }),
+  askUndoable: () => invoke<string[]>("ask_undoable"),
+  askUndo: (id: string) => invoke<void>("ask_undo", { id }),
   updateDialog: () => invoke<UpdateShown | null>("update_dialog"),
   updateInstall: () => invoke<void>("update_install"),
   updateLater: () => invoke<void>("update_later"),

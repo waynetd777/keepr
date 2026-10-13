@@ -51,6 +51,14 @@ On the right are **Space used**, across every plan, each destination with its fr
 
 <a href="images/index.md#features"><picture><source media="(prefers-color-scheme: dark)" srcset="images/plans-map-dark.png"><img alt="The Size Map screen: every plan's latest backup on the left and the space its versions take on the right, Photos and Documents & Projects as blocks with their folders inside" src="images/plans-map-light.png"></picture></a>
 
+## Ask
+
+**Ask** in the toolbar (⌘J) opens a chat at the side of the window, answered by an AI tool already installed and signed in on the Mac: Claude Code, Codex, Antigravity or GitHub Copilot, with no tools of its own and nothing to read but the message. Ask what takes the space, why a backup grew or failed, or how to do something in Keepr; the **Ask** buttons on the Size Map and on a run in Activity start a chat about that folder or run.
+
+The question goes with Keepr's figures: each plan's settings and status, its biggest folders with their size, growth and stored space, their file types by size, when they last changed and whether a project's .gitignore lists them, folder names that repeat (node_modules in 40 places), and the recent runs. Files aren't named and nothing of their contents is sent; **What's sent** shows the exact text. A plan can be left out of Ask, and Ask can be turned off in Settings.
+
+An answer can suggest a change to a plan: rules to leave things out, a size limit, how long to keep versions, or the schedule. Keepr shows the settings before and after, what in the latest backup would be left out, how many snapshots the next tidy-up would remove, and warnings, before **Apply** saves it. Each change is in Activity with **Undo**. Ask can't change a plan's folders, destination or encryption, and can't remove anything.
+
 ## Requirements
 
 A Mac with Apple silicon (M1 or later) and macOS 13 or later.

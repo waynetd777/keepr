@@ -741,7 +741,19 @@ export default function Plans() {
                     {g} GB
                   </option>
                 ))}
+                {/* A limit set elsewhere (a change made with Ask) shows as it is. */}
+                {plan.maxFileSize > 0 && ![1, 2, 4, 10, 50].some((g) => g * 1024 ** 3 === plan.maxFileSize) && (
+                  <option value={plan.maxFileSize}>{bytes(plan.maxFileSize)}</option>
+                )}
               </select>
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={!!plan.askExclude}
+                onChange={(e) => update((p) => ({ ...p, askExclude: e.target.checked }))}
+              />
+              Leave this plan out of Ask (Ask sees only its name)
             </label>
           </section>
 

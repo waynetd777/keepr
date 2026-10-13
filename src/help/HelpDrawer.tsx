@@ -37,6 +37,9 @@ const useView = () =>
 
 export const openHelp = (v: HelpView = {}) => set(v);
 export const toggleHelp = () => set(view ? null : {});
+export const closeHelp = () => view && set(null);
+/** Whether the drawer is open: Ask, which opens where it does, closes when it opens. */
+export const useHelpOpen = () => useView() !== null;
 
 /** The guides finished, kept in this Mac's webview: only a tick in the list rides on it. */
 const DONE_KEY = "keepr.helpGuides";

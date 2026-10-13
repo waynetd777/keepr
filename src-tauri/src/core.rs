@@ -1304,6 +1304,7 @@ mod tests {
             before: String::new(),
             before_must_succeed: false,
             after: String::new(),
+            ask_exclude: false,
         }
     }
 
@@ -1315,6 +1316,62 @@ mod tests {
             }
         }
         panic!("job didn't finish");
+    }
+
+    #[test]
+    fn ask_describes_the_plans_and_changes_them_only_as_asked() {
+        let data = tempfile::tempdir().unwrap();
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        for p in ["app1/node_modules/a", "app2/node_modules/b", "docs"] {
+            std::fs::create_dir_all(src.path().join(p)).unwrap();
+        }
+        let noise =
+            |n: usize, seed: u8| (0..n).map(|i| (i as u8).wrapping_mul(29).wrapping_add(seed) ^ (i / 241) as u8).collect::<Vec<u8>>();
+        std::fs::write(src.path().join("app1/node_modules/a/index.js"), noise(400_000, 1)).unwrap();
+        std::fs::write(src.path().join("app2/node_modules/b/index.js"), noise(400_000, 2)).unwrap();
+        std::fs::write(src.path().join("docs/report.pdf"), noise(300_000, 3)).unwrap();
+        let c = core(data.path());
+        {
+            let mut cfg = c.config.lock().unwrap();
+            cfg.destinations.push(Destination {
+                id: "d1".into(),
+                name: "Disk".into(),
+                place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None },
+                disconnect_after: true,
+            });
+            cfg.plans.push(plan(src.path()));
+        }
+        c.start();
+        c.enqueue(Job::Backup { plan: "p1".into(), full: false });
+        wait(&c);
+        let ctx = crate::ask::context(&c, None).unwrap();
+        assert!(ctx.contains("## Plan \"Docs\""), "{ctx}");
+        assert!(ctx.contains("node_modules: ") && ctx.contains("in 2 places"), "{ctx}");
+        assert!(ctx.contains("% .js"), "{ctx}");
+        assert!(!ctx.contains("index.js") && !ctx.contains("report.pdf"), "no file names: {ctx}");
+
+        // Only what Ask may change.
+        let bad = serde_json::json!({"plan": "p1", "destination": "d2"});
+        assert!(crate::ask::check(&c, &bad).unwrap_err().contains("can't change destination"));
+
+        let change = serde_json::json!({"plan": "p1", "why": "Rebuilt by npm.", "addExcludes": ["node_modules/"]});
+        let checked = serde_json::to_value(crate::ask::check(&c, &change).unwrap()).unwrap();
+        assert_eq!(checked["leftOut"]["files"], 2, "{checked}");
+        assert_eq!(c.config.lock().unwrap().plans[0].excludes, Vec::<String>::new(), "checking changes nothing");
+        let id = crate::ask::apply(&c, &change).unwrap();
+        assert_eq!(c.config.lock().unwrap().plans[0].excludes, vec!["node_modules/".to_string()]);
+        assert_eq!(c.state.lock().unwrap().history.last().unwrap().kind, "change");
+        assert_eq!(crate::ask::undoable(&c), vec![id.clone()]);
+        crate::ask::undo(&c, &id).unwrap();
+        assert!(c.config.lock().unwrap().plans[0].excludes.is_empty());
+        assert!(crate::ask::undoable(&c).is_empty());
+
+        // Left out of Ask: named, and nothing else.
+        c.config.lock().unwrap().plans[0].ask_exclude = true;
+        let ctx = crate::ask::context(&c, None).unwrap();
+        assert!(ctx.contains("Left out of Ask by the user, so not described: Docs") && !ctx.contains("node_modules"), "{ctx}");
+        assert!(crate::ask::check(&c, &change).is_err());
     }
 
     #[test]

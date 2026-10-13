@@ -6,6 +6,8 @@
 //! scheduler. The backup engine itself is the keepr-engine crate (engine/).
 
 mod about;
+mod ask;
+mod assistant;
 mod aws_setup;
 mod b2_setup;
 mod browse;
@@ -344,7 +346,7 @@ async fn save_plan(core: State<'_, Core_>, plan: Plan, password: Option<String>)
     with_core(core, move |c| save_plan_now(c, plan, password)).await?
 }
 
-fn save_plan_now(core: &Core, mut plan: Plan, password: Option<String>) -> Result<Plan, String> {
+pub(crate) fn save_plan_now(core: &Core, mut plan: Plan, password: Option<String>) -> Result<Plan, String> {
     if plan.name.trim().is_empty() {
         return Err("Give the plan a name.".into());
     }
@@ -869,6 +871,35 @@ async fn size_map(core: State<'_, Core_>, plan: String, snapshot: String, path: 
     with_core(core, move |c| browse::size_map(c, &plan, &snapshot, &path)).await?
 }
 
+/// What a question to Ask carries (ask.rs), `plan` first when given.
+#[tauri::command]
+async fn ask_context(core: State<'_, Core_>, plan: Option<String>) -> Result<String, String> {
+    with_core(core, move |c| ask::context(c, plan.as_deref())).await?
+}
+
+/// What a change Ask proposes would do, changing nothing.
+#[tauri::command]
+async fn ask_check(core: State<'_, Core_>, change: serde_json::Value) -> Result<ask::Checked, String> {
+    with_core(core, move |c| ask::check(c, &change)).await?
+}
+
+/// Applies a change Ask proposed; the id of its entry in Activity.
+#[tauri::command]
+async fn ask_apply(core: State<'_, Core_>, change: serde_json::Value) -> Result<String, String> {
+    with_core(core, move |c| ask::apply(c, &change)).await?
+}
+
+/// The changes made with Ask that can still be undone, by their Activity entry.
+#[tauri::command]
+fn ask_undoable(core: State<Core_>) -> Vec<String> {
+    ask::undoable(&core)
+}
+
+#[tauri::command]
+async fn ask_undo(core: State<'_, Core_>, id: String) -> Result<(), String> {
+    with_core(core, move |c| ask::undo(c, &id)).await?
+}
+
 #[tauri::command]
 async fn stored_map(core: State<'_, Core_>, plan: String, path: String) -> Result<browse::MapDir, String> {
     with_core(core, move |c| stored::stored_map(c, &plan, &path)).await?
@@ -1092,10 +1123,15 @@ fn quit_cancelled(app: AppHandle) {
 /// What quitting does before the app ends; an update's restart does it too.
 fn quitting(app: &AppHandle) {
     let _ = app.save_window_state(STATE_FLAGS);
+    // Nothing Ask started outlives the app.
+    app.state::<Arc<assistant::Running>>().kill_all();
 }
 
 /// An update about to install: stop jobs starting, unless one is running or queued (updates.rs).
 fn hold_for_update(app: &AppHandle) -> Option<String> {
+    if app.state::<Arc<assistant::Running>>().busy() {
+        return Some("Ask is answering a question.".into());
+    }
     app.try_state::<Core_>()?.hold().err()
 }
 
@@ -1285,6 +1321,7 @@ pub fn cli(args: &[String]) -> Option<i32> {
 pub fn run() {
     let frozen = scene().is_some();
     tauri::Builder::default()
+        .manage(Arc::new(assistant::Running::default()))
         .plugin(tauri_plugin_window_state::Builder::default().with_state_flags(STATE_FLAGS).with_denylist(&["tray"]).build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -1338,6 +1375,14 @@ pub fn run() {
             list_dir,
             size_map,
             stored_map,
+            ask_context,
+            ask_check,
+            ask_apply,
+            ask_undoable,
+            ask_undo,
+            assistant::assistant_status,
+            assistant::ask,
+            assistant::ask_cancel,
             show_in_finder,
             file_versions,
             search_snapshot,

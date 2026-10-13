@@ -188,6 +188,9 @@ pub struct Plan {
     /// server how it went). The outcome is in KEEPR_* environment variables; see Core::run_after.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub after: String,
+    /// Not described to Ask (src-tauri/src/ask.rs), which then names the plan and nothing else.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ask_exclude: bool,
 }
 
 fn weekly() -> Often {
@@ -223,6 +226,9 @@ pub struct Settings {
     /// Warn when a plan hasn't completed a backup for this many days.
     #[serde(default = "three")]
     pub stale_days: u32,
+    /// Ask, the AI assistant (src-tauri/src/ask.rs): off, nothing is ever sent.
+    #[serde(default = "yes")]
+    pub ask: bool,
 }
 
 fn three() -> u32 {
@@ -231,7 +237,7 @@ fn three() -> u32 {
 
 impl Default for Settings {
     fn default() -> Settings {
-        Settings { notify_failures: true, notify_success: false, stale_days: 3 }
+        Settings { notify_failures: true, notify_success: false, stale_days: 3, ask: true }
     }
 }
 
@@ -261,7 +267,7 @@ impl Config {
 pub struct Run {
     pub id: String,
     pub plan: String,
-    /// "backup", "full", "check", "prune" or "restore".
+    /// "backup", "full", "check", "prune", "restore", "remove", or "change" (a plan changed with Ask).
     pub kind: String,
     pub started: String,
     pub finished: String,

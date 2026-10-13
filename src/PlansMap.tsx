@@ -13,6 +13,9 @@ import { api, type MapDir } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
 import SizeMap from "./SizeMap";
+import { openAsk } from "./Ask";
+import { bytes } from "./format";
+import { delta } from "./growth";
 import { tilde } from "./format";
 
 // A path on this map is the plan's id, this, then the path in its snapshot.
@@ -157,6 +160,27 @@ export default function PlansMap() {
     else go({ name: "restore", plan: plan.id, focus: { snapshot: plan.snapshot, path: inner, inFiles: true } });
   };
 
+  // Ask about the folder a map shows: what's in it, as the map has it, goes with the question.
+  const ask = (stored: boolean) => (d: MapDir, crumbs: string) => {
+    const { plan } = d.path ? split(d.path) : { plan: undefined };
+    const rows = d.kids
+      .slice(0, 30)
+      .map(
+        (k) =>
+          `- ${where(k.path) || k.name} · ${bytes(k.size)}${k.grew ? ` · ${delta(k.grew)} this week` : ""}${k.special ? " (not a folder)" : ""}`,
+      );
+    if (d.looseSize) rows.push(`- files directly in it · ${bytes(d.looseSize)}`);
+    if (d.moreSize) rows.push(`- ${d.more} smaller folders · ${bytes(d.moreSize)}`);
+    openAsk({
+      text: `What takes the space in ${crumbs}, and does all of it need backing up?`,
+      plan: plan?.id,
+      detail: {
+        label: `${crumbs} on the ${stored ? "space used" : "latest backups"} map`,
+        text: `${stored ? "Stored (after de-duplication and compression, every version)" : "In the latest backup"}: ${bytes(d.size)}${d.grew ? `, ${delta(d.grew)} this week` : ""}. What's in it:\n${rows.join("\n")}`,
+      },
+    });
+  };
+
   return (
     <div className="content col" style={{ gap: 16, padding: "20px 32px 18px", overflow: "hidden" }}>
       <div className="col" style={{ gap: 4 }}>
@@ -201,6 +225,7 @@ export default function PlansMap() {
               showHint="open in Restore"
               at={at}
               onAt={setAt}
+              onAsk={ask(false)}
             />
           </section>
           <section className="card col" style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
@@ -218,6 +243,7 @@ export default function PlansMap() {
               stored
               at={at}
               onAt={setAt}
+              onAsk={ask(true)}
             />
           </section>
         </div>

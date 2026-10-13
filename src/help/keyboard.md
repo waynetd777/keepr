@@ -17,10 +17,11 @@ The shortcuts, by where they work.
 - `⌘5` — Destinations
 - `⌘,` — Settings
 - `⌘K` — Find a file in any backup
+- `⌘J` — Ask
 - `⌘N` — New plan
 - `⌘B` — Back up every plan now
 - `⌘[` `⌘]` — Back, forward
-- `Esc` — Close the help or a sheet
+- `Esc` — Close the help, Ask or a sheet
 
 ## Restore
 - `←` `→` — Earlier, later snapshot

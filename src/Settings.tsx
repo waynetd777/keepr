@@ -109,6 +109,12 @@ export default function Settings() {
               ))}
             </select>
           </Row>
+          <Row
+            title="Ask"
+            sub="An AI already signed in on this Mac answers questions about your backups, with Keepr's figures and folder names, never your files. Off, nothing is sent."
+          >
+            <Switch label="Ask" on={s.ask !== false} onChange={(v) => save({ ask: v })} />
+          </Row>
           <Row title="Website" sub="What Keepr does, and the latest version to download.">
             <button className="btn" title="Opens keepr.davies.co.za in your browser" onClick={() => openUrl(WEBSITE)}>
               <Icon name="globe" size={14} stroke={2} />

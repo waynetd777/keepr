@@ -14,6 +14,8 @@ import { Icon } from "./icons";
 import { AFTER_COMMAND, BEFORE_COMMAND, pct as progressOf, Seg, STOPPING, StopButton } from "./ui";
 import { bytes, duration, secondsLeft, tilde, when } from "./format";
 import { resultLabel, resultTone } from "./runResult";
+import { openAsk } from "./Ask";
+import { AskButton } from "./AskButton";
 
 const STEPS = ["Look", "Compare", "Pack", "Send", "Confirm"];
 
@@ -248,6 +250,11 @@ export default function Activity() {
     io.observe(el);
     return () => io.disconnect();
   }, [more, runs, load]);
+  // The plan changes made with Ask that can still be undone.
+  const [undoable, setUndoable] = useState<string[]>([]);
+  useEffect(() => {
+    api.askUndoable().then(setUndoable, () => {});
+  }, [runs]);
   const nameOf = (id: string) => ov?.plans.find((p) => p.id === id)?.name ?? "A deleted plan";
   const kindName: Record<string, string> = {
     backup: "Incremental",
@@ -256,6 +263,26 @@ export default function Activity() {
     prune: "Tidy up",
     restore: "Restore",
     remove: "Remove a folder",
+    change: "Plan change",
+  };
+  // Ask about a run: its message and the end of its log go with the question.
+  const askAbout = (r: Run) => {
+    const log = (logs[r.id] ?? []).slice(-40).join("\n");
+    const label = `the ${(kindName[r.kind] ?? r.kind).toLowerCase()} of ${nameOf(r.plan)} at ${when(r.started)}`;
+    const big = r.storedBytes > 500 * 1024 ** 2;
+    openAsk({
+      text:
+        r.result === "failed" || r.result === "warning"
+          ? "What went wrong, and how do I fix it?"
+          : big
+            ? `Why did this backup store ${bytes(r.storedBytes)}?`
+            : "What did this run do?",
+      plan: r.plan,
+      detail: {
+        label,
+        text: `${r.kind}, ${r.result}${r.message ? `: ${r.message}` : ""}. ${r.changed} files changed, ${bytes(r.storedBytes)} stored.${log ? `\nThe end of its log:\n${log}` : ""}`,
+      },
+    });
   };
   return (
     <div className="content col" style={{ gap: 18 }}>
@@ -365,6 +392,23 @@ export default function Activity() {
                               : logs[r.id].length
                                 ? logs[r.id].join("\n")
                                 : "No log for this run: it ran before Keepr kept logs."}
+                          </div>
+                          <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                            {r.kind === "change" && undoable.includes(r.id) && (
+                              <button
+                                className="btn small"
+                                title="Put the plan back as it was before this change"
+                                onClick={() =>
+                                  api.askUndo(r.id).then(
+                                    () => setUndoable((u) => u.filter((x) => x !== r.id)),
+                                    (e) => window.alert(String(e)),
+                                  )
+                                }
+                              >
+                                Undo
+                              </button>
+                            )}
+                            {r.kind !== "change" && <AskButton title="Ask an AI to explain this run" onAsk={() => askAbout(r)} />}
                           </div>
                         </td>
                       </tr>

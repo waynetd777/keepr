@@ -19,6 +19,8 @@ import Search from "./Search";
 import PlansMap from "./PlansMap";
 import { QuitDialog } from "./Quit";
 import { UpdateDialog } from "./Update";
+import AskPanel, { toggleAsk } from "./Ask";
+import { AskIcon } from "./AskButton";
 import { hideSplash } from "./splash";
 import { HelpButton, HelpDrawer, openHelp, type HelpView } from "./help/HelpDrawer";
 
@@ -162,6 +164,10 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
           Back up now
         </button>
       )}
+      <button className="btn askbtn" onClick={toggleAsk} title="Ask an AI about your backups ⌘J">
+        <AskIcon />
+        Ask
+      </button>
       <HelpButton />
     </header>
   );
@@ -244,6 +250,9 @@ export default function App() {
       else if (e.key.toLowerCase() === "n" && !e.shiftKey) {
         e.preventDefault();
         go({ name: "plans", isNew: true });
+      } else if (e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        toggleAsk();
       } else if (e.key.toLowerCase() === "b") {
         e.preventDefault();
         api.backUpAll();
@@ -280,6 +289,7 @@ export default function App() {
             )}
           </main>
           <HelpDrawer />
+          <AskPanel />
         </div>
         <UpdateDialog scene={updateScene} />
         <QuitDialog />

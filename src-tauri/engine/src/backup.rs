@@ -207,14 +207,16 @@ fn marked(p: &Path) -> bool {
     unsafe { libc::getxattr(c.as_ptr(), EXCLUDE_ITEM.as_ptr().cast(), std::ptr::null_mut(), 0, 0, libc::XATTR_NOFOLLOW) >= 0 }
 }
 
-struct Excluder {
+/// A plan's "leave out" rules: a name ("*.tmp"), a folder name ("node_modules/") or a path
+/// ("~/Library/Caches"). Public so the app can say what a change to them would leave out.
+pub struct Excluder {
     names: globset::GlobSet,
     dir_names: globset::GlobSet,
     paths: globset::GlobSet,
 }
 
 impl Excluder {
-    fn new(patterns: &[String]) -> Result<Excluder> {
+    pub fn new(patterns: &[String]) -> Result<Excluder> {
         let home = std::env::var("HOME").unwrap_or_default();
         let (mut names, mut dirs, mut paths) =
             (globset::GlobSetBuilder::new(), globset::GlobSetBuilder::new(), globset::GlobSetBuilder::new());
@@ -237,7 +239,7 @@ impl Excluder {
         Ok(Excluder { names: b(names)?, dir_names: b(dirs)?, paths: b(paths)? })
     }
 
-    fn excluded(&self, path: &Path, name: &str, is_dir: bool) -> bool {
+    pub fn excluded(&self, path: &Path, name: &str, is_dir: bool) -> bool {
         self.names.is_match(name) || (is_dir && self.dir_names.is_match(name)) || self.paths.is_match(path)
     }
 }
