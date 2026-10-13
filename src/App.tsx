@@ -138,19 +138,16 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
           <div className="progress" style={{ width: 90, height: 6 }} aria-label="Progress">
             <div className="solid" style={{ width: `${ov?.job ? pct(ov.job) : 0}%`, transition: "width 0.4s" }} />
           </div>
-          {/* A restore can take a while and fill the disk or the network: it can be held here, as a
-              backup can in Activity. */}
-          {ov!.job!.kind === "restore" && (
-            <button
-              className="btn"
-              disabled={ov!.job!.stopping}
-              title={ov!.job!.paused ? "Carry on restoring" : "Hold the restore where it is"}
-              onClick={() => api.pause(!ov!.job!.paused)}
-            >
-              <Icon name={ov!.job!.paused ? "play" : "pause"} size={12} stroke={2.4} />
-              {ov!.job!.paused ? "Resume" : "Pause"}
-            </button>
-          )}
+          {/* Any job can be held where it is, as in Activity: every one waits at its next file. */}
+          <button
+            className="btn"
+            disabled={ov!.job!.stopping}
+            title={ov!.job!.paused ? "Carry on" : "Hold it where it is"}
+            onClick={() => api.pause(!ov!.job!.paused)}
+          >
+            <Icon name={ov!.job!.paused ? "play" : "pause"} size={12} stroke={2.4} />
+            {ov!.job!.paused ? "Resume" : "Pause"}
+          </button>
           <StopButton job={ov!.job!} />
         </>
       )}
