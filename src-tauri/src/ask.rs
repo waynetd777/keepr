@@ -588,6 +588,8 @@ fn size_limit(b: u64) -> String {
     }
 }
 
+/// One line per setting that changes, each saying only that setting's before and after; an
+/// empty before is a rule added, an empty after one removed.
 fn diff(a: &Plan, b: &Plan) -> Vec<Line> {
     let mut out = vec![];
     let mut line = |what: &str, x: String, y: String| {
@@ -595,13 +597,22 @@ fn diff(a: &Plan, b: &Plan) -> Vec<Line> {
             out.push(Line { what: what.into(), before: x, after: y });
         }
     };
-    let list = |v: &[String]| if v.is_empty() { "nothing".to_string() } else { v.join(", ") };
-    line("Leave out", list(&a.excludes), list(&b.excludes));
+    let added: Vec<&str> = b.excludes.iter().filter(|e| !a.excludes.contains(e)).map(|s| s.as_str()).collect();
+    let removed: Vec<&str> = a.excludes.iter().filter(|e| !b.excludes.contains(e)).map(|s| s.as_str()).collect();
+    line("Also leave out", String::new(), added.join(", "));
+    line("Stop leaving out", removed.join(", "), String::new());
     line("Leave out what .gitignore lists", onoff(a.gitignore), onoff(b.gitignore));
     line("Leave out cloud-only files", onoff(a.skip_cloud_only), onoff(b.skip_cloud_only));
     line("Leave out what apps mark", onoff(a.skip_marked), onoff(b.skip_marked));
     line("Leave out files over", size_limit(a.max_file_size), size_limit(b.max_file_size));
-    line("Keep", keeps(&a.retention), keeps(&b.retention));
+    let n = |v: u32, unit: &str| format!("{v} {unit}{}", if v == 1 { "" } else { "s" });
+    let (x, y) = (&a.retention, &b.retention);
+    line("Keep every backup for", n(x.all_hours, "hour"), n(y.all_hours, "hour"));
+    line("Then one a day for", n(x.daily_days, "day"), n(y.daily_days, "day"));
+    line("Then one a week for", n(x.weekly_weeks, "week"), n(y.weekly_weeks, "week"));
+    let months = |m: u32| if m == 0 { "ever".to_string() } else { n(m, "month") };
+    line("Then one a month for", months(x.monthly_months), months(y.monthly_months));
+    line("A deleted file's last version for", n(x.keep_deleted_days, "day"), n(y.keep_deleted_days, "day"));
     line("Back up", every(&a.schedule), every(&b.schedule));
     out
 }
@@ -742,7 +753,21 @@ pub fn apply(core: &Core, raw: &serde_json::Value) -> Result<String, String> {
     if !c.why.is_empty() {
         msg = format!("{msg}. {}", c.why);
     }
-    record(core, &id, &before.id, msg, checked.lines.iter().map(|l| format!("{}: {} → {}", l.what, l.before, l.after)).collect());
+    record(
+        core,
+        &id,
+        &before.id,
+        msg,
+        checked
+            .lines
+            .iter()
+            .map(|l| match (l.before.is_empty(), l.after.is_empty()) {
+                (true, _) => format!("{}: {}", l.what, l.after),
+                (_, true) => format!("{}: {}", l.what, l.before),
+                _ => format!("{}: {} → {}", l.what, l.before, l.after),
+            })
+            .collect(),
+    );
     Ok(id)
 }
 

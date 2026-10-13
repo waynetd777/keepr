@@ -51,8 +51,15 @@ export function AskChange({ raw, bad }: { raw: unknown; bad?: string }) {
             <tr key={l.what}>
               <td className="muted nowrap">{l.what}</td>
               <td>
-                <div className="was">{l.before}</div>
-                <div>{l.after}</div>
+                {l.before && l.after ? (
+                  <>
+                    <span className="was">{l.before}</span> → <b>{l.after}</b>
+                  </>
+                ) : l.after ? (
+                  <b>{l.after}</b>
+                ) : (
+                  <span className="was">{l.before}</span>
+                )}
               </td>
             </tr>
           ))}

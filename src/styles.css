@@ -2206,7 +2206,7 @@ html.tray body {
   vertical-align: top;
   border-top: 1px solid var(--line);
 }
-.ask-change td.was {
+.ask-change .was {
   color: var(--ink3);
   text-decoration: line-through;
 }
