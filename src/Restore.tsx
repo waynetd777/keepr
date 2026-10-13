@@ -42,7 +42,10 @@ function Strip({ snaps, sel, setSel }: { snaps: SnapInfo[]; sel: number; setSel:
     setWidth(el.clientWidth);
     return () => ro.disconnect();
   }, []);
-  const selDay = Math.max(0, days.findIndex((d) => d.items.includes(sel)));
+  const selDay = Math.max(
+    0,
+    days.findIndex((d) => d.items.includes(sel)),
+  );
   const need = (d: { items: number[] }) => Math.max(64, d.items.length * 5 + 17);
   let start = selDay;
   let end = selDay + 1;
