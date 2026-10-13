@@ -541,7 +541,7 @@ pub fn preview_copy(core: &Core, plan: &str, snapshot: &str, path: &str) -> Resu
         keepr_engine::restore::Conflict::Replace,
         &crate::cancel::control(),
     )
-    .map_err(|e| e.0)?;
+    .map_err(stopped_or)?;
     if r.files == 0 {
         return Err("Nothing to preview.".into());
     }
@@ -572,7 +572,8 @@ pub fn search_everywhere(core: &Core, query: &str) -> Result<(Vec<Found>, Vec<St
             .into_iter()
             .map(|(id, name)| {
                 let ctl = ctl.clone();
-                sc.spawn(move || {
+                let named = (id.clone(), name.clone());
+                let h = sc.spawn(move || {
                     let res = (|| {
                         if ctl.cancel.load(std::sync::atomic::Ordering::Relaxed) {
                             return Err(crate::cancel::STOPPED.to_string());
@@ -582,10 +583,16 @@ pub fn search_everywhere(core: &Core, query: &str) -> Result<(Vec<Found>, Vec<St
                         keepr_engine::browse::search_all(&r, &snaps, query, 300, &ctl).map_err(|e| e.0)
                     })();
                     (id, name, res)
-                })
+                });
+                (named, h)
             })
             .collect();
-        handles.into_iter().filter_map(|h| h.join().ok()).collect()
+        // A plan whose search fell over is one that wasn't searched: listed as missed, not left
+        // out as if it had nothing.
+        handles
+            .into_iter()
+            .map(|((id, name), h)| h.join().unwrap_or_else(|_| (id, name, Err("The search of this plan failed.".into()))))
+            .collect()
     });
     crate::cancel::check()?;
     for (id, name, res) in results {

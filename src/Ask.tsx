@@ -234,8 +234,13 @@ export default function AskPanel() {
     const id = window.setInterval(() => tick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
   }, [busy]);
+  // Its events carry no id, so they count only while a read is in flight: a late one can't put
+  // "Reading…" back over what the AI tool is doing.
+  const inFlight = useRef<object | null>(null);
   useEffect(() => {
-    const un = listen<string>("ask-progress", (e) => setReading(e.payload));
+    const un = listen<string>("ask-progress", (e) => {
+      if (inFlight.current) setReading(e.payload);
+    });
     return () => void un.then((f) => f());
   }, []);
   // The figures, read as Ask opens so the first question needn't wait for them; a question within
@@ -250,6 +255,11 @@ export default function AskPanel() {
     const text = req.run((t) => api.askContext(p, t), "figures");
     const mine = { plan: p, fp, at: Date.now(), text };
     figures.current = mine;
+    inFlight.current = mine;
+    const settle = () => {
+      if (inFlight.current === mine) inFlight.current = null;
+    };
+    void text.then(settle, settle);
     // A read replaced by a newer one leaves the newer one's reuse and progress alone.
     text.then(
       () => figures.current === mine && setReading(null),
@@ -261,8 +271,9 @@ export default function AskPanel() {
     );
     return text;
   };
+  // Not while a question waits on a read: a new one would stop it, and the question with it.
   useEffect(() => {
-    if (open && !off && assistant.available && !session) void figuresFor(plan).catch(() => {});
+    if (open && !off && assistant.available && !session && !asked.current?.figures) void figuresFor(plan).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, off, assistant.available, plan, fp]);
   // Closing the panel (it's hidden, not gone) stops a read nobody is waiting on, and gives the
@@ -273,6 +284,7 @@ export default function AskPanel() {
       if (!asked.current?.figures) {
         req.stop("figures");
         figures.current = null;
+        inFlight.current = null;
         setReading(null);
       }
       const el = document.activeElement;
@@ -308,6 +320,7 @@ export default function AskPanel() {
       void api.askCancel(a.id);
     }
     req.stop("figures");
+    inFlight.current = null;
     setMessages((m) => {
       const last = m[m.length - 1];
       return last?.role === "assistant" && !last.text ? [...m.slice(0, -1), { role: "assistant", text: "Stopped.", error: true }] : m;
@@ -340,7 +353,10 @@ export default function AskPanel() {
       let prompt = `${about}Question: ${text}`;
       if (!resume) {
         me.figures = true;
-        const ctx = await figuresFor(plan).finally(() => (me.figures = false));
+        const ctx = await figuresFor(plan).finally(() => {
+          me.figures = false;
+          if (asked.current === me) setReading(null);
+        });
         // Stopped, or a new chat begun, while they were read.
         if (me.stopped) return;
         prompt = `${ctx}\n\n${prompt}`;
@@ -364,6 +380,7 @@ export default function AskPanel() {
       void api.askCancel(a.id);
     }
     req.stop("figures");
+    inFlight.current = null;
     setReading(null);
     setChatId(uid());
     setMessages([]);

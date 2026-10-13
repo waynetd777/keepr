@@ -4,10 +4,12 @@
 
 // A small Ask button beside something worth asking about: a size map's folder, a run in
 // Activity. It opens Ask with a question and the thing's details; disabled, with the reason, when
-// no AI tool is installed or the caller says why not (`off`: the plan is left out of Ask, say).
+// Ask is off in Settings, no AI tool is installed, or the caller says why not (`off`: the plan is
+// left out of Ask, say).
 
 import { useEffect, useState } from "react";
 import { useAssistant } from "./assistant";
+import { useApp } from "./context";
 
 export function AskIcon() {
   return (
@@ -19,9 +21,11 @@ export function AskIcon() {
 
 export function AskButton({ onAsk, title, off }: { onAsk: () => void | Promise<void>; title: string; off?: string }) {
   const assistant = useAssistant();
-  // A crash's reports are read first, which takes a moment.
+  const { cfg } = useApp();
+  const why = off ?? (cfg?.settings.ask === false ? "Ask is off in Settings" : undefined);
+  // Opening Ask can wait on the caller (reading the thing's details), so the button waits too.
   const [busy, setBusy] = useState(false);
-  // Why Ask couldn't open (a crash's reports unreadable, say), for a few seconds.
+  // Why Ask couldn't open (the details unreadable, say), for a few seconds.
   const [failed, setFailed] = useState<string | null>(null);
   useEffect(() => {
     if (!failed) return;
@@ -29,11 +33,11 @@ export function AskButton({ onAsk, title, off }: { onAsk: () => void | Promise<v
     return () => window.clearTimeout(id);
   }, [failed]);
   return (
-    <span className="tipwrap" title={off ?? (assistant.available ? undefined : (assistant.reason ?? undefined))}>
+    <span className="tipwrap" title={why ?? (assistant.available ? undefined : (assistant.reason ?? undefined))}>
       <button
         className="btn small askbtn"
-        disabled={!assistant.available || busy || !!off}
-        title={off ?? title}
+        disabled={!assistant.available || busy || !!why}
+        title={why ?? title}
         onClick={() => {
           setBusy(true);
           setFailed(null);

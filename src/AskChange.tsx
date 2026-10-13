@@ -6,7 +6,7 @@
 // would do (src-tauri/src/ask.rs `check`) before anything changes, then applied with Apply and
 // undone with Undo, here or in Activity. Nothing in the answer runs: the block is data.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, on, type AskChecked } from "./api";
 import { bytes, count } from "./format";
 
@@ -28,20 +28,41 @@ export function splitChanges(text: string, streaming = false): { text: string; c
   return { text: open >= 0 ? rest.slice(0, open) : rest, changes };
 }
 
+// Each change's check and whether it was applied, by its JSON (which names the plan), kept outside
+// the cards: a card shown again (the chat's answers drawn again after Ask was off) still knows it was
+// applied, so it can't be applied twice.
+const known = new Map<string, { checked?: AskChecked; applied?: string }>();
+const remember = (key: string, k: { checked?: AskChecked; applied?: string }) => {
+  if (key) known.set(key, { ...known.get(key), ...k });
+};
+
 export function AskChange({ raw, bad }: { raw: unknown; bad?: string }) {
-  const [checked, setChecked] = useState<AskChecked | null>(null);
+  const key = bad ? "" : JSON.stringify(raw);
+  const [checked, setCheckedHere] = useState<AskChecked | null>(() => known.get(key)?.checked ?? null);
   const [err, setErr] = useState(bad ?? "");
   const [busy, setBusy] = useState(false);
   // The Activity entry once applied, for Undo; "undone" after, or "gone" once undone in Activity
   // (or no longer undoable).
-  const [applied, setApplied] = useState<string | null>(null);
-  const wasApplied = useRef(false);
+  const [applied, setAppliedHere] = useState<string | null>(() => known.get(key)?.applied ?? null);
+  const setChecked = (c: AskChecked) => {
+    remember(key, { checked: c });
+    setCheckedHere(c);
+  };
+  const setApplied = useCallback(
+    (f: string | ((a: string | null) => string | null)) =>
+      setAppliedHere((a) => {
+        const next = typeof f === "function" ? f(a) : f;
+        if (next) remember(key, { applied: next });
+        return next;
+      }),
+    [key],
+  );
 
   // Checked once per change: after Apply, a check would only say the plan already has it.
-  const key = bad ? "" : JSON.stringify(raw);
   useEffect(() => {
-    if (!key || wasApplied.current) return;
+    if (!key || known.get(key)?.checked) return;
     api.askCheck(JSON.parse(key)).then(setChecked, (e) => setErr(String(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
   // Undo is offered only while Keepr can still undo it: not once Activity has.
@@ -55,7 +76,7 @@ export function AskChange({ raw, bad }: { raw: unknown; bad?: string }) {
       );
     look();
     return on("changed", look);
-  }, [applied]);
+  }, [applied, setApplied]);
 
   if (err && !checked) return <div className="ask-change err">{err}</div>;
   if (!checked) return <div className="ask-change muted">Working out what this change would do…</div>;
@@ -143,10 +164,7 @@ export function AskChange({ raw, bad }: { raw: unknown; bad?: string }) {
               api
                 .askApply(raw)
                 .then(
-                  (id) => {
-                    wasApplied.current = true;
-                    setApplied(id);
-                  },
+                  (id) => setApplied(id),
                   (e) => setErr(String(e)),
                 )
                 .finally(() => setBusy(false));

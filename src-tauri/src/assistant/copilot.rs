@@ -49,7 +49,7 @@ pub fn ask(
             "--disable-builtin-mcps",
             "--no-auto-update",
             "--disallow-temp-dir",
-            "--available-tools=tidemark-ask-has-no-tools",
+            "--available-tools=keepr-ask-has-no-tools",
         ]);
     if let Some(s) = &session {
         cmd.arg(format!("--resume={s}"));

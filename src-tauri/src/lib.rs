@@ -775,7 +775,7 @@ async fn change_password(core: State<'_, Core_>, id: String, current: String, ne
         if core.busy_with(&id) {
             return Err("Wait until this plan's backup has finished.".into());
         }
-        let repo = core.repo(&id, false)?;
+        let repo = core.repo_to_change(&id)?;
         let backend = repo.backend.clone();
         drop(repo);
         core.forget_repo(&id);
@@ -1107,6 +1107,9 @@ fn set_quit_item(app: &AppHandle) -> tauri::Result<()> {
 
 /// Whether the main window was closed when the quit question came up: Cancel closes it again.
 static QUIT_FROM_HIDDEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Whether the question is up in the open window (asked, and neither answered nor its window
+/// closed since).
+static QUIT_ASKING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Asks before quitting, in the main window's own dialog (src/Quit.tsx): quitting stops the
 /// backups, and ⌘Q is next to ⌘W, which only closes the window.
@@ -1116,8 +1119,13 @@ fn ask_to_quit(app: &AppHandle) {
     }
     let Some(w) = app.get_webview_window("main") else { return quit_now(app.clone()) };
     // Set afresh each time: a question left unanswered from a closed window mustn't make a later
-    // Cancel, asked with the window open, close it.
-    QUIT_FROM_HIDDEN.store(!w.is_visible().unwrap_or(false), std::sync::atomic::Ordering::SeqCst);
+    // Cancel, asked with the window open, close it. But not while the question is up: a second
+    // ⌘Q then finds the window open only because the first opened it.
+    let visible = w.is_visible().unwrap_or(false);
+    let asking = QUIT_ASKING.swap(true, std::sync::atomic::Ordering::SeqCst);
+    if !(asking && visible) {
+        QUIT_FROM_HIDDEN.store(!visible, std::sync::atomic::Ordering::SeqCst);
+    }
     // AppKit wants the main thread; the hidden window's page still gets the event meanwhile.
     let a = app.clone();
     let _ = app.run_on_main_thread(move || show_main(&a));
@@ -1140,6 +1148,7 @@ fn quit_now(app: AppHandle) {
 /// Cancel, answered: a window opened only to ask closes again.
 #[tauri::command]
 fn quit_cancelled(app: AppHandle) {
+    QUIT_ASKING.store(false, std::sync::atomic::Ordering::SeqCst);
     if QUIT_FROM_HIDDEN.swap(false, std::sync::atomic::Ordering::SeqCst) {
         if let Some(w) = app.get_webview_window("main") {
             let _ = w.hide();
@@ -1601,6 +1610,7 @@ pub fn run() {
                 w.on_window_event(move |ev| match ev {
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
+                        QUIT_ASKING.store(false, std::sync::atomic::Ordering::SeqCst);
                         let _ = w2.app_handle().save_window_state(STATE_FLAGS);
                         let _ = w2.hide();
                         set_in_dock(w2.app_handle(), false);

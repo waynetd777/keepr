@@ -457,16 +457,18 @@ export type Ask = {
 };
 
 // The question on screen, if any, and how it's answered; kept outside React so any handler can
-// await an answer. One at a time: a second waits for the first.
-let asking: { q: Ask; answer: (yes: boolean) => void } | null = null;
-const waiting: { q: Ask; answer: (yes: boolean) => void }[] = [];
+// await an answer. One at a time: a second waits for the first. Each has its own `n`, so the next
+// is a new dialog, whose button takes the focus, not the last one's left where it was.
+let asking: { q: Ask; answer: (yes: boolean) => void; n: number } | null = null;
+const waiting: { q: Ask; answer: (yes: boolean) => void; n: number }[] = [];
+let asked = 0;
 const askSubs = new Set<() => void>();
 const askChanged = () => askSubs.forEach((f) => f());
 
 /** Asks in the app's own dialog, in place of the system's; true when the user goes ahead. */
 export function confirm(q: Ask): Promise<boolean> {
   return new Promise((answer) => {
-    waiting.push({ q, answer });
+    waiting.push({ q, answer, n: ++asked });
     if (!asking) {
       asking = waiting.shift() ?? null;
       askChanged();
@@ -486,7 +488,7 @@ export function Confirm() {
     return () => void askSubs.delete(f);
   }, []);
   if (!asking) return null;
-  const { q, answer } = asking;
+  const { q, answer, n } = asking;
   const done = (yes: boolean) => {
     answer(yes);
     asking = waiting.shift() ?? null;
@@ -494,6 +496,7 @@ export function Confirm() {
   };
   return (
     <Sheet
+      key={n}
       title={q.title}
       icon={
         q.danger ? (

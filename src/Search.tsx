@@ -22,6 +22,7 @@ export default function Search() {
   const req = useRequests();
   useEffect(() => {
     setFound(null);
+    setMissed([]);
     setGaveUp(false);
     // A newer search's answer is the one shown; this one's, if it comes after, is dropped.
     let live = true;

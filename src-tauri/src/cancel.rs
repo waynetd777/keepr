@@ -47,12 +47,25 @@ pub fn with<T>(token: Option<String>, f: impl FnOnce() -> T) -> T {
         k.live.insert(t.clone(), ctl.clone());
     }
     let before = CURRENT.with(|c| c.replace(Some(ctl)));
-    let out = f();
-    CURRENT.with(|c| *c.borrow_mut() = before);
-    if let Some(t) = &token {
-        TOKENS.lock().unwrap().get_or_insert_with(Tokens::default).live.remove(t);
+    // Put back as `f` ends, even if it panics: else the thread would go on answering to this
+    // request's Control, and the token would stay live for good.
+    struct Restore {
+        before: Option<Arc<Control>>,
+        token: Option<String>,
     }
-    out
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let before = self.before.take();
+            CURRENT.with(|c| *c.borrow_mut() = before);
+            if let Some(t) = &self.token {
+                // A panic while TOKENS was held leaves it poisoned; what it holds is still whole.
+                let mut g = TOKENS.lock().unwrap_or_else(|e| e.into_inner());
+                g.get_or_insert_with(Tokens::default).live.remove(t);
+            }
+        }
+    }
+    let _restore = Restore { before, token };
+    f()
 }
 
 /// Errs with STOPPED once the request this thread is working on has been cancelled.
@@ -103,6 +116,15 @@ mod tests {
         });
         assert!(seen.is_err());
         assert!(check().is_ok(), "outside a request nothing is cancelled");
+    }
+
+    #[test]
+    fn a_request_that_panics_leaves_nothing_behind() {
+        let r = std::panic::catch_unwind(|| with(Some("p".into()), || panic!("boom")));
+        assert!(r.is_err());
+        assert!(CURRENT.with(|c| c.borrow().is_none()), "the thread's request is put back");
+        let g = TOKENS.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(!g.as_ref().is_some_and(|k| k.live.contains_key("p")), "the token is no longer live");
     }
 
     #[test]

@@ -25,7 +25,7 @@ use crate::core::{human_bytes as hb, Core};
 use crate::places::tilde;
 use keepr_engine::backup::Excluder;
 use keepr_engine::repo::Repo;
-use keepr_engine::retention::{self, Retention};
+use keepr_engine::retention::Retention;
 use keepr_engine::tree::NodeKind;
 use keepr_engine::Id;
 use serde::{Deserialize, Serialize};
@@ -151,9 +151,13 @@ fn survey(repo: &Repo, tree: Id, listed: &HashSet<String>, key: String, read: &d
 /// Whether the project a folder is in lists it in its .gitignore: None when it isn't in a git
 /// project on this Mac (or isn't on this Mac any more). Read with the same rules Keepr's
 /// backups use, without running git.
+///
+/// Only for folders on the startup disk: looking at a share or another disk (under /Volumes, or
+/// /Network) can wait minutes on one that has gone away, and the context would wait with it. A
+/// project on another disk is said to be not in one, as if it weren't on this Mac.
 fn gitignored(path: &str) -> Option<bool> {
     let p = Path::new(path);
-    if !p.is_dir() {
+    if !on_startup_disk(p) || !p.is_dir() {
         return None;
     }
     let root = p.ancestors().find(|a| a.join(".git").exists())?;
@@ -169,6 +173,12 @@ fn gitignored(path: &str) -> Option<bool> {
     }
     let g = b.build().ok()?;
     Some(g.matched_path_or_any_parents(p, true).is_ignore())
+}
+
+/// Whether a path is on the startup disk, judged by its name alone so that nothing is asked of a
+/// disk or share that may not answer.
+fn on_startup_disk(p: &Path) -> bool {
+    p.is_absolute() && !p.starts_with("/Volumes") && !p.starts_with("/Network")
 }
 
 fn ago(nanos: i64) -> String {
@@ -348,15 +358,16 @@ fn plan_text(core: &Core, p: &Plan, out: &mut String) -> Result<(), String> {
     say(core, format!("Working out the space {}'s versions take…", p.name));
     // Worked out once: if it can't be, the stored figures are left out rather than each folder's
     // asking again, which would read every listing again.
-    let stored_ok = match crate::stored::warm(core, &p.id, &|n| {
+    let warm = match crate::stored::warm(core, &p.id, &|n| {
         say(core, format!("Working out the space {}'s versions take: {} listings read…", p.name, thousands(n)))
     }) {
-        Ok(()) => true,
+        Ok(w) => Some(w),
         Err(_) => {
             crate::cancel::check()?;
-            false
+            None
         }
     };
+    let stored_ok = warm.is_some();
     let _ = writeln!(out, "\nBiggest folders in the latest backup (size · change since the comparison · stored · stored this week · file types by size · newest file · changed in 30 days · .gitignore):");
     for d in &big {
         let f = sv.facts.get(&d.path).cloned().unwrap_or_default();
@@ -370,7 +381,7 @@ fn plan_text(core: &Core, p: &Plan, out: &mut String) -> Result<(), String> {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        let stored = if stored_ok { crate::stored::stored_of(core, &p.id, &d.path) } else { None };
+        let stored = warm.as_ref().and_then(|w| crate::stored::stored_of(w, &d.path));
         let git = match gitignored(&d.path) {
             Some(true) => "listed in its project's .gitignore",
             Some(false) => "in a git project, not ignored",
@@ -434,9 +445,10 @@ pub fn context(core: &Core, plan: Option<&str>) -> Result<String, String> {
     }
     let st = core.state.lock().unwrap().clone();
     let mut out = String::new();
-    let total: u64 = cfg.plans.iter().filter_map(|p| st.plans.get(&p.id)).map(|s| s.repo_bytes).sum();
+    // Only the plans Ask may see: a plan left out is named and nothing else, its size included.
+    let total: u64 = cfg.plans.iter().filter(|p| !p.ask_exclude).filter_map(|p| st.plans.get(&p.id)).map(|s| s.repo_bytes).sum();
     let _ = writeln!(out, "What Keepr knows, as of {} (sizes in binary units):", chrono::Local::now().format("%a %e %b %Y, %H:%M"));
-    let _ = writeln!(out, "- Space used in all destinations: {}", hb(total));
+    let _ = writeln!(out, "- Space used in all destinations, by the plans described here: {}", hb(total));
     let mut plans: Vec<&Plan> = cfg.plans.iter().collect();
     if let Some(id) = plan {
         plans.sort_by_key(|p| p.id != id);
@@ -449,7 +461,8 @@ pub fn context(core: &Core, plan: Option<&str>) -> Result<String, String> {
         crate::cancel::check()?;
         if let Err(e) = plan_text(core, p, &mut out) {
             crate::cancel::check()?;
-            let _ = writeln!(out, "- Couldn't read this plan's backup: {e}");
+            // Errors can name a folder or a file, as run messages do.
+            let _ = writeln!(out, "- Couldn't read this plan's backup: {}", pathless(&e));
         }
     }
     let seen: HashSet<&str> = plans.iter().filter(|p| !p.ask_exclude).map(|p| p.id.as_str()).collect();
@@ -473,33 +486,56 @@ pub fn context(core: &Core, plan: Option<&str>) -> Result<String, String> {
 }
 
 /// A run's message with the paths taken out: messages name files ("1 file couldn't be read
-/// (first: ~/Documents/Budget.numbers)", "~/Old removed from 3 snapshots"), and Ask never hears a
-/// file's name. A path runs from a "/" or "~/" that starts a word to the ")" that closes it, the
-/// " removed from" after it, or the end of its part of the message (the parts are joined by " · "),
-/// since a path can have spaces in it.
+/// (first: ~/Documents/Budget.numbers)", "~/Old removed from 3 snapshots", "1 problem:
+/// Budget.numbers in the snapshot from …"), and Ask never hears a file's name.
+///
+/// A path runs from a "/" or "~/" that starts a word, and a path can hold anything: spaces, ")",
+/// " · " (which joins a message's parts). So it isn't ended by what's in it, but by what Keepr's
+/// messages put after one: "(first: …)" always ends its message, so its path runs to the
+/// message's last ")"; a removal's path runs to the " removed from" before its count; and any
+/// other path (in an error, say) runs to the end of the message. Some of the message can go with
+/// it; none of the path stays.
 fn pathless(msg: &str) -> String {
-    msg.split(" · ")
-        .map(|part| {
-            let mut out = String::new();
-            let mut rest = part;
-            loop {
-                let b = rest.as_bytes();
-                let start =
-                    (0..b.len()).find(|&i| (i == 0 || matches!(b[i - 1], b' ' | b'(')) && (b[i] == b'/' || b[i..].starts_with(b"~/")));
-                let Some(i) = start else {
-                    out.push_str(rest);
-                    break;
-                };
-                let path = &rest[i..];
-                let end = [")", " removed from"].iter().filter_map(|e| path.find(e)).min().unwrap_or(path.len());
-                out.push_str(&rest[..i]);
-                out.push_str(if out.is_empty() { "Something" } else { "a file" });
-                rest = &path[end..];
-            }
-            out
-        })
-        .collect::<Vec<_>>()
-        .join(" · ")
+    let msg = &problem_named(msg);
+    let mut out = String::new();
+    let mut rest = msg.as_str();
+    loop {
+        let b = rest.as_bytes();
+        let start = (0..b.len()).find(|&i| (i == 0 || matches!(b[i - 1], b' ' | b'(')) && (b[i] == b'/' || b[i..].starts_with(b"~/")));
+        let Some(i) = start else {
+            out.push_str(rest);
+            break;
+        };
+        let path = &rest[i..];
+        let end =
+            if rest[..i].ends_with("(first: ") { path.rfind(')').unwrap_or(path.len()) } else { removed_from(path).unwrap_or(path.len()) };
+        out.push_str(&rest[..i]);
+        out.push_str(if out.is_empty() || out.ends_with(" · ") { "Something" } else { "a file" });
+        rest = &path[end..];
+    }
+    out
+}
+
+/// Where " removed from " and a count start in `s`, if they do.
+fn removed_from(s: &str) -> Option<usize> {
+    const R: &str = " removed from ";
+    s.match_indices(R).map(|(i, _)| i).find(|&i| s[i + R.len()..].starts_with(|c: char| c.is_ascii_digit()))
+}
+
+/// A check's message names a file by its name alone ("1 problem: Budget.numbers in the snapshot
+/// from … is missing data."), which no "/" gives away: the name goes, as "a file".
+fn problem_named(msg: &str) -> String {
+    const IN: &str = " in the snapshot from ";
+    let Some(colon) = msg.find(" problem: ").map(|i| i + 10).or_else(|| msg.find(" problems: ").map(|i| i + 11)) else {
+        return msg.to_string();
+    };
+    // The last, so a name that has the words in it goes whole.
+    match msg[colon..].rfind(IN) {
+        Some(i) if msg[..colon].trim_end_matches([' ', ':']).rsplit(' ').nth(1).is_some_and(|n| n.parse::<u64>().is_ok()) => {
+            format!("{}a file{}", &msg[..colon], &msg[colon + i..])
+        }
+        _ => msg.to_string(),
+    }
 }
 
 // ---- proposals ----
@@ -811,9 +847,19 @@ pub fn check(core: &Core, raw: &serde_json::Value) -> Result<Checked, String> {
     let mut snapshots = None;
     if a.retention != b.retention {
         let snaps = repo.snapshots().map_err(|e| e.0)?;
-        let times: Vec<chrono::DateTime<chrono::Local>> = snaps.iter().filter_map(|s| retention::parse_time(&s.time)).collect();
-        let now = chrono::Local::now();
-        let (x, y) = (retention::keep(&a.retention, &times, now).len() as u32, retention::keep(&b.retention, &times, now).len() as u32);
+        // Counted as the tidy-up counts them, snapshots kept for a deleted file's last version
+        // too: else a shorter time for those would look as if it removed nothing.
+        let ctl = crate::cancel::control();
+        let kept = |r: &Retention| {
+            keepr_engine::prune::kept(&repo, &snaps, r, &ctl).map(|k| k.len() as u32).map_err(|e| {
+                if crate::cancel::check().is_err() {
+                    crate::cancel::STOPPED.to_string()
+                } else {
+                    e.0
+                }
+            })
+        };
+        let (x, y) = (kept(&a.retention)?, kept(&b.retention)?);
         // There can be more snapshots than the current settings keep: the tidy-up runs at most
         // once a day. What this change adds to it is what it should be judged on.
         let there = snaps.len() as u32;
@@ -825,9 +871,25 @@ pub fn check(core: &Core, raw: &serde_json::Value) -> Result<Checked, String> {
             ));
         }
         snapshots = Some((there, x, y));
+        if b.retention.keep_deleted_days < a.retention.keep_deleted_days {
+            warnings.push(deleted_warning(b.retention.keep_deleted_days));
+        }
     }
     let _ = total;
     Ok(Checked { plan_id: a.id.clone(), plan_name: a.name.clone(), why: c.why, lines, left_out: lo, snapshots, warnings })
+}
+
+/// Said whenever a change keeps deleted files' last versions for less time: which snapshots
+/// that lets go depends on when each file went, so the count above can't say it all.
+fn deleted_warning(days: u32) -> String {
+    if days == 0 {
+        "Deleted files' last versions won't be kept for their own sake any more: once the other settings let their snapshots go, they can't be restored.".into()
+    } else {
+        format!(
+            "Deleted files' last versions are kept for {days} day{} after they're deleted: those deleted longer ago can be removed by the next tidy-up, and can't be restored afterwards.",
+            if days == 1 { "" } else { "s" }
+        )
+    }
 }
 
 fn changes_dir(core: &Core) -> PathBuf {
@@ -868,8 +930,13 @@ fn settings(p: &Plan) -> Result<BTreeMap<String, serde_json::Value>, String> {
 /// Saves the change through the plan editor's path, and records it in Activity with what it
 /// changed, so it can be undone. Returns the run's id.
 pub fn apply(core: &Core, raw: &serde_json::Value) -> Result<String, String> {
-    let checked = check(core, raw)?;
+    // Not `check` again: the card has shown what it found, and working it out reads the latest
+    // backup and the snapshots' listings. Only what the change is, as of now, is needed here.
     let (before, after, c) = changed_plan(core, raw)?;
+    let lines = diff(&before, &after);
+    if lines.is_empty() {
+        return Err(format!("{} already has these settings.", before.name));
+    }
     let (was, now) = (settings(&before)?, settings(&after)?);
     let undo = Undo {
         plan: before.id.clone(),
@@ -883,7 +950,7 @@ pub fn apply(core: &Core, raw: &serde_json::Value) -> Result<String, String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     std::fs::write(dir.join(format!("{id}.json")), serde_json::to_vec_pretty(&undo).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
-    let mut msg = format!("Changed with Ask: {}", checked.lines.iter().map(|l| l.what.as_str()).collect::<Vec<_>>().join(", "));
+    let mut msg = format!("Changed with Ask: {}", lines.iter().map(|l| l.what.as_str()).collect::<Vec<_>>().join(", "));
     if !c.why.is_empty() {
         msg = format!("{msg}. {}", c.why);
     }
@@ -892,8 +959,7 @@ pub fn apply(core: &Core, raw: &serde_json::Value) -> Result<String, String> {
         &id,
         &before.id,
         msg,
-        checked
-            .lines
+        lines
             .iter()
             .map(|l| match (l.before.is_empty(), l.after.is_empty()) {
                 (true, _) => format!("{}: {}", l.what, l.after),
@@ -935,10 +1001,29 @@ fn record(core: &Core, id: &str, plan: &str, message: String, log: Vec<String>) 
 }
 
 /// The changes made with Ask that can still be undone, by run id.
+/// Only the folder's .json files count (not a .DS_Store Finder left). One whose run Activity no
+/// longer has (the history keeps so many runs) can't be undone from there, and is removed, once
+/// it's an hour old: a change being made writes its file just before its run.
 pub fn undoable(core: &Core) -> Vec<String> {
-    std::fs::read_dir(changes_dir(core))
-        .map(|d| d.filter_map(|e| e.ok()?.path().file_stem().map(|s| s.to_string_lossy().into_owned())).collect())
-        .unwrap_or_default()
+    let runs: HashSet<String> = core.state.lock().unwrap().history.iter().map(|r| r.id.clone()).collect();
+    let Ok(d) = std::fs::read_dir(changes_dir(core)) else { return vec![] };
+    let mut out = vec![];
+    for e in d.flatten() {
+        let p = e.path();
+        if p.extension().is_none_or(|x| x != "json") {
+            continue;
+        }
+        let Some(id) = p.file_stem().map(|s| s.to_string_lossy().into_owned()) else { continue };
+        if runs.contains(&id) {
+            out.push(id);
+            continue;
+        }
+        let old = e.metadata().ok().and_then(|m| m.modified().ok()).and_then(|t| t.elapsed().ok()).is_some_and(|a| a.as_secs() > 3600);
+        if old && !core.frozen {
+            let _ = std::fs::remove_file(&p);
+        }
+    }
+    out
 }
 
 /// Puts back what a change made with Ask changed, and only that: the rules it added go and those
@@ -995,6 +1080,52 @@ mod tests {
         let obj = raw.as_object().unwrap();
         let refused: Vec<&String> = obj.keys().filter(|k| !ALLOWED.contains(&k.as_str())).collect();
         assert_eq!(refused.len(), 2);
+    }
+
+    #[test]
+    fn run_messages_lose_every_part_of_their_paths() {
+        let cases = [
+            // A ")" in the path: "(first: …)" ends its message, so the path runs to the last ")".
+            (
+                "12 changed · 1 file couldn't be read (first: ~/Photos (2024)/IMG_0001.jpg)",
+                "12 changed · 1 file couldn't be read (first: a file)",
+            ),
+            ("1 couldn't be written (first: /Users/me/a)b (c.txt)", "1 couldn't be written (first: a file)"),
+            // " · " in the path: it runs to " removed from" and its count, not to the " · ".
+            ("~/A · B/Tax.pdf removed from 3 snapshots · 1.2 GB freed", "Something removed from 3 snapshots · 1.2 GB freed"),
+            ("/Volumes/Media/Old removed from photos removed from 1 snapshot", "Something removed from 1 snapshot"),
+            // An error naming a path: the rest of the message goes with it.
+            ("Couldn't make /Volumes/Disk/Docs p1: Permission denied · retry", "Couldn't make a file"),
+            // A check names a file by its name alone.
+            (
+                "1 problem: Budget.numbers in the snapshot from 2026-10-01T10:00:00+02:00 is missing data.",
+                "1 problem: a file in the snapshot from 2026-10-01T10:00:00+02:00 is missing data.",
+            ),
+            (
+                "3 problems: My (in the snapshot from) notes in the snapshot from 2026-10-01 is missing data.",
+                "3 problems: a file in the snapshot from 2026-10-01 is missing data.",
+            ),
+            ("All intact · 4 snapshots, all data read back", "All intact · 4 snapshots, all data read back"),
+            ("2 changed · 10 KB sent", "2 changed · 10 KB sent"),
+        ];
+        for (msg, want) in cases {
+            assert_eq!(pathless(msg), want, "{msg}");
+        }
+        for (msg, _) in cases {
+            let out = pathless(msg);
+            for leak in ["IMG_0001", "2024)", "Tax.pdf", " B/", "Budget", "notes", "Disk/Docs", "c.txt"] {
+                assert!(!out.contains(leak), "{msg} → {out}");
+            }
+        }
+    }
+
+    #[test]
+    fn folders_off_the_startup_disk_arent_looked_at() {
+        assert!(!on_startup_disk(Path::new("/Volumes/Media/Projects/app")));
+        assert!(!on_startup_disk(Path::new("/Network/Servers/nas/app")));
+        assert!(!on_startup_disk(Path::new("s3://bucket/app")));
+        assert!(on_startup_disk(Path::new("/Users/me/Projects/app")));
+        assert_eq!(gitignored("/Volumes/keepr-no-such-share/app"), None);
     }
 
     #[test]

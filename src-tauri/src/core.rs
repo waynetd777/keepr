@@ -502,7 +502,19 @@ impl Core {
 
     /// The plan's repository, connecting its destination if needed. `create`: make it if this
     /// plan has never backed up; a plan that has must find its repository where it left it.
+    /// Without `create`, for reading (the window browsing it, Ask), it trusts a backup it found
+    /// in the last 30 seconds without looking again.
     pub fn repo(&self, plan: &str, create: bool) -> Result<Arc<Repo>, String> {
+        self.open_repo(plan, create, !create)
+    }
+
+    /// The plan's repository for a job (a check, a tidy-up, a removal, a restore), which always
+    /// looks that it's still there: the 30 seconds' trust is for browsing only.
+    pub fn repo_to_change(&self, plan: &str) -> Result<Arc<Repo>, String> {
+        self.open_repo(plan, false, false)
+    }
+
+    fn open_repo(&self, plan: &str, create: bool, trust: bool) -> Result<Arc<Repo>, String> {
         let (p, d) = self.plan_and_dest(plan)?;
         // A bucket has no folder on this Mac: its "path" is its s3:// address, which matches no
         // file a backup reads.
@@ -523,8 +535,9 @@ impl Core {
         // Out of the map before asking the backend: exists() may be a network round trip, and
         // other plans' jobs and the window need the map meanwhile.
         let known = self.repos.lock().unwrap().get(plan).filter(|(at, _)| *at == path).map(|(_, r)| r.clone());
-        // Not for a backup (create): it always looks, so one never writes into a backup deleted since.
-        let recent = !create && self.repo_seen.lock().unwrap().get(plan).is_some_and(|t| t.elapsed() < Duration::from_secs(30));
+        // Not for a backup (create) or another job: it always looks, so one never writes into
+        // a backup deleted since.
+        let recent = trust && self.repo_seen.lock().unwrap().get(plan).is_some_and(|t| t.elapsed() < Duration::from_secs(30));
         if let Some(r) = known {
             if recent {
                 return Ok(r);
@@ -606,7 +619,7 @@ impl Core {
         }
         // Nobody else (another Mac) may be using it. The lock is let go before the move: it's
         // a file inside the folder, and one carried along would look held by this Mac.
-        let repo = self.repo(plan, false)?;
+        let repo = self.repo_to_change(plan)?;
         drop(repo.lock(true).map_err(|e| e.0)?);
         self.forget_repo(plan);
         drop(repo);
@@ -1076,7 +1089,7 @@ impl Core {
         conflict: Conflict,
         run: &mut Run,
     ) -> Result<(), String> {
-        let repo = self.repo(plan_id, false)?;
+        let repo = self.repo_to_change(plan_id)?;
         let snap = repo
             .snapshots()
             .map_err(|e| e.0)?
@@ -1122,7 +1135,7 @@ impl Core {
     }
 
     fn check(&self, cur: &Arc<Current>, plan_id: &str, all: bool, run: &mut Run) -> Result<(), String> {
-        let repo = self.repo(plan_id, false)?;
+        let repo = self.repo_to_change(plan_id)?;
         Self::set_stage(cur, "Checking");
         run.note(if all {
             "Checking every snapshot and reading all the data back"
@@ -1162,7 +1175,7 @@ impl Core {
 
     fn prune(&self, cur: &Arc<Current>, plan_id: &str, run: &mut Run) -> Result<(), String> {
         let (plan, _) = self.plan_and_dest(plan_id)?;
-        let repo = self.repo(plan_id, false)?;
+        let repo = self.repo_to_change(plan_id)?;
         Self::set_stage(cur, "Tidying up");
         run.note("Applying the version rules");
         let p = keepr_engine::prune::run(&repo, &plan.retention, &cur.ctl).map_err(|e| e.0)?;
@@ -1206,15 +1219,18 @@ impl Core {
     fn remove_path(&self, cur: &Arc<Current>, plan_id: &str, path: &str, run: &mut Run) -> Result<(), String> {
         let sources: Vec<Place> =
             self.config.lock().unwrap().plans.iter().find(|p| p.id == plan_id).map(|p| p.sources.clone()).unwrap_or_default();
-        let same = |a: &str| a.trim_end_matches('/') == path.trim_end_matches('/');
-        // Each source by the path the snapshots name it by, as remove_source works it out.
+        // Without regard to case, as the Mac's disks and shares mostly are: refusing a path that
+        // only looks like a source costs nothing, removing a source's backups would.
+        let same = |a: &str| a.trim_end_matches('/').to_lowercase() == path.trim_end_matches('/').to_lowercase();
+        // Each source by the path the snapshots name it by, as remove_source works it out. A
+        // share is named by where it was mounted when each backup ran (/Volumes/Media then,
+        // /Volumes/Media-1 now), so either is refused; and it isn't connected just to ask.
         let is_source = |s: &Place| match s {
             Place::Folder { path: f, .. } => same(f),
             Place::S3(_) => same(&places::describe(s)),
-            Place::Smb(m) => match places::resolve(s, &self.mounts, true, true) {
-                Ok(p) => same(&p.to_string_lossy()),
-                Err(_) => share_root(m, path),
-            },
+            Place::Smb(m) => {
+                share_root(m, path) || places::resolve(s, &self.mounts, false, false).is_ok_and(|p| same(&p.to_string_lossy()))
+            }
         };
         if sources.iter().any(is_source) {
             return Err(format!(
@@ -1229,7 +1245,7 @@ impl Core {
     fn remove_key(&self, cur: &Arc<Current>, plan_id: &str, key: &str, run: &mut Run) -> Result<(), String> {
         Self::set_stage(cur, "Removing");
         run.note(format!("Taking {} out of every snapshot", places::tilde(key)));
-        let repo = self.repo(plan_id, false)?;
+        let repo = self.repo_to_change(plan_id)?;
         let p = keepr_engine::prune::remove_path(&repo, key, &cur.ctl).map_err(|e| e.0)?;
         run.note(format!("{} snapshots rewritten, {} unchanged; {} freed", p.forgotten, p.kept, human_bytes(p.bytes_freed)));
         {
@@ -1311,13 +1327,14 @@ pub fn source_names(plan: &Plan) -> Vec<String> {
 }
 
 /// Whether `path` is where macOS would have mounted a share's folder: /Volumes/<share>, or
-/// /Volumes/<share>-1 when that was taken, then the folder. For a share that can't be connected
-/// now, so its mount can't be asked.
+/// /Volumes/<share>-1 when that was taken, then the folder. Snapshots name a share by where it
+/// was mounted when they were made, which needn't be where it is now, or anywhere.
 fn share_root(m: &config::Smb, path: &str) -> bool {
     let Some(rest) = path.trim_end_matches('/').strip_prefix("/Volumes/") else { return false };
-    let (vol, below) = rest.split_once('/').unwrap_or((rest, ""));
-    let share = m.share.trim_matches('/');
-    (vol == share || vol.strip_prefix(share).is_some_and(|t| t.starts_with('-'))) && below == m.folder.trim_matches('/')
+    let rest = rest.to_lowercase();
+    let (vol, below) = rest.split_once('/').unwrap_or((&rest, ""));
+    let share = m.share.trim_matches('/').to_lowercase();
+    (vol == share || vol.strip_prefix(&share).is_some_and(|t| t.starts_with('-'))) && below == m.folder.trim_matches('/').to_lowercase()
 }
 
 #[cfg(test)]
@@ -1495,6 +1512,31 @@ mod tests {
         assert!(ctx.contains("Left out of Ask by the user, so not described: Docs") && !ctx.contains("node_modules"), "{ctx}");
         assert!(crate::ask::check(&c, &change).unwrap_err().contains("left out of Ask"));
         assert!(crate::ask::apply(&c, &change).unwrap_err().contains("left out of Ask"));
+        // Nor is its size in the total.
+        assert!(ctx.contains(&format!("by the plans described here: {}", human_bytes(0))), "{ctx}");
+        c.config.lock().unwrap().plans[0].ask_exclude = false;
+
+        // Snapshots kept for a deleted file's last version are counted as the tidy-up counts
+        // them: here the rules keep only the newest, and the older is kept for report.pdf.
+        std::fs::remove_file(src.path().join("docs/report.pdf")).unwrap();
+        c.enqueue(Job::Backup { plan: "p1".into(), full: true });
+        wait(&c);
+        c.config.lock().unwrap().plans[0].retention = keepr_engine::retention::Retention {
+            all_hours: 0,
+            daily_days: 0,
+            weekly_weeks: 0,
+            monthly_months: 1,
+            monthly_off: false,
+            keep_deleted_days: 90,
+        };
+        let fewer = crate::ask::check(&c, &serde_json::json!({"plan": "p1", "retention": {"keepDeletedDays": 0}})).unwrap();
+        let v = serde_json::to_value(&fewer).unwrap();
+        assert_eq!(v["snapshots"], serde_json::json!([2, 2, 1]), "{v}");
+        let w = v["warnings"].to_string();
+        assert!(w.contains("removes 1 snapshots") && w.contains("Deleted files' last versions won't be kept"), "{w}");
+        // Shorter but not none: warned about, whatever the count.
+        let shorter = crate::ask::check(&c, &serde_json::json!({"plan": "p1", "retention": {"keepDeletedDays": 30}})).unwrap();
+        assert!(serde_json::to_string(&shorter).unwrap().contains("kept for 30 days after they're deleted"));
     }
 
     #[test]
@@ -1591,6 +1633,24 @@ mod tests {
         let share = config::Smb { server: "nas".into(), share: "Media".into(), folder: "/Films/".into(), user: "u".into(), name: None };
         assert!(share_root(&share, "/Volumes/Media/Films") && share_root(&share, "/Volumes/Media-1/Films/"));
         assert!(!share_root(&share, "/Volumes/Media/Films/2026") && !share_root(&share, "/Volumes/Mediatheque/Films"));
+        // Case doesn't matter, as it doesn't on the share.
+        assert!(share_root(&share, "/Volumes/media/films") && share_root(&share, "/Volumes/MEDIA-2/Films"));
+        // A share not connected now is refused by where it was mounted when it was backed up,
+        // without being connected to ask (nas.invalid can't be).
+        let unmounted = config::Smb { server: "nas.invalid".into(), ..share.clone() };
+        c.config.lock().unwrap().plans[0].sources.push(Place::Smb(unmounted));
+        for p in ["/Volumes/Media/Films", "/Volumes/media-1/films/"] {
+            c.enqueue(Job::RemovePath { plan: "p1".into(), path: p.into() });
+            wait(&c);
+            let last = c.state.lock().unwrap().history.last().cloned().unwrap();
+            assert!(last.result == "failed" && last.message.contains("one of the folders this plan backs up"), "{p}: {}", last.message);
+        }
+        c.config.lock().unwrap().plans[0].sources.pop();
+        // A folder source, by another case.
+        c.enqueue(Job::RemovePath { plan: "p1".into(), path: source.path.to_uppercase() });
+        wait(&c);
+        let last = c.state.lock().unwrap().history.last().cloned().unwrap();
+        assert!(last.result == "failed" && last.message.contains("one of the folders"), "{}", last.message);
         c.enqueue(Job::RemovePath { plan: "p1".into(), path: g.path.clone() });
         wait(&c);
         assert_eq!(c.state.lock().unwrap().history.last().unwrap().result, "ok");

@@ -15,7 +15,7 @@ import { Icon } from "./icons";
 import SizeMap from "./SizeMap";
 import { openAsk } from "./Ask";
 import { bytes } from "./format";
-import { delta } from "./growth";
+import { delta, sinceWhen } from "./growth";
 import { tilde } from "./format";
 import { STOPPED, stopped, useRequests } from "./ui";
 
@@ -222,12 +222,26 @@ export default function PlansMap() {
   const ask = (stored: boolean) => (d: MapDir, crumbs: string) => {
     const { plan } = d.path ? split(d.path) : { plan: undefined };
     if (leftOut(plan?.id)) return;
-    // All plans: a plan left out of Ask isn't named among them.
+    // All plans: a plan left out of Ask isn't named among them, nor counted in the totals, and
+    // what grew is compared as the top would be without it.
     const kids = d.path ? d.kids : d.kids.filter((k) => !leftOut(split(k.path).plan?.id));
+    const compared = kids.filter((k) => k.since);
+    const top = d.path
+      ? d
+      : {
+          ...d,
+          size: kids.reduce((n, k) => n + k.size, 0),
+          grew: compared.length ? compared.reduce((n, k) => n + (k.grew ?? 0), 0) : null,
+          since: compared.map((k) => k.since!).sort()[compared.length - 1],
+          weekly: compared.length > 0 && compared.every((k) => k.weekly),
+        };
+    // "this week", or "since 3 October" when the map compares since a plan's first backup. All
+    // plans: each plan's block is compared as that plan's map is.
+    const when = sinceWhen(top);
     const rows = kids.slice(0, 30).map(
       // A block that isn't a folder goes by its name; its path is only the map's.
       (k) =>
-        `- ${(k.special ? k.name : where(k.path)) || k.name} · ${bytes(k.size)}${k.grew ? ` · ${delta(k.grew)} this week` : ""}${k.special ? " (not a folder)" : ""}`,
+        `- ${(k.special ? k.name : where(k.path)) || k.name} · ${bytes(k.size)}${k.grew ? ` · ${delta(k.grew)} ${d.path ? when : sinceWhen(k)}` : ""}${k.special ? " (not a folder)" : ""}`,
     );
     if (d.looseSize) rows.push(`- files directly in it · ${bytes(d.looseSize)}`);
     if (d.moreSize) rows.push(`- ${d.more} smaller folders · ${bytes(d.moreSize)}`);
@@ -236,7 +250,7 @@ export default function PlansMap() {
       plan: plan?.id,
       detail: {
         label: `${crumbs} on the ${stored ? "space used" : "latest backups"} map`,
-        text: `${stored ? "Stored (after de-duplication and compression, every version)" : "In the latest backup"}: ${bytes(d.size)}${d.grew ? `, ${delta(d.grew)} this week` : ""}. What's in it:\n${rows.join("\n")}`,
+        text: `${stored ? "Stored (after de-duplication and compression, every version)" : "In the latest backup"}: ${bytes(top.size)}${top.grew ? `, ${delta(top.grew)} ${when}` : ""}. What's in it:\n${rows.join("\n")}`,
       },
     });
   };

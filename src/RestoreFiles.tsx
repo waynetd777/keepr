@@ -138,6 +138,8 @@ function SortHead({
 /** The list, with its heading row. Choosing and opening are the screen's, and so is what the
  *  right-click menu holds (`menu`); the list keeps its scroll, which rows are drawn, and the menu. */
 export function FileList(p: {
+  /// The snapshot listed: a row's menu is closed when it changes, as it was about the one before.
+  snapId: string;
   kids: Record<string, Entry[]>;
   open: Set<string>;
   /// What a search found, listed flat in place of the tree.
@@ -167,6 +169,12 @@ export function FileList(p: {
   // The row a right-click opened the menu for.
   const [menuFor, setMenuFor] = useState<Entry | null>(null);
   const rowMenu = useMenu();
+  useEffect(() => {
+    setMenuFor(null);
+    rowMenu.close();
+    // close is new each render; only another snapshot closes the menu.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.snapId]);
 
   // Keyed by place in the tree as well as path: a backup made while one source was inside another
   // holds the same path twice. Built again only when what's listed, opened or sorted changes.

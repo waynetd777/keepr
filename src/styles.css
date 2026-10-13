@@ -25,6 +25,8 @@
   --amber-soft: #fff3de;
   --red: #b42318;
   --red-soft: #fdecea;
+  /* Text on a --red ground (a confirm's destroy button). */
+  --red-ink: #ffffff;
   --bar: #cde5da;
   --bar-hi: #0f7a5c;
   --pop: 0 12px 40px rgba(0, 0, 0, 0.14);
@@ -71,6 +73,7 @@
     --amber-soft: #3a2b12;
     --red: #ff7a66;
     --red-soft: #3d1d19;
+    --red-ink: #2a0a05;
     --bar: #2c4a3f;
     --bar-hi: #3cc593;
     --pop: 0 12px 40px rgba(0, 0, 0, 0.55);
@@ -111,6 +114,7 @@
   --amber-soft: #3a2b12;
   --red: #ff7a66;
   --red-soft: #3d1d19;
+  --red-ink: #2a0a05;
   --bar: #2c4a3f;
   --bar-hi: #3cc593;
   --pop: 0 12px 40px rgba(0, 0, 0, 0.55);
@@ -2233,7 +2237,7 @@ html.tray body {
 .btn.destroy {
   background: var(--red);
   border-color: var(--red);
-  color: #ffffff;
+  color: var(--red-ink);
 }
 .btn.destroy:hover:not(:disabled) {
   background: color-mix(in srgb, var(--red) 88%, #000000);

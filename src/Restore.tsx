@@ -204,12 +204,10 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
   const [dest, setDest] = useState<"original" | "folder">("original");
   const [folder, setFolder] = useState("");
   const [conflict, setConflict] = useState<Conflict>("keepBoth");
-  // Opened from Search: that snapshot, and that file found and picked. From the Size map
-  // (inFiles): that snapshot, with the folders down to it opened in Files instead.
+  // Opened from Search or the Size map: that snapshot, with the folders down to that item opened
+  // in Files and it picked, once. (A search by its name could miss it: a search stops at 200.)
   const focus = screen.name === "restore" ? screen.focus : undefined;
-  const [query, setQuery] = useState(
-    screen.name === "restore" ? (screen.query ?? (focus?.inFiles ? "" : focus?.path.split("/").pop()) ?? "") : "",
-  );
+  const [query, setQuery] = useState(screen.name === "restore" ? (screen.query ?? "") : "");
   const shown = useRef(false);
   const [hits, setHits] = useState<Entry[] | null>(null);
   const [comparing, setComparing] = useState<{ snapshot: string; path: string } | null>(null);
@@ -217,8 +215,10 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
   const [view, setView] = useState<"files" | "map">((screen.name === "restore" && screen.view) || "files");
   // Shown from the map: that item, once the folders on the way to it are listed.
   const [reveal, setReveal] = useState<{ path: string } | null>(null);
-  // Quick Look first copies the file out of the backup, which takes a while for a big one.
+  // Quick Look first copies the file out of the backup, which takes a while for a big one. Each
+  // has a number, so one finishing doesn't clear the spinner while a later one is still copying.
   const [looking, setLooking] = useState(false);
+  const lookNo = useRef(0);
   // Folders stay first, as in Finder; within them, by the column clicked, again to reverse.
   const [sort, setSort] = useState<Sort>({ by: "name", up: true });
 
@@ -248,11 +248,32 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
   const lastJob = useRef(planJob);
   // Bumped when such a job ends, to list the open folders again: a restore changes the Mac.
   const [fresh, setFresh] = useState(0);
+  // Bumped when snapshots have gone (rewritten or tidied away), to find the versions again.
+  const [pruned, setPruned] = useState(0);
   // The moment shown when the answer comes, not when it was asked for: one picked meanwhile stays.
-  const now = useRef({ snaps, sel });
+  // And what's ticked and picked now, for what's done after a wait (Remove from backup's two
+  // questions, a job's end), not as they were when it started.
+  const now = useRef({ snaps, sel, checked, picked });
   useLayoutEffect(() => {
-    now.current = { snaps, sel };
+    now.current = { snaps, sel, checked, picked };
   });
+  // Unticks what `out` says of the ticks as they are now. The pane goes to the last item still
+  // ticked, or to none, if it was on one of them or inside a folder unticked: it's never left on
+  // something no longer chosen while other things are, where its Remove from backup would be
+  // about the wrong thing. Says how many were unticked.
+  const untick = (out: (e: Entry) => boolean): number => {
+    const keep = (m: Map<string, Entry>) => new Map([...m].filter(([, e]) => !out(e)));
+    const was = now.current.checked;
+    const rest = keep(was);
+    const gone = [...was.values()].filter(out);
+    setChecked((m) => keep(m));
+    const off = (p: Entry) => out(p) || gone.some((e) => p.path.startsWith(`${e.path}/`));
+    setPicked((p) => (p && off(p) ? ([...rest.values()].pop() ?? null) : p));
+    return gone.length;
+  };
+  // Says why something ticked isn't any more, instead of "Another snapshot", when the snapshot
+  // changes for a reason other than the user picking one.
+  const snapNote = useRef<string | null>(null);
   useEffect(() => {
     const ended = lastJob.current && lastJob.current !== planJob;
     lastJob.current = planJob;
@@ -260,16 +281,32 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
     let live = true;
     api.snapshots(planId).then(
       (s) => {
-        const { snaps: was, sel: at0 } = now.current;
+        const { snaps: was, sel: at0, checked: ticks } = now.current;
         if (!live || !was) return;
-        const atNewest = at0 === was.length - 1;
-        const at = atNewest ? -1 : s.findIndex((x) => x.time === was[at0]?.time);
+        const ids = new Set(s.map((x) => x.id));
+        const shownId = was[at0]?.id;
+        // A backup adds a snapshot and leaves the others as they were: the one shown stays, and
+        // so does what's ticked in it. At the newest, the new one is shown instead, unless
+        // something is ticked, which would be lost.
+        let at = s.findIndex((x) => x.id === shownId);
+        if (at >= 0 && at0 === was.length - 1 && !ticks.size) at = s.length - 1;
+        if (at < 0) {
+          // Rewritten (Remove from backup) or tidied away: the one from the same moment, or the
+          // newest. Nothing ticked in the old one stays ticked; the pane finds its item again.
+          const t = s.findIndex((x) => x.time === was[at0]?.time);
+          at = t >= 0 ? t : s.length - 1;
+          snapNote.current = "The snapshots were rewritten: nothing is ticked any more.";
+        } else {
+          // A deleted item restores from its last snapshot: one that has gone can't be.
+          const n = untick((e) => e.tag === "deleted" && !!e.lastSnapshot && !ids.has(e.lastSnapshot));
+          if (n) toast(`The snapshots were rewritten: ${count(n, "deleted item")} ticked ${n === 1 ? "isn't" : "aren't"} any more.`);
+        }
+        // Every snapshot gone: nothing is shown to clear the ticks with, so they go here.
+        if (!s.length) untick(() => true);
         setSnaps(s);
-        setSel(at >= 0 ? at : s.length - 1);
-        // Remove from backup rewrites the snapshots, so what was ticked (a deleted item's
-        // snapshot with it) may not be there any more: nothing stays ticked or picked.
-        setChecked(new Map());
-        setPicked(null);
+        setSel(at);
+        // The versions listed may name a snapshot that has gone.
+        if (was.some((x) => !ids.has(x.id))) setPruned((n) => n + 1);
         setFresh((n) => n + 1);
       },
       () => {},
@@ -317,8 +354,11 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
   const hitsAt = useRef("");
   useEffect(() => {
     if (!snapId) return;
-    if (checked.size) toast("Another snapshot: nothing is ticked any more.");
+    if (checked.size) toast(snapNote.current ?? "Another snapshot: nothing is ticked any more.");
+    snapNote.current = null;
     setChecked(new Map());
+    // What the last one's search found isn't in this one to tick; the search runs again.
+    setHits(null);
     recheck.current = !!picked;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapId]);
@@ -390,8 +430,6 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
             if (!live) return;
             hitsAt.current = snap.id;
             setHits(h);
-            const f = focus && h.find((e) => e.path === focus.path);
-            if (f) setPicked(f);
           },
           (e) => live && !stopped(e) && setErr(String(e)),
         )
@@ -401,7 +439,7 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
       live = false;
       window.clearTimeout(t);
     };
-  }, [query, planId, snap, focus, req]);
+  }, [query, planId, snap, req]);
 
   const pickedFile = picked?.kind === "file" ? picked.path : undefined;
   useEffect(() => {
@@ -420,14 +458,15 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
     return () => {
       live = false;
     };
-  }, [pickedFile, planId, req]);
+  }, [pickedFile, planId, req, pruned]);
 
   const spaceLook = useRef<(() => void) | null>(null);
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest("input, select, textarea") || !snaps) return;
-      // A dialog or sheet is up (Remove from backup's question, a comparison): the keys are its.
-      if (document.querySelector(".scrim")) return;
+      // A dialog, sheet or menu is up (Remove from backup's question, a comparison, a row's
+      // menu, which acts on the snapshot it was opened in): the keys are its.
+      if (document.querySelector(".scrim, .menu")) return;
       if (e.key === "ArrowLeft") setSel((s) => Math.max(0, s - 1));
       if (e.key === "ArrowRight") setSel((s) => Math.min(snaps.length - 1, s + 1));
       if (e.key === " " && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && spaceLook.current) {
@@ -460,9 +499,11 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
     setOpen(s);
     setReveal({ path });
   };
-  // Opened from the Size map: show it once the focused snapshot's sources are listed.
+  // Opened from Search or the Size map: show it once the focused snapshot's sources are listed
+  // (the newest's, if that snapshot has gone since).
+  const focusAt = focus && snaps && (snaps.some((x) => x.id === focus.snapshot) ? focus.snapshot : snaps[snaps.length - 1]?.id);
   useEffect(() => {
-    if (!focus?.inFiles || shown.current || snap?.id !== focus.snapshot || !kids[""]) return;
+    if (!focus || shown.current || !snap || snap.id !== focusAt || !kids[""]) return;
     shown.current = true;
     showInFiles(focus.path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -475,10 +516,13 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
   // on a remote destination: the versions pane says so, with Cancel, and leaving stops it.
   const lookAt = async (snapshot: string, e: Entry) => {
     if (!planId) return;
+    const no = ++lookNo.current;
     setPicked(e);
     setLooking(true);
-    await req.run((t) => api.quickLook(planId, snapshot, e.path, t), "look").catch((err) => !stopped(err) && toast(String(err)));
-    setLooking(false);
+    await req
+      .run((t) => api.quickLook(planId, snapshot, e.path, t), "look")
+      .catch((err) => !stopped(err) && no === lookNo.current && toast(String(err)));
+    if (no === lookNo.current) setLooking(false);
   };
   const stopLooking = () => {
     req.stop("look");
@@ -528,11 +572,10 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
   const toggleCheck = (e: Entry) => {
     const m = new Map(checked);
     const folder = chosenFolder(e);
+    // Whether the pane is on what's no longer chosen: the item, or (for a folder) what's in it.
+    let paneOff = (p: Entry) => p.path === e.path || p.path.startsWith(`${e.path}/`);
     if (m.has(e.path)) {
       m.delete(e.path);
-      // Unticking the picked item: the pane goes to the last of those still ticked, or to none,
-      // so its Remove from backup is never about what was just unticked.
-      if (picked?.path === e.path) setPicked(m.size ? [...m.values()][m.size - 1] : null);
     } else if (folder) {
       // Leaving one item out of a chosen folder: choose the rest of each folder on the way down
       // to it instead. They're all listed, since the item is showing.
@@ -542,8 +585,9 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
         toast("Open the folders down to it to leave it out.");
         return;
       }
-      // The pane isn't left on what was just left out.
-      if (picked?.path === e.path) setPicked(null);
+      // Nor is it left on the folder the item was left out of, or one between them: that folder
+      // isn't chosen any more, and its Remove from backup would take the item left out with it.
+      paneOff = (p: Entry) => p.path === e.path || e.path.startsWith(`${p.path}/`);
       m.delete(folder);
       for (const part of way) {
         const next = `${at}/${part}`;
@@ -556,7 +600,11 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
       // A folder chosen whole replaces anything chosen inside it, so nothing is restored twice.
       for (const p of m.keys()) if (p.startsWith(`${e.path}/`)) m.delete(p);
       m.set(e.path, e);
+      paneOff = () => false;
     }
+    // The pane goes to the last of those still ticked, or to none, so its Remove from backup is
+    // never about what was just unticked.
+    if (picked && paneOff(picked)) setPicked([...m.values()].pop() ?? null);
     setChecked(m);
   };
 
@@ -578,11 +626,11 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
     }
     for (const [at, paths] of gone) if (!(await start(at, paths))) return;
   };
-  const unchoose = (es: Entry[]) => {
-    const m = new Map(checked);
-    es.forEach((e) => m.delete(e.path));
-    if (picked && es.some((e) => e.path === picked.path)) setPicked(m.size ? [...m.values()][m.size - 1] : null);
-    setChecked(m);
+  // Unticks these, as the ticks are now. `within`: what's ticked inside them too (they've been
+  // removed from the backup, so nothing in them is left to restore or remove).
+  const unchoose = (es: Entry[], within = false) => {
+    const paths = new Set(es.map((e) => e.path));
+    untick((e) => paths.has(e.path) || (within && es.some((x) => e.path.startsWith(`${x.path}/`))));
   };
   // The header's box: everything at the top of the list (a folder brings all that's in it), or
   // nothing. Choosing everything replaces what was chosen inside it, so nothing goes twice.
@@ -702,6 +750,17 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
     if (!es.length) return;
     // A source the plan still backs up goes by taking it out of the plan, not from here (Rust
     // refuses it too). One already taken out of the plan can go from here.
+    // A folder not chosen with some of what's in it ticked: removing it takes all of it, ticked or
+    // left out, which isn't what the ticks say. Done with the folder ticked whole, or the ticks.
+    const mixed = es.find((e) => e.kind === "dir" && partlyChosen(e));
+    if (mixed) {
+      const name = mixed.name.startsWith("/") ? tilde(mixed.name, home) : mixed.name;
+      await tell(
+        `Some of what's in ${name} is ticked`,
+        `Remove from backup takes all of ${name}, ticked or not. To remove only what's ticked, right-click one of the ticked items; to remove all of ${name}, tick it first.`,
+      );
+      return;
+    }
     const source = es.find(sourceOf);
     if (source) {
       const name = source.path.startsWith("/") ? tilde(source.path, home) : source.path;
@@ -735,8 +794,9 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
       done++;
     }
     if (!done) return;
-    // What's on its way out is no longer ticked, so the folders it's in don't show as partly chosen.
-    unchoose(es.slice(0, done));
+    // What's on its way out is no longer ticked (nor anything in it), so the folders it's in don't
+    // show as partly chosen and it isn't restored or removed again.
+    unchoose(es.slice(0, done), true);
     toast(`Removing ${done < es.length ? `${done} of ${es.length} items` : describe(es)} from the backup. Activity shows how it's going.`);
   };
   // A restore from this plan running or waiting: the footer shows its progress instead.
@@ -779,7 +839,16 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
           <span className="grow" />
           <label className="row small muted" style={{ gap: 8 }}>
             Show deleted files
-            <Switch label="Show deleted files" on={showDeleted} onChange={setShowDeleted} />
+            <Switch
+              label="Show deleted files"
+              on={showDeleted}
+              onChange={(on) => {
+                setShowDeleted(on);
+                // Hidden, a deleted item isn't left ticked (or in the pane) to be restored unseen.
+                const n = on ? 0 : untick((e) => e.tag === "deleted");
+                if (n) toast(`Deleted files hidden: ${count(n, "deleted item")} ${n === 1 ? "isn't" : "aren't"} ticked any more.`);
+              }}
+            />
           </label>
         </div>
 
@@ -860,6 +929,7 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
         {snap && view === "files" && (
           <section className="card" style={{ flexGrow: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
             <FileList
+              snapId={snap.id}
               kids={kids}
               open={open}
               hits={hits}

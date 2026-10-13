@@ -165,14 +165,18 @@ fn find<'a>(sh: &'a Shares, path: &str) -> Option<&'a Folder> {
 
 /// Works the plan's shares out now, if they aren't already, telling `read` how far it's got. An
 /// error says the figures can't be had now: asking again would read every listing again.
-pub fn warm(core: &Core, plan: &str, read: &dyn Fn(u64)) -> Result<(), String> {
-    cached(core, plan, read).map(|_| ())
+/// What it returns is handed to `stored_of`, so asking about each folder doesn't list the
+/// snapshots again to find the figures.
+pub fn warm(core: &Core, plan: &str, read: &dyn Fn(u64)) -> Result<Warm, String> {
+    cached(core, plan, read).map(Warm)
 }
 
+/// A plan's shares, worked out by `warm`.
+pub struct Warm(Arc<Shares>);
+
 /// What a folder holds stored, and what this week's backups stored in it, for Ask (ask.rs).
-pub fn stored_of(core: &Core, plan: &str, path: &str) -> Option<(u64, u64)> {
-    let sh = cached(core, plan, &|_| {}).ok()?;
-    find(&sh, path).map(|f| (f.size, f.week))
+pub fn stored_of(w: &Warm, path: &str) -> Option<(u64, u64)> {
+    find(&w.0, path).map(|f| (f.size, f.week))
 }
 
 /// The stored map of `path` ("" for the plan's top), as the size map draws it.

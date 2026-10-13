@@ -97,11 +97,18 @@ function tickAge(i: number, end: number) {
   if (i < 48) return 30 + ((i - 30) / 18) * 335;
   return 365 + ((i - 48) / 12) * (end - 365);
 }
-// The right end of the strip, in days, and its label: as far as monthly versions go.
+// The right end of the strip, in days, and its label: as far back as any versions are kept, or two
+// years, unlabelled, when nothing is kept for more than one.
 function stripEnd(r: Retention): [number, string] {
   if (!r.monthlyOff && r.monthlyMonths === 0) return [5 * 365, "Forever"];
-  if (!r.monthlyOff && r.monthlyMonths > 12) return [(r.monthlyMonths / 12) * 365, `${r.monthlyMonths / 12} years`];
-  return [2 * 365, ""];
+  const tiers: [number, string][] = [
+    [r.allHours / 24, everyUnit(r.allHours)],
+    [r.dailyDays, dailyUnit(r.dailyDays)],
+    [r.weeklyWeeks * 7, weeklyUnit(r.weeklyWeeks)],
+  ];
+  if (!r.monthlyOff) tiers.push([r.monthlyMonths * 30.44, monthlyUnit(r.monthlyMonths)]);
+  const [days, unit] = tiers.reduce((a, t) => (t[0] > a[0] ? t : a));
+  return days > 365 ? [days, unit.replace(/^for /, "")] : [2 * 365, ""];
 }
 
 function Ticks({ r }: { r: Retention }) {
@@ -457,6 +464,17 @@ function RemoveSourceSheet({
 
 // ---- the editor ----
 
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+/** `saved` (the plan as the config has it now) with what `mine` changed from `base` (as the config
+ * had it before), field by field: a change from elsewhere stays unless it's to a field edited here. */
+function rebase<T>(saved: T, base: unknown, mine: T): T {
+  if (!isObj(saved) || !isObj(mine) || !isObj(base)) return JSON.stringify(mine) === JSON.stringify(base) ? saved : mine;
+  const out: Record<string, unknown> = { ...saved };
+  for (const k of new Set([...Object.keys(saved), ...Object.keys(mine)])) out[k] = rebase(saved[k], base[k], mine[k]);
+  for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k];
+  return out as T;
+}
+
 export default function Plans() {
   const { cfg, ov, screen, go, home, refresh } = useApp();
   const act = useAct();
@@ -485,10 +503,13 @@ export default function Plans() {
   const addMenu = useMenu();
   const moreMenu = useMenu();
   const saveTimer = useRef<number>(undefined);
-  // The plan as the config last had it, and whether an edit here is yet to be saved and read back.
+  // The plan as the config last had it, which edits here are made against, and the editor's plan
+  // as it is now, for a save that waited.
   const seen = useRef("");
-  const editing = useRef(false);
-  const edits = useRef(0);
+  const mine = useRef<Plan | null>(null);
+  useEffect(() => {
+    mine.current = plan;
+  }, [plan]);
 
   useEffect(() => {
     if (isNew) {
@@ -497,19 +518,19 @@ export default function Plans() {
       setPlan(structuredClone(existing));
     }
     seen.current = existing && !isNew ? JSON.stringify(existing) : "";
-    editing.current = false;
     // Loaded once per plan; later saves come back through the config without replacing edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNew, existing?.id]);
-  // Saved from elsewhere (a change applied in Ask, undone in Activity): the editor shows it, so its
-  // next save doesn't put the old settings back. Not while an edit here is on its way, whose own
-  // save is what comes back then.
+  // Saved from elsewhere (a change applied in Ask, undone in Activity), or an edit here read back:
+  // the editor takes it, keeping what's been edited here since the config last had the plan, so a
+  // save on its way (or typing) doesn't put the old settings back and isn't disturbed.
   useEffect(() => {
     if (isNew || !existing || existing.id !== plan?.id) return;
     const now = JSON.stringify(existing);
     if (now === seen.current) return;
+    const base = JSON.parse(seen.current || now) as Plan;
     seen.current = now;
-    if (!editing.current) setPlan(structuredClone(existing));
+    setPlan((p) => (p && p.id === existing.id ? rebase(existing, base, p) : p));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existing]);
 
@@ -542,16 +563,13 @@ export default function Plans() {
     const nextPlan = f(structuredClone(plan));
     setPlan(nextPlan);
     if (!nextPlan.id) return; // a new plan is saved with Create
-    editing.current = true;
-    const n = ++edits.current;
     window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
+      // The editor's plan by now, which has taken in any change saved from elsewhere meanwhile.
+      const latest = mine.current?.id === nextPlan.id ? mine.current : nextPlan;
       void act(async () => {
-        await api.savePlan(nextPlan);
+        await api.savePlan(latest);
         await refresh();
-      }).finally(() => {
-        // Read back, and nothing edited since: what the config says next is from elsewhere.
-        if (edits.current === n) editing.current = false;
       });
     }, 500);
   };

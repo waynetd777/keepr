@@ -54,6 +54,18 @@ pub fn used_blobs(repo: &Repo, ctl: &Control) -> Result<HashSet<Id>> {
     Ok(used)
 }
 
+/// The snapshots (by their place in `snaps`, oldest first) a tidy-up with `r` keeps: those the
+/// retention rules keep, and those holding the last copy of a file deleted recently enough.
+/// Reads the listings of the snapshots the rules alone would let go.
+pub fn kept(repo: &Repo, snaps: &[crate::repo::Snapshot], r: &Retention, ctl: &Control) -> Result<HashSet<usize>> {
+    let times: Vec<_> = snaps.iter().map(|s| parse_time(&s.time).unwrap_or_else(chrono::Local::now)).collect();
+    let mut kept = keep(r, &times, chrono::Local::now());
+    if r.keep_deleted_days > 0 {
+        keep_deleted(repo, snaps, &times, &mut kept, r.keep_deleted_days, ctl)?;
+    }
+    Ok(kept)
+}
+
 pub fn run(repo: &Arc<Repo>, r: &Retention, ctl: &Control) -> Result<Pruned> {
     let _lock = repo.lock(true)?;
     // The index in memory may be from before another process's backup (`--back-up`, or another
@@ -63,11 +75,7 @@ pub fn run(repo: &Arc<Repo>, r: &Retention, ctl: &Control) -> Result<Pruned> {
 
     // Which snapshots go.
     let snaps = repo.snapshots()?;
-    let times: Vec<_> = snaps.iter().map(|s| parse_time(&s.time).unwrap_or_else(chrono::Local::now)).collect();
-    let mut kept = keep(r, &times, chrono::Local::now());
-    if r.keep_deleted_days > 0 {
-        keep_deleted(repo, &snaps, &times, &mut kept, r.keep_deleted_days, ctl)?;
-    }
+    let kept = kept(repo, &snaps, r, ctl)?;
     for (i, s) in snaps.iter().enumerate() {
         if !kept.contains(&i) {
             repo.forget(&s.id)?;
