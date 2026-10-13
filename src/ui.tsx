@@ -8,7 +8,7 @@
 import { api, type JobStatus, type Queued } from "./api";
 import { Icon } from "./icons";
 import { secondsLeft } from "./format";
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 /** Every tooltip in the app. Give an element a `title` (or an icon-only button an aria-label). */
 export function Tooltips() {
@@ -561,7 +561,8 @@ export function useRequests() {
     },
     [stop],
   );
-  return { run, stop };
+  // The same object every render, so effects that use it don't run again on each one.
+  return useMemo(() => ({ run, stop }), [run, stop]);
 }
 
 /** Shows `msg` as a toast if `p` takes longer than half a second, for a wait with nothing else to show. */
