@@ -1991,10 +1991,39 @@ html.tray body {
   color: var(--ink);
   word-break: break-all;
 }
-.ask-chips {
+/* The suggested questions: full-width rows, each asked with a click. */
+.ask-suggest {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
+}
+.ask-suggest button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--sunk);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+.ask-suggest button svg {
+  flex-shrink: 0;
+  color: var(--ink3);
+}
+.ask-suggest button:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.ask-suggest button:hover svg {
+  color: var(--accent-text);
 }
 .ask-q {
   align-self: flex-end;

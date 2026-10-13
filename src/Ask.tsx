@@ -17,6 +17,7 @@ import { AskChange, splitChanges } from "./AskChange";
 import { AskIcon } from "./AskButton";
 import { useApp } from "./context";
 import { closeHelp, useHelpOpen } from "./help/HelpDrawer";
+import { Icon } from "./icons";
 import { mdToHtml } from "./md";
 
 const SUGGESTIONS = [
@@ -292,10 +293,11 @@ export default function AskPanel() {
               named and nothing of their contents goes. The help's Ask page says exactly what goes.
             </p>
             <p>An answer can suggest a change to a plan. Nothing changes until you apply it, and you can undo it.</p>
-            <div className="ask-chips">
+            <div className="ask-suggest">
               {SUGGESTIONS.map((s) => (
-                <button key={s} type="button" className="chip" title="Ask this" onClick={() => void send(s)}>
-                  {s}
+                <button key={s} type="button" title="Ask this" onClick={() => void send(s)}>
+                  <span className="grow">{s}</span>
+                  <Icon name="forward" size={13} stroke={2} />
                 </button>
               ))}
             </div>
