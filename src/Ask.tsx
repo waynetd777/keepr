@@ -19,6 +19,7 @@ import { useApp } from "./context";
 import { closeHelp, useHelpOpen } from "./help/HelpDrawer";
 import { Icon } from "./icons";
 import { mdToHtml } from "./md";
+import { bytes } from "./format";
 
 const SUGGESTIONS = [
   "What takes the most space, and does all of it need backing up?",
@@ -160,6 +161,22 @@ export default function AskPanel() {
 
   // What Keepr is reading for the question's figures (src-tauri/src/ask.rs), while it does.
   const [reading, setReading] = useState<string | null>(null);
+  // What the AI tool is doing before its answer starts (src-tauri/src/assistant/), and since when
+  // the question has been waiting, ticking each second.
+  const [doing, setDoing] = useState<string | null>(null);
+  const [since, setSince] = useState(0);
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const un = listen<{ chatId: string; text: string }>("ask-status", (e) => {
+      if (e.payload.chatId === chatRef.current) setDoing(e.payload.text);
+    });
+    return () => void un.then((f) => f());
+  }, []);
+  useEffect(() => {
+    if (!busy) return;
+    const id = window.setInterval(() => tick((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [busy]);
   useEffect(() => {
     const un = listen<string>("ask-progress", (e) => setReading(e.payload));
     return () => void un.then((f) => f());
@@ -218,12 +235,15 @@ export default function AskPanel() {
     setQ("");
     setDetail(null);
     setBusy(true);
+    setDoing(null);
+    setSince(Date.now());
     setMessages((m) => [...m, { role: "user", text, about: detail?.label }, { role: "assistant", text: "" }]);
     try {
       let prompt = `${about}Question: ${text}`;
       if (!resume) {
         const ctx = await figuresFor(plan);
         prompt = `${ctx}\n\n${prompt}`;
+        setDoing(`Sending ${bytes(new TextEncoder().encode(prompt).length)} of figures to ${GROUP_NAME[tool]}`);
       }
       await api.ask(chatId, prompt, model, resume);
     } catch (e) {
@@ -342,7 +362,14 @@ export default function AskPanel() {
             if (!m.text)
               return (
                 <div key={i} className="ask-a working" role="status">
-                  {busy && reading && i === messages.length - 1 ? reading.replace(/…$/, "") : "Thinking"}
+                  {busy && i === messages.length - 1 ? (
+                    <>
+                      {(reading ?? doing ?? "Thinking").replace(/…$/, "")}
+                      {since > 0 && <span className="muted"> · {Math.round((Date.now() - since) / 1000)} s</span>}
+                    </>
+                  ) : (
+                    "Thinking"
+                  )}
                   <span className="dots" aria-hidden="true">
                     <i>.</i>
                     <i>.</i>

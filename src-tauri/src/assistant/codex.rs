@@ -10,7 +10,7 @@
 //! computer use, sub-agents and goals. What is left can't read or change anything: a clock, and
 //! apply_patch, which the read-only sandbox refuses.
 
-use super::{finish, silent, spawn, system, Done, Model, Running};
+use super::{finish, silent, spawn, status, system, Done, Model, Running};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::Command;
@@ -99,7 +99,10 @@ pub fn ask(
                 continue;
             };
             match v["type"].as_str() {
+                Some("turn.started") => status(&app, &chat_id, "Codex is working on it; its answer comes all at once"),
+                Some("item.completed") if v["item"]["type"] == "reasoning" => status(&app, &chat_id, "Codex is thinking it through"),
                 Some("thread.started") => {
+                    status(&app, &chat_id, "Codex has your question");
                     if let Some(s) = v["thread_id"].as_str() {
                         session_id = Some(s.to_string());
                     }

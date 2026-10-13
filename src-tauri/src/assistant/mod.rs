@@ -72,6 +72,12 @@ struct Chunk {
     text: String,
 }
 
+/// Says what the CLI is doing before its answer starts ("Claude is thinking it through"), as
+/// an `ask-status` event; the panel shows it in place of "Thinking".
+fn status(app: &AppHandle, chat_id: &str, text: &str) {
+    let _ = tauri::Emitter::emit(app, "ask-status", Chunk { chat_id: chat_id.to_string(), text: text.to_string() });
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Done {
@@ -241,6 +247,13 @@ pub async fn ask(
     let cwd = app.path().app_data_dir().map_err(|e| e.to_string())?.join(cli);
     std::fs::create_dir_all(&cwd).map_err(|e| e.to_string())?;
     let running = Arc::clone(&running);
+    let name = match cli {
+        "agy" => "Antigravity",
+        "copilot" => "GitHub Copilot",
+        "claude" => "Claude Code",
+        _ => "Codex",
+    };
+    status(&app, &chat_id, &format!("Starting {name}"));
     match cli {
         "agy" => antigravity::ask(app, running, cwd, chat_id, prompt, model, session),
         "copilot" => copilot::ask(app, running, cwd, chat_id, prompt, model, session),

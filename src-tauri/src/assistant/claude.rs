@@ -5,7 +5,7 @@
 //! Claude Code in print mode, streaming JSON: text arrives as deltas while it is written. Run
 //! with no tools at all and no MCP servers.
 
-use super::{finish, silent, spawn, system, Chunk, Done, Model, Running};
+use super::{finish, silent, spawn, status, system, Chunk, Done, Model, Running};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::Command;
@@ -67,6 +67,14 @@ pub fn ask(
             match v.get("type").and_then(|t| t.as_str()) {
                 Some("stream_event") => {
                     let ev = &v["event"];
+                    if text.is_empty() {
+                        match (ev["type"].as_str(), ev["content_block"]["type"].as_str()) {
+                            (Some("message_start"), _) => status(&app, &chat_id, "Claude is reading the figures"),
+                            (Some("content_block_start"), Some("thinking")) => status(&app, &chat_id, "Claude is thinking it through"),
+                            (Some("content_block_start"), Some("text")) => status(&app, &chat_id, "Claude is writing"),
+                            _ => {}
+                        }
+                    }
                     if ev["type"] == "content_block_delta" && ev["delta"]["type"] == "text_delta" {
                         if let Some(t) = ev["delta"]["text"].as_str() {
                             text.push_str(t);
@@ -75,6 +83,9 @@ pub fn ask(
                     }
                 }
                 Some("system") => {
+                    if v["subtype"] == "init" {
+                        status(&app, &chat_id, "Claude has your question");
+                    }
                     if let Some(s) = v["session_id"].as_str() {
                         session_id = Some(s.to_string());
                     }
