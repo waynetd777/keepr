@@ -923,7 +923,7 @@ input.pick:focus-visible {
   align-items: stretch;
   border-top: 1px solid var(--line);
   padding-top: 10px;
-  overflow-x: auto;
+  overflow: hidden;
 }
 .snapday {
   flex: 1;
@@ -938,20 +938,23 @@ input.pick:focus-visible {
   height: 44px;
   display: flex;
   align-items: flex-end;
-  gap: 4px;
+  gap: 2px;
 }
 .snapbar {
-  width: 12px;
+  flex: 1 1 0;
+  min-width: 3px;
+  max-width: 14px;
   height: 44px;
   padding: 0;
   border: 0;
   background: transparent;
   display: flex;
   align-items: flex-end;
-  flex-shrink: 0;
+  justify-content: center;
 }
 .snapbar span {
-  width: 12px;
+  width: 100%;
+  max-width: 12px;
   border-radius: 3px;
   background: var(--bar);
   display: block;

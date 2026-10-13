@@ -30,14 +30,30 @@ function Strip({ snaps, sel, setSel }: { snaps: SnapInfo[]; sel: number; setSel:
     });
     return out;
   }, [snaps]);
-  const selDay = days.findIndex((d) => d.items.includes(sel));
-  const end = Math.min(days.length, Math.max(DAYS_SHOWN, selDay + 1 + Math.max(0, DAYS_SHOWN - 1 - (days.length - 1 - selDay))));
-  const start = Math.max(0, Math.min(selDay, end - DAYS_SHOWN));
-  const shown = days.slice(start, start + DAYS_SHOWN);
+  // As many days as fit the strip's width, up to ten, so it never scrolls: the picked day, then
+  // the days after it, then those before. A busy day's bars get thinner rather than wider.
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
+    ro.observe(el);
+    setWidth(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+  const selDay = Math.max(0, days.findIndex((d) => d.items.includes(sel)));
+  const need = (d: { items: number[] }) => Math.max(64, d.items.length * 5 + 17);
+  let start = selDay;
+  let end = selDay + 1;
+  let room = width - 88 - need(days[selDay] ?? { items: [] });
+  while (end - start < DAYS_SHOWN && end < days.length && room >= need(days[end])) room -= need(days[end++]);
+  while (end - start < DAYS_SHOWN && start > 0 && room >= need(days[start - 1])) room -= need(days[--start]);
+  const shown = days.slice(start, end);
   const olderCount = days.slice(0, start).reduce((n, d) => n + d.items.length, 0);
   const max = Math.max(1, ...snaps.map((s) => s.addedBytes));
   return (
-    <div className="snapstrip">
+    <div className="snapstrip" ref={ref}>
       <button
         disabled={olderCount === 0}
         title={olderCount ? `${olderCount} earlier snapshots` : "No earlier snapshots"}
@@ -64,7 +80,7 @@ function Strip({ snaps, sel, setSel }: { snaps: SnapInfo[]; sel: number; setSel:
         {snaps.length ? `back to ${new Date(snaps[0].time).toLocaleDateString(undefined, { day: "numeric", month: "short" })}` : ""}
       </button>
       {shown.map((d) => (
-        <div key={d.key} className="snapday">
+        <div key={d.key} className="snapday" style={{ minWidth: need(d) }}>
           <div className="bars">
             {d.items.map((i) => {
               const s = snaps[i];
