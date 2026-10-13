@@ -20,9 +20,16 @@ use std::sync::{Arc, Mutex};
 /// What a stopped request answers; the window, having asked for it, doesn't show it.
 pub const STOPPED: &str = "Stopped.";
 
-static LIVE: Mutex<Option<HashMap<String, Arc<Control>>>> = Mutex::new(None);
-/// Cancelled before they started (the window gave up while the request was on its way).
-static EARLY: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+/// The requests running, and those cancelled before they started (the window gave up while the
+/// request was on its way). One lock for both: with two, a cancel arriving between a request
+/// looking for an early cancel and registering as running would find neither and be lost.
+#[derive(Default)]
+struct Tokens {
+    live: HashMap<String, Arc<Control>>,
+    early: HashSet<String>,
+}
+
+static TOKENS: Mutex<Option<Tokens>> = Mutex::new(None);
 
 thread_local! {
     static CURRENT: RefCell<Option<Arc<Control>>> = const { RefCell::new(None) };
@@ -32,16 +39,18 @@ thread_local! {
 pub fn with<T>(token: Option<String>, f: impl FnOnce() -> T) -> T {
     let ctl = Arc::new(Control::default());
     if let Some(t) = &token {
-        if EARLY.lock().unwrap().get_or_insert_with(HashSet::new).remove(t) {
+        let mut g = TOKENS.lock().unwrap();
+        let k = g.get_or_insert_with(Tokens::default);
+        if k.early.remove(t) {
             ctl.cancel.store(true, Relaxed);
         }
-        LIVE.lock().unwrap().get_or_insert_with(HashMap::new).insert(t.clone(), ctl.clone());
+        k.live.insert(t.clone(), ctl.clone());
     }
     let before = CURRENT.with(|c| c.replace(Some(ctl)));
     let out = f();
     CURRENT.with(|c| *c.borrow_mut() = before);
     if let Some(t) = &token {
-        LIVE.lock().unwrap().get_or_insert_with(HashMap::new).remove(t);
+        TOKENS.lock().unwrap().get_or_insert_with(Tokens::default).live.remove(t);
     }
     out
 }
@@ -63,12 +72,13 @@ pub fn control() -> Arc<Control> {
 /// Stops the request `token` names, now or as it starts.
 #[tauri::command]
 pub fn cancel(token: String) {
-    if let Some(ctl) = LIVE.lock().unwrap().get_or_insert_with(HashMap::new).get(&token) {
+    let mut g = TOKENS.lock().unwrap();
+    let k = g.get_or_insert_with(Tokens::default);
+    if let Some(ctl) = k.live.get(&token) {
         ctl.cancel.store(true, Relaxed);
         return;
     }
-    let mut early = EARLY.lock().unwrap();
-    let early = early.get_or_insert_with(HashSet::new);
+    let early = &mut k.early;
     // Tokens for requests that had already finished would otherwise pile up.
     if early.len() > 500 {
         early.clear();
@@ -93,5 +103,27 @@ mod tests {
         });
         assert!(seen.is_err());
         assert!(check().is_ok(), "outside a request nothing is cancelled");
+    }
+
+    #[test]
+    fn a_cancel_made_as_the_request_starts_is_never_lost() {
+        // The work waits for the cancel to have returned, then looks: whenever the cancel landed
+        // (before the request, or as it registers), the work must see it.
+        for i in 0..2000 {
+            let t = format!("race-{i}");
+            let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let (t2, d2) = (t.clone(), done.clone());
+            let work = std::thread::spawn(move || {
+                with(Some(t2), || {
+                    while !d2.load(Relaxed) {
+                        std::hint::spin_loop();
+                    }
+                    check()
+                })
+            });
+            cancel(t);
+            done.store(true, Relaxed);
+            assert_eq!(work.join().unwrap(), Err(STOPPED.into()), "lost on round {i}");
+        }
     }
 }

@@ -64,8 +64,11 @@ pub fn space(p: &Path) -> Option<(u64, u64)> {
     }
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let _ = tx.send(statfs(&key));
+        let r = statfs(&key);
+        // Out of the set before answering: removed after, a second call made the moment the
+        // first returns would still find it waiting and get nothing.
         WAITING.lock().unwrap().get_or_insert_with(Default::default).remove(&key);
+        let _ = tx.send(r);
     });
     rx.recv_timeout(std::time::Duration::from_secs(2)).ok().flatten()
 }

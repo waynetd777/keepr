@@ -525,9 +525,16 @@ impl Core {
         let known = self.repos.lock().unwrap().get(plan).filter(|(at, _)| *at == path).map(|(_, r)| r.clone());
         // Not for a backup (create): it always looks, so one never writes into a backup deleted since.
         let recent = !create && self.repo_seen.lock().unwrap().get(plan).is_some_and(|t| t.elapsed() < Duration::from_secs(30));
-        if let Some(r) = known.filter(|r| recent || r.backend.exists(CONFIG)) {
-            self.repo_seen.lock().unwrap().insert(plan.to_string(), Instant::now());
-            return Ok(r);
+        if let Some(r) = known {
+            if recent {
+                return Ok(r);
+            }
+            // Only a look that ran restarts the 30 seconds: refreshed on every call, a window
+            // polling more often than that would trust the backup forever.
+            if r.backend.exists(CONFIG) {
+                self.repo_seen.lock().unwrap().insert(plan.to_string(), Instant::now());
+                return Ok(r);
+            }
         }
         let backend: Arc<dyn Backend> = if p.conditions.limit_mbps > 0 {
             Arc::new(Throttle { inner, per_sec: p.conditions.limit_mbps as u64 * 1_000_000, sent: Mutex::new((Instant::now(), 0)) })
@@ -1200,7 +1207,16 @@ impl Core {
         let sources: Vec<Place> =
             self.config.lock().unwrap().plans.iter().find(|p| p.id == plan_id).map(|p| p.sources.clone()).unwrap_or_default();
         let same = |a: &str| a.trim_end_matches('/') == path.trim_end_matches('/');
-        if sources.iter().any(|s| matches!(s, Place::Folder { path: f, .. } if same(f))) {
+        // Each source by the path the snapshots name it by, as remove_source works it out.
+        let is_source = |s: &Place| match s {
+            Place::Folder { path: f, .. } => same(f),
+            Place::S3(_) => same(&places::describe(s)),
+            Place::Smb(m) => match places::resolve(s, &self.mounts, true, true) {
+                Ok(p) => same(&p.to_string_lossy()),
+                Err(_) => share_root(m, path),
+            },
+        };
+        if sources.iter().any(is_source) {
             return Err(format!(
                 "{} is one of the folders this plan backs up. To stop backing it up and delete what's stored, take it out of the plan.",
                 places::tilde(path)
@@ -1292,6 +1308,16 @@ pub fn source_names(plan: &Plan) -> Vec<String> {
             _ => places::name_of(s),
         })
         .collect()
+}
+
+/// Whether `path` is where macOS would have mounted a share's folder: /Volumes/<share>, or
+/// /Volumes/<share>-1 when that was taken, then the folder. For a share that can't be connected
+/// now, so its mount can't be asked.
+fn share_root(m: &config::Smb, path: &str) -> bool {
+    let Some(rest) = path.trim_end_matches('/').strip_prefix("/Volumes/") else { return false };
+    let (vol, below) = rest.split_once('/').unwrap_or((rest, ""));
+    let share = m.share.trim_matches('/');
+    (vol == share || vol.strip_prefix(share).is_some_and(|t| t.starts_with('-'))) && below == m.folder.trim_matches('/')
 }
 
 #[cfg(test)]
@@ -1394,11 +1420,81 @@ mod tests {
         assert!(c.config.lock().unwrap().plans[0].excludes.is_empty());
         assert!(crate::ask::undoable(&c).is_empty());
 
+        // Undo puts back only what the change changed: an edit made since stays.
+        let id = crate::ask::apply(&c, &change).unwrap();
+        let more = tempfile::tempdir().unwrap();
+        let mut p = c.config.lock().unwrap().plans[0].clone();
+        p.sources.push(Place::Folder { path: more.path().to_string_lossy().into(), name: None });
+        p.ask_exclude = true;
+        crate::save_plan_now(&c, p, None).unwrap();
+        crate::ask::undo(&c, &id).unwrap();
+        let p = c.config.lock().unwrap().plans[0].clone();
+        assert!(p.excludes.is_empty() && p.sources.len() == 2 && p.ask_exclude, "{p:?}");
+        let mut p = p;
+        p.sources.pop();
+        p.ask_exclude = false;
+        crate::save_plan_now(&c, p, None).unwrap();
+
+        // Two changes: undoing the older leaves the newer as it is.
+        let older = crate::ask::apply(&c, &serde_json::json!({"plan": "p1", "gitignore": false})).unwrap();
+        let newer = crate::ask::apply(&c, &serde_json::json!({"plan": "p1", "maxFileSize": 1_000_000, "addExcludes": ["*.tmp"]})).unwrap();
+        crate::ask::undo(&c, &older).unwrap();
+        let p = c.config.lock().unwrap().plans[0].clone();
+        assert!(p.gitignore && p.max_file_size == 1_000_000 && p.excludes == vec!["*.tmp".to_string()], "{p:?}");
+        crate::ask::undo(&c, &newer).unwrap();
+        let p = c.config.lock().unwrap().plans[0].clone();
+        assert!(p.max_file_size == 0 && p.excludes.is_empty(), "{p:?}");
+
+        // A setting it changed that the user has changed again since: refused, and nothing moves.
+        let id = crate::ask::apply(&c, &serde_json::json!({"plan": "p1", "retention": {"dailyDays": 14}})).unwrap();
+        c.config.lock().unwrap().plans[0].retention.daily_days = 20;
+        let e = crate::ask::undo(&c, &id).unwrap_err();
+        assert!(e.contains("Docs's settings have changed since"), "{e}");
+        assert_eq!(c.config.lock().unwrap().plans[0].retention.daily_days, 20);
+        assert_eq!(crate::ask::undoable(&c), vec![id.clone()], "still there to undo");
+        // One kept by an earlier Keepr (the whole plan) is turned down, and not offered again.
+        std::fs::write(data.path().join("ask-changes").join(format!("{id}.json")), serde_json::to_vec(&p).unwrap()).unwrap();
+        assert!(crate::ask::undo(&c, &id).unwrap_err().contains("earlier Keepr"));
+        assert!(crate::ask::undoable(&c).is_empty());
+        c.config.lock().unwrap().plans[0].retention = Default::default();
+
+        // Schedules only as the plan editor could set them; going manual is warned about.
+        for bad in [
+            serde_json::json!({"every": "monthly"}),
+            serde_json::json!({"every": "daily", "at": "24:00"}),
+            serde_json::json!({"at": "9:30"}),
+            serde_json::json!({"every": "weekly", "weekday": 7}),
+        ] {
+            assert!(crate::ask::check(&c, &serde_json::json!({"plan": "p1", "schedule": bad})).is_err(), "{bad}");
+        }
+        let ok = crate::ask::check(&c, &serde_json::json!({"plan": "p1", "schedule": {"every": "weekly", "at": "23:59", "weekday": 6}}));
+        assert!(serde_json::to_string(&ok.unwrap()).unwrap().contains("weekly on Saturday at 23:59"));
+        let manual = crate::ask::check(&c, &serde_json::json!({"plan": "p1", "schedule": {"every": "manual"}})).unwrap();
+        assert!(serde_json::to_string(&manual).unwrap().contains("only when you ask"));
+
+        // Runs are described without the files their messages name.
+        let mut run = c.state.lock().unwrap().history.last().cloned().unwrap();
+        run.id = "r-paths".into();
+        run.message =
+            "3 files · 1 file couldn't be read (first: ~/Private/Budget 2026.numbers) · /Users/someone/Old Stuff removed from 2 snapshots"
+                .into();
+        c.state.lock().unwrap().record(run);
+        let ctx = crate::ask::context(&c, None).unwrap();
+        assert!(!ctx.contains("Budget 2026") && !ctx.contains("Old Stuff") && !ctx.contains("/Users/someone"), "{ctx}");
+        assert!(ctx.contains("couldn't be read (first: a file) · Something removed from 2 snapshots"), "{ctx}");
+
+        // Ask off in Settings: nothing is checked or changed.
+        c.config.lock().unwrap().settings.ask = false;
+        assert_eq!(crate::ask::check(&c, &change).unwrap_err(), "Ask is off in Settings.");
+        assert_eq!(crate::ask::apply(&c, &change).unwrap_err(), "Ask is off in Settings.");
+        c.config.lock().unwrap().settings.ask = true;
+
         // Left out of Ask: named, and nothing else.
         c.config.lock().unwrap().plans[0].ask_exclude = true;
         let ctx = crate::ask::context(&c, None).unwrap();
         assert!(ctx.contains("Left out of Ask by the user, so not described: Docs") && !ctx.contains("node_modules"), "{ctx}");
-        assert!(crate::ask::check(&c, &change).is_err());
+        assert!(crate::ask::check(&c, &change).unwrap_err().contains("left out of Ask"));
+        assert!(crate::ask::apply(&c, &change).unwrap_err().contains("left out of Ask"));
     }
 
     #[test]
@@ -1477,6 +1573,24 @@ mod tests {
         assert_eq!(last.result, "failed");
         assert!(last.message.contains("one of the folders this plan backs up"), "{}", last.message);
         assert_eq!(c.snapshots("p1").unwrap().len(), before);
+        // Nor the top of a bucket or a share the plan backs up, named as the snapshots name it.
+        let bucket = Place::S3(config::S3 {
+            endpoint: "https://s3.example.invalid".into(),
+            region: "us-east-1".into(),
+            bucket: "photos".into(),
+            prefix: "2026/".into(),
+            access_key: "k".into(),
+            name: None,
+        });
+        c.config.lock().unwrap().plans[0].sources.push(bucket);
+        c.enqueue(Job::RemovePath { plan: "p1".into(), path: "s3://photos/2026".into() });
+        wait(&c);
+        let last = c.state.lock().unwrap().history.last().cloned().unwrap();
+        assert!(last.result == "failed" && last.message.contains("one of the folders this plan backs up"), "{}", last.message);
+        c.config.lock().unwrap().plans[0].sources.pop();
+        let share = config::Smb { server: "nas".into(), share: "Media".into(), folder: "/Films/".into(), user: "u".into(), name: None };
+        assert!(share_root(&share, "/Volumes/Media/Films") && share_root(&share, "/Volumes/Media-1/Films/"));
+        assert!(!share_root(&share, "/Volumes/Media/Films/2026") && !share_root(&share, "/Volumes/Mediatheque/Films"));
         c.enqueue(Job::RemovePath { plan: "p1".into(), path: g.path.clone() });
         wait(&c);
         assert_eq!(c.state.lock().unwrap().history.last().unwrap().result, "ok");

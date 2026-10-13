@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MapDir } from "./api";
 import { bytes, count, tilde } from "./format";
 import { delta, landed, sinceWhen } from "./growth";
-import { AskButton } from "./AskButton";
+import { AskButton, AskIcon } from "./AskButton";
 import { Icon } from "./icons";
 
 /// What one block stands for: a folder, the files directly in a folder, or the folders of a
@@ -104,6 +104,7 @@ export default function SizeMap({
   at: atProp,
   onAt,
   onAsk,
+  askOff,
 }: {
   /// The map of a folder by its path, "" for the top. A new function redraws from it.
   load: (path: string) => Promise<MapDir>;
@@ -124,6 +125,8 @@ export default function SizeMap({
   onAt?: (at: Crumb[]) => void;
   /** Ask about the folder the map shows (an Ask button in its path bar). */
   onAsk?: (d: MapDir, crumbs: string) => void;
+  /** Why Ask can't be asked about what the map shows now: its button is off, saying so. */
+  askOff?: string;
 }) {
   // The folder the map is zoomed into, and the way down to it for the path bar.
   const [ownAt, setOwnAt] = useState<Crumb[]>([{ path: "", name: "" }]);
@@ -353,7 +356,15 @@ export default function SizeMap({
           ))}
         </div>
         <span className="grow" />
-        {onAsk && tree && (
+        {onAsk && tree && askOff && (
+          <span className="tipwrap" title={askOff}>
+            <button className="btn small askbtn" disabled title={askOff}>
+              <AskIcon />
+              Ask
+            </button>
+          </span>
+        )}
+        {onAsk && tree && !askOff && (
           <AskButton
             title="Ask what takes the space here, and whether it needs backing up"
             onAsk={() => onAsk(tree, at.map((c, i) => (i === 0 ? top : label(c.name))).join(" › "))}

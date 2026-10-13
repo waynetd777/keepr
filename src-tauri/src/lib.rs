@@ -1115,9 +1115,9 @@ fn ask_to_quit(app: &AppHandle) {
         let _ = t.hide();
     }
     let Some(w) = app.get_webview_window("main") else { return quit_now(app.clone()) };
-    if !w.is_visible().unwrap_or(false) {
-        QUIT_FROM_HIDDEN.store(true, std::sync::atomic::Ordering::SeqCst);
-    }
+    // Set afresh each time: a question left unanswered from a closed window mustn't make a later
+    // Cancel, asked with the window open, close it.
+    QUIT_FROM_HIDDEN.store(!w.is_visible().unwrap_or(false), std::sync::atomic::Ordering::SeqCst);
     // AppKit wants the main thread; the hidden window's page still gets the event meanwhile.
     let a = app.clone();
     let _ = app.run_on_main_thread(move || show_main(&a));
@@ -1148,11 +1148,21 @@ fn quit_cancelled(app: AppHandle) {
     }
 }
 
-/// What quitting does before the app ends; an update's restart does it too.
+/// What quitting does before the app ends, once however it ends: Keepr's Quit, an update's
+/// restart, or macOS's own quit (the Dock's Quit, logging out, an AppleScript), which arrives as
+/// RunEvent::Exit only. Tauri 2.12 gives no applicationShouldTerminate: to stop that one and ask.
 fn quitting(app: &AppHandle) {
+    static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if DONE.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
     let _ = app.save_window_state(STATE_FLAGS);
-    // Nothing Ask started outlives the app.
+    // Nothing Ask started outlives the app: its CLIs run in process groups of their own, which
+    // the app's ending doesn't stop.
     app.state::<Arc<assistant::Running>>().kill_all();
+    if let Some(c) = app.try_state::<Core_>() {
+        c.save_state();
+    }
 }
 
 /// An update about to install: stop jobs starting, unless one is running or queued (updates.rs).
@@ -1610,6 +1620,9 @@ pub fn run() {
                 if app.try_state::<Core_>().is_some() {
                     show_main(app);
                 }
+            }
+            if let tauri::RunEvent::Exit = ev {
+                quitting(app);
             }
             let _ = (app, ev);
         });

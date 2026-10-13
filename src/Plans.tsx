@@ -397,6 +397,10 @@ export default function Plans() {
   const addMenu = useMenu();
   const moreMenu = useMenu();
   const saveTimer = useRef<number>(undefined);
+  // The plan as the config last had it, and whether an edit here is yet to be saved and read back.
+  const seen = useRef("");
+  const editing = useRef(false);
+  const edits = useRef(0);
 
   useEffect(() => {
     if (isNew) {
@@ -404,9 +408,22 @@ export default function Plans() {
     } else if (existing) {
       setPlan(structuredClone(existing));
     }
+    seen.current = existing && !isNew ? JSON.stringify(existing) : "";
+    editing.current = false;
     // Loaded once per plan; later saves come back through the config without replacing edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNew, existing?.id]);
+  // Saved from elsewhere (a change applied in Ask, undone in Activity): the editor shows it, so its
+  // next save doesn't put the old settings back. Not while an edit here is on its way, whose own
+  // save is what comes back then.
+  useEffect(() => {
+    if (isNew || !existing || existing.id !== plan?.id) return;
+    const now = JSON.stringify(existing);
+    if (now === seen.current) return;
+    seen.current = now;
+    if (!editing.current) setPlan(structuredClone(existing));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existing]);
 
   if (!cfg) return null;
   if (!isNew && !existing) {
@@ -437,11 +454,16 @@ export default function Plans() {
     const nextPlan = f(structuredClone(plan));
     setPlan(nextPlan);
     if (!nextPlan.id) return; // a new plan is saved with Create
+    editing.current = true;
+    const n = ++edits.current;
     window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
-      act(async () => {
+      void act(async () => {
         await api.savePlan(nextPlan);
         await refresh();
+      }).finally(() => {
+        // Read back, and nothing edited since: what the config says next is from elsewhere.
+        if (edits.current === n) editing.current = false;
       });
     }, 500);
   };

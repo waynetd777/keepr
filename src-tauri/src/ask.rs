@@ -16,8 +16,8 @@
 //! A proposal is data, never a command: `check` works out what it would do (the diff, what the
 //! latest backup has that would be left out, the snapshots a tidy-up would remove) and what to
 //! warn about; `apply` saves it through the plan editor's own path and records it in Activity,
-//! where `undo` puts the plan back. Only the fields in ALLOWED can change: never the folders, the
-//! destination, encryption, or anything that removes data at once.
+//! where `undo` puts back what it changed. Only the fields in ALLOWED can change: never the
+//! folders, the destination, encryption, or anything that removes data at once.
 
 use crate::browse::{self, MapDir};
 use crate::config::{self, Every, Plan, Run, Schedule};
@@ -29,7 +29,7 @@ use keepr_engine::retention::{self, Retention};
 use keepr_engine::tree::NodeKind;
 use keepr_engine::Id;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -199,7 +199,8 @@ fn every(s: &Schedule) -> String {
         Every::Minutes15 => "every 15 minutes".into(),
         Every::Hourly => "hourly".into(),
         Every::Daily => format!("daily at {}", s.at),
-        Every::Weekly => format!("weekly on {} at {}", DAYS.get(s.weekday as usize).unwrap_or(&"Sunday"), s.at),
+        // As next_run reads it: 7 is Sunday again.
+        Every::Weekly => format!("weekly on {} at {}", DAYS[s.weekday as usize % 7], s.at),
         Every::Manual => "only when asked".into(),
     }
 }
@@ -339,9 +340,17 @@ fn plan_text(core: &Core, p: &Plan, out: &mut String) -> Result<(), String> {
         &|n| say(core, format!("Reading {}'s latest backup: {} folders…", p.name, thousands(n))),
     )?;
     say(core, format!("Working out the space {}'s versions take…", p.name));
-    crate::stored::warm(core, &p.id, &|n| {
+    // Worked out once: if it can't be, the stored figures are left out rather than each folder's
+    // asking again, which would read every listing again.
+    let stored_ok = match crate::stored::warm(core, &p.id, &|n| {
         say(core, format!("Working out the space {}'s versions take: {} listings read…", p.name, thousands(n)))
-    });
+    }) {
+        Ok(()) => true,
+        Err(_) => {
+            crate::cancel::check()?;
+            false
+        }
+    };
     let _ = writeln!(out, "\nBiggest folders in the latest backup (size · change since the comparison · stored · stored this week · file types by size · newest file · changed in 30 days · .gitignore):");
     for d in &big {
         let f = sv.facts.get(&d.path).cloned().unwrap_or_default();
@@ -355,7 +364,7 @@ fn plan_text(core: &Core, p: &Plan, out: &mut String) -> Result<(), String> {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        let stored = crate::stored::stored_of(core, &p.id, &d.path);
+        let stored = if stored_ok { crate::stored::stored_of(core, &p.id, &d.path) } else { None };
         let git = match gitignored(&d.path) {
             Some(true) => "listed in its project's .gitignore",
             Some(false) => "in a git project, not ignored",
@@ -390,7 +399,7 @@ fn plan_text(core: &Core, p: &Plan, out: &mut String) -> Result<(), String> {
         }
     }
     // Folders whose stored versions take space but aren't in the latest backup.
-    if let Ok(sm) = crate::stored::stored_map(core, &p.id, "") {
+    if let Some(Ok(sm)) = stored_ok.then(|| crate::stored::stored_map(core, &p.id, "")) {
         let mut sall = vec![];
         flatten(&sm, &mut sall);
         let mut gone: Vec<&MapDir> = sall
@@ -450,11 +459,41 @@ pub fn context(core: &Core, plan: Option<&str>) -> Result<String, String> {
                 r.kind,
                 r.result,
                 if r.stored_bytes > 0 { format!(" · {} stored", hb(r.stored_bytes)) } else { String::new() },
-                if r.message.is_empty() { String::new() } else { format!(" · {}", r.message) }
+                if r.message.is_empty() { String::new() } else { format!(" · {}", pathless(&r.message)) }
             );
         }
     }
     Ok(out)
+}
+
+/// A run's message with the paths taken out: messages name files ("1 file couldn't be read
+/// (first: ~/Documents/Budget.numbers)", "~/Old removed from 3 snapshots"), and Ask never hears a
+/// file's name. A path runs from a "/" or "~/" that starts a word to the ")" that closes it, the
+/// " removed from" after it, or the end of its part of the message (the parts are joined by " · "),
+/// since a path can have spaces in it.
+fn pathless(msg: &str) -> String {
+    msg.split(" · ")
+        .map(|part| {
+            let mut out = String::new();
+            let mut rest = part;
+            loop {
+                let b = rest.as_bytes();
+                let start =
+                    (0..b.len()).find(|&i| (i == 0 || matches!(b[i - 1], b' ' | b'(')) && (b[i] == b'/' || b[i..].starts_with(b"~/")));
+                let Some(i) = start else {
+                    out.push_str(rest);
+                    break;
+                };
+                let path = &rest[i..];
+                let end = [")", " removed from"].iter().filter_map(|e| path.find(e)).min().unwrap_or(path.len());
+                out.push_str(&rest[..i]);
+                out.push_str(if out.is_empty() { "Something" } else { "a file" });
+                rest = &path[end..];
+            }
+            out
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 // ---- proposals ----
@@ -530,6 +569,10 @@ fn overlay<T: Serialize + for<'de> Deserialize<'de>>(now: &T, with: &serde_json:
 
 /// The plan as the change would leave it.
 fn changed_plan(core: &Core, raw: &serde_json::Value) -> Result<(Plan, Plan, Change), String> {
+    // The window hides Ask when it's off; this holds even if a page still showing it asks.
+    if !core.config.lock().unwrap().settings.ask {
+        return Err("Ask is off in Settings.".into());
+    }
     let obj = raw.as_object().ok_or("The change isn't written as Keepr expects.")?;
     let refused: Vec<&String> = obj.keys().filter(|k| !ALLOWED.contains(&k.as_str())).collect();
     if !refused.is_empty() {
@@ -574,9 +617,37 @@ fn changed_plan(core: &Core, raw: &serde_json::Value) -> Result<(Plan, Plan, Cha
         p.retention = overlay(&p.retention, r, "retention")?;
     }
     if let Some(s) = &c.schedule {
+        valid_schedule(s)?;
         p.schedule = overlay(&p.schedule, s, "schedule")?;
     }
     Ok((before, p, c))
+}
+
+/// A proposed schedule's fields, each as the plan editor could set it: `every` one of its
+/// choices, `at` a time of day as HH:MM, `weekday` 0 (Sunday) to 6 (Saturday).
+fn valid_schedule(s: &serde_json::Value) -> Result<(), String> {
+    if let Some(e) = s.get("every") {
+        const EVERY: &[&str] = &["minutes15", "hourly", "daily", "weekly", "manual"];
+        if !e.as_str().is_some_and(|e| EVERY.contains(&e)) {
+            return Err(format!("The schedule can't be every {e}: it's one of {}.", EVERY.join(", ")));
+        }
+    }
+    if let Some(at) = s.get("at") {
+        let ok = at.as_str().is_some_and(|t| {
+            let b = t.as_bytes();
+            let two = |x: &[u8]| x.iter().all(u8::is_ascii_digit).then(|| (x[0] - b'0') * 10 + (x[1] - b'0'));
+            b.len() == 5 && b[2] == b':' && two(&b[..2]).is_some_and(|h| h < 24) && two(&b[3..]).is_some_and(|m| m < 60)
+        });
+        if !ok {
+            return Err(format!("The schedule's time {at} isn't a time of day written as HH:MM (00:00 to 23:59)."));
+        }
+    }
+    if let Some(w) = s.get("weekday") {
+        if !w.as_u64().is_some_and(|w| w <= 6) {
+            return Err(format!("The schedule's weekday {w} isn't one: it's 0 for Sunday to 6 for Saturday."));
+        }
+    }
+    Ok(())
 }
 
 fn onoff(b: bool) -> String {
@@ -717,6 +788,9 @@ pub fn check(core: &Core, raw: &serde_json::Value) -> Result<Checked, String> {
     if b.gitignore && !a.gitignore {
         warnings.push("Files your projects' .gitignore files list will be left out. Keepr can't count them in advance.".into());
     }
+    if b.schedule.every == Every::Manual && a.schedule.every != Every::Manual {
+        warnings.push(format!("{} won't back up on its own any more: only when you ask it to.", a.name));
+    }
     if !b.skip_cloud_only && a.skip_cloud_only {
         warnings.push("Cloud-only files will be downloaded to back them up, which takes space on this Mac and time.".into());
     }
@@ -742,16 +816,54 @@ fn changes_dir(core: &Core) -> PathBuf {
     core.dir.join("ask-changes")
 }
 
-/// Saves the change through the plan editor's path, and records it in Activity with the plan as
-/// it was, so it can be undone. Returns the run's id.
+/// What a change made with Ask touched, kept so that undoing it puts back only that: the plan's
+/// other settings, and later changes to it, stay as they are.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Undo {
+    plan: String,
+    /// Rules it added, and rules it took away.
+    #[serde(default)]
+    added: Vec<String>,
+    #[serde(default)]
+    removed: Vec<String>,
+    /// By setting ("gitignore", "retention.dailyDays", "schedule.at"): its value before and after.
+    fields: BTreeMap<String, (serde_json::Value, serde_json::Value)>,
+}
+
+/// The settings Ask may change, other than the rules, one by one: retention and schedule by
+/// their fields, so two changes to different ones don't stand in each other's way.
+fn settings(p: &Plan) -> Result<BTreeMap<String, serde_json::Value>, String> {
+    let v = serde_json::to_value(p).map_err(|e| e.to_string())?;
+    let mut out = BTreeMap::new();
+    for k in ["gitignore", "skipCloudOnly", "skipMarked", "maxFileSize"] {
+        out.insert(k.to_string(), v[k].clone());
+    }
+    for k in ["retention", "schedule"] {
+        for (f, x) in v[k].as_object().into_iter().flatten() {
+            out.insert(format!("{k}.{f}"), x.clone());
+        }
+    }
+    Ok(out)
+}
+
+/// Saves the change through the plan editor's path, and records it in Activity with what it
+/// changed, so it can be undone. Returns the run's id.
 pub fn apply(core: &Core, raw: &serde_json::Value) -> Result<String, String> {
     let checked = check(core, raw)?;
     let (before, after, c) = changed_plan(core, raw)?;
+    let (was, now) = (settings(&before)?, settings(&after)?);
+    let undo = Undo {
+        plan: before.id.clone(),
+        added: after.excludes.iter().filter(|e| !before.excludes.contains(e)).cloned().collect(),
+        removed: before.excludes.iter().filter(|e| !after.excludes.contains(e)).cloned().collect(),
+        fields: was.into_iter().filter_map(|(k, x)| (now.get(&k) != Some(&x)).then(|| (k.clone(), (x, now[&k].clone())))).collect(),
+    };
     crate::save_plan_now(core, after, None)?;
     let id = config::new_id();
     let dir = changes_dir(core);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join(format!("{id}.json")), serde_json::to_vec_pretty(&before).map_err(|e| e.to_string())?)
+    std::fs::write(dir.join(format!("{id}.json")), serde_json::to_vec_pretty(&undo).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
     let mut msg = format!("Changed with Ask: {}", checked.lines.iter().map(|l| l.what.as_str()).collect::<Vec<_>>().join(", "));
     if !c.why.is_empty() {
@@ -811,18 +923,47 @@ pub fn undoable(core: &Core) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Puts the plan back as it was before a change made with Ask.
+/// Puts back what a change made with Ask changed, and only that: the rules it added go and those
+/// it took away come back, and each setting it changed returns to what it was, as long as it is
+/// still what the change left it (else the user has changed it since, and that stands).
 pub fn undo(core: &Core, id: &str) -> Result<(), String> {
     let f = changes_dir(core).join(format!("{id}.json"));
-    let before: Plan =
-        serde_json::from_slice(&std::fs::read(&f).map_err(|_| "That change can't be undone any more.")?).map_err(|e| e.to_string())?;
-    if !core.config.lock().unwrap().plans.iter().any(|p| p.id == before.id) {
+    let raw = std::fs::read(&f).map_err(|_| "That change can't be undone any more.")?;
+    // Keepr 1.0.19 and before kept the whole plan, which would undo every edit made since too.
+    let Ok(u) = serde_json::from_slice::<Undo>(&raw) else {
+        let _ = std::fs::remove_file(&f);
+        return Err(
+            "That change was made by an earlier Keepr, which can't undo it without undoing later edits too. Change it in the plan instead."
+                .into(),
+        );
+    };
+    let Some(mut plan) = core.config.lock().unwrap().plans.iter().find(|p| p.id == u.plan).cloned() else {
         let _ = std::fs::remove_file(&f);
         return Err("That plan has been removed.".into());
+    };
+    let now = settings(&plan)?;
+    if u.fields.iter().any(|(k, (_, after))| now.get(k) != Some(after)) {
+        return Err(format!("{}'s settings have changed since; change them in the plan instead.", plan.name));
     }
-    crate::save_plan_now(core, before.clone(), None)?;
+    let mut v = serde_json::to_value(&plan).map_err(|e| e.to_string())?;
+    for (k, (before, _)) in &u.fields {
+        match k.split_once('.') {
+            Some((group, field)) => v[group][field] = before.clone(),
+            None => v[k.as_str()] = before.clone(),
+        }
+    }
+    let excludes = plan.excludes;
+    plan = serde_json::from_value(v).map_err(|e| e.to_string())?;
+    plan.excludes = excludes.into_iter().filter(|e| !u.added.contains(e)).collect();
+    for r in &u.removed {
+        if !plan.excludes.contains(r) {
+            plan.excludes.push(r.clone());
+        }
+    }
+    let plan_id = plan.id.clone();
+    crate::save_plan_now(core, plan, None)?;
     let _ = std::fs::remove_file(&f);
-    record(core, &config::new_id(), &before.id, "Undid a change made with Ask".into(), vec![]);
+    record(core, &config::new_id(), &plan_id, "Undid a change made with Ask".into(), vec![]);
     Ok(())
 }
 

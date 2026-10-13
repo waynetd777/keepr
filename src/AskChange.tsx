@@ -6,14 +6,16 @@
 // would do (src-tauri/src/ask.rs `check`) before anything changes, then applied with Apply and
 // undone with Undo, here or in Activity. Nothing in the answer runs: the block is data.
 
-import { useEffect, useState } from "react";
-import { api, type AskChecked } from "./api";
+import { useEffect, useRef, useState } from "react";
+import { api, on, type AskChecked } from "./api";
 import { bytes, count } from "./format";
 
-/** The answer's text without its keepr-change blocks, and the blocks (parsed, or why not). */
-export function splitChanges(text: string): { text: string; changes: { raw: unknown; bad?: string }[] } {
+/** The answer's text without its keepr-change blocks, and the blocks (parsed, or why not). While
+ * it's `streaming`, a block not yet closed is hidden with what follows it. */
+export function splitChanges(text: string, streaming = false): { text: string; changes: { raw: unknown; bad?: string }[] } {
   const changes: { raw: unknown; bad?: string }[] = [];
-  const rest = text.replace(/```keepr-change\s*\n([\s\S]*?)```/g, (_, body: string) => {
+  // The block's JSON may start on the tag's own line.
+  const rest = text.replace(/```keepr-change[ \t]*\n?([\s\S]*?)```/g, (_, body: string) => {
     try {
       changes.push({ raw: JSON.parse(body) });
     } catch {
@@ -22,7 +24,7 @@ export function splitChanges(text: string): { text: string; changes: { raw: unkn
     return "";
   });
   // A block still being written: hidden until it's complete.
-  const open = rest.indexOf("```keepr-change");
+  const open = streaming ? rest.indexOf("```keepr-change") : -1;
   return { text: open >= 0 ? rest.slice(0, open) : rest, changes };
 }
 
@@ -30,13 +32,30 @@ export function AskChange({ raw, bad }: { raw: unknown; bad?: string }) {
   const [checked, setChecked] = useState<AskChecked | null>(null);
   const [err, setErr] = useState(bad ?? "");
   const [busy, setBusy] = useState(false);
-  // The Activity entry once applied, for Undo; "undone" after.
+  // The Activity entry once applied, for Undo; "undone" after, or "gone" once undone in Activity
+  // (or no longer undoable).
   const [applied, setApplied] = useState<string | null>(null);
+  const wasApplied = useRef(false);
 
+  // Checked once per change: after Apply, a check would only say the plan already has it.
+  const key = bad ? "" : JSON.stringify(raw);
   useEffect(() => {
-    if (bad) return;
-    api.askCheck(raw).then(setChecked, (e) => setErr(String(e)));
-  }, [raw, bad]);
+    if (!key || wasApplied.current) return;
+    api.askCheck(JSON.parse(key)).then(setChecked, (e) => setErr(String(e)));
+  }, [key]);
+
+  // Undo is offered only while Keepr can still undo it: not once Activity has.
+  useEffect(() => {
+    if (!applied || applied === "undone" || applied === "gone") return;
+    const id = applied;
+    const look = () =>
+      void api.askUndoable().then(
+        (ids) => !ids.includes(id) && setApplied((a) => (a === id ? "gone" : a)),
+        () => {},
+      );
+    look();
+    return on("changed", look);
+  }, [applied]);
 
   if (err && !checked) return <div className="ask-change err">{err}</div>;
   if (!checked) return <div className="ask-change muted">Working out what this change would do…</div>;
@@ -88,6 +107,8 @@ export function AskChange({ raw, bad }: { raw: unknown; bad?: string }) {
       <div className="row" style={{ gap: 8 }}>
         {applied === "undone" ? (
           <span className="muted">Undone: the plan is as it was.</span>
+        ) : applied === "gone" ? (
+          <span className="muted">Undone in Activity.</span>
         ) : applied ? (
           <>
             <span className="muted">Applied. It's in Activity too.</span>
@@ -97,6 +118,7 @@ export function AskChange({ raw, bad }: { raw: unknown; bad?: string }) {
               title="Put the plan back as it was"
               onClick={() => {
                 setBusy(true);
+                setErr("");
                 api
                   .askUndo(applied)
                   .then(
@@ -119,7 +141,13 @@ export function AskChange({ raw, bad }: { raw: unknown; bad?: string }) {
               setErr("");
               api
                 .askApply(raw)
-                .then(setApplied, (e) => setErr(String(e)))
+                .then(
+                  (id) => {
+                    wasApplied.current = true;
+                    setApplied(id);
+                  },
+                  (e) => setErr(String(e)),
+                )
                 .finally(() => setBusy(false));
             }}
           >

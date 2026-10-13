@@ -178,7 +178,7 @@ function Running() {
 }
 
 export default function Activity() {
-  const { ov, job } = useApp();
+  const { ov, job, cfg } = useApp();
   const [runs, setRuns] = useState<Run[]>([]);
   const [filter, setFilter] = useState<"all" | "problems" | "restores">("all");
   // Fifty at a time: the next fifty load when the end of the list scrolls into view. Always read
@@ -255,6 +255,15 @@ export default function Activity() {
   useEffect(() => {
     api.askUndoable().then(setUndoable, () => {});
   }, [runs]);
+  // An Undo under way, so a second click can't ask again.
+  const [undoing, setUndoing] = useState<string | null>(null);
+  // Why a run can't be asked about: nothing of a plan left out of Ask goes, its log included.
+  const askOff = (plan: string) =>
+    cfg?.settings.ask === false
+      ? "Ask is off in Settings"
+      : cfg?.plans.find((p) => p.id === plan)?.askExclude
+        ? "This plan is left out of Ask"
+        : undefined;
   const nameOf = (id: string) => ov?.plans.find((p) => p.id === id)?.name ?? "A deleted plan";
   const kindName: Record<string, string> = {
     backup: "Incremental",
@@ -397,18 +406,25 @@ export default function Activity() {
                             {r.kind === "change" && undoable.includes(r.id) && (
                               <button
                                 className="btn small"
+                                disabled={undoing === r.id}
                                 title="Put the plan back as it was before this change"
-                                onClick={() =>
-                                  api.askUndo(r.id).then(
-                                    () => setUndoable((u) => u.filter((x) => x !== r.id)),
-                                    (e) => void tell("Couldn't undo the change", String(e)),
-                                  )
-                                }
+                                onClick={() => {
+                                  setUndoing(r.id);
+                                  api
+                                    .askUndo(r.id)
+                                    .then(
+                                      () => setUndoable((u) => u.filter((x) => x !== r.id)),
+                                      (e) => void tell("Couldn't undo the change", String(e)),
+                                    )
+                                    .finally(() => setUndoing(null));
+                                }}
                               >
                                 Undo
                               </button>
                             )}
-                            {r.kind !== "change" && <AskButton title="Ask an AI to explain this run" onAsk={() => askAbout(r)} />}
+                            {r.kind !== "change" && (
+                              <AskButton title="Ask an AI to explain this run" off={askOff(r.plan)} onAsk={() => askAbout(r)} />
+                            )}
                           </div>
                         </td>
                       </tr>

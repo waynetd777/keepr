@@ -8,7 +8,7 @@
 // up to the Space used card's figure. They zoom together. Click a plan to zoom into its folders;
 // ⌘-click opens it in Restore.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type MapDir } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
@@ -17,7 +17,7 @@ import { openAsk } from "./Ask";
 import { bytes } from "./format";
 import { delta } from "./growth";
 import { tilde } from "./format";
-import { stopped, useRequests } from "./ui";
+import { STOPPED, stopped, useRequests } from "./ui";
 
 // A path on this map is the plan's id, this, then the path in its snapshot.
 const SEP = "\t";
@@ -60,7 +60,7 @@ function topOf(parts: { id: string; name: string; map: MapDir }[], alone: boolea
 type Crumb = { path: string; name: string };
 
 export default function PlansMap() {
-  const { ov, home, go } = useApp();
+  const { ov, cfg, home, go } = useApp();
   const kept = (ov?.plans ?? []).filter((p) => p.snapshots > 0);
   const key = kept.map((p) => `${p.id}:${p.snapshots}:${p.lastSuccess}`).join(",");
   // Each plan is read on its own, so one that's slow (a share to connect, a password to ask
@@ -72,6 +72,13 @@ export default function PlansMap() {
   // A backup since: only that plan is read again, its maps staying up until the new ones come.
   // Each read is stopped by Stop, by a newer read of the same plan, or by leaving the screen.
   const req = useRequests();
+  // Stopping a plan's read settles it at once, even while its snapshots (which can't be stopped)
+  // are still being read: whatever comes of them after is dropped.
+  const halts = useRef(new Map<string, () => void>());
+  const halt = (id: string) => {
+    req.stop(`plan:${id}`);
+    halts.current.get(id)?.();
+  };
   useEffect(() => {
     let live = true;
     const seen = (p: (typeof kept)[number]) => `${p.snapshots}:${p.lastSuccess}`;
@@ -84,16 +91,36 @@ export default function PlansMap() {
     );
     const put = (id: string, part: Partial<Part>) => live && setParts((ps) => ps.map((x) => (x.id === id ? { ...x, ...part } : x)));
     for (const p of stale) {
+      // A read of it still going is replaced by this one.
+      halts.current.get(p.id)?.();
+      let halted = false;
+      let stop = () => {};
+      const halting = new Promise<never>((_, no) => {
+        stop = () => {
+          halted = true;
+          no(STOPPED);
+        };
+      });
+      halts.current.set(p.id, stop);
+      const read = async (t: string) => {
+        const s = await api.snapshots(p.id);
+        if (halted) throw STOPPED;
+        const snapshot = s[s.length - 1]?.id;
+        if (!snapshot) throw "It has no snapshots yet.";
+        const map = await api.sizeMap(p.id, snapshot, "", t);
+        const stored = await api.storedMap(p.id, "", t);
+        if (halted) throw STOPPED;
+        return { snapshot, map, stored };
+      };
       req
-        .run(async (t) => {
-          const s = await api.snapshots(p.id);
-          const snapshot = s[s.length - 1]?.id;
-          if (!snapshot) throw "It has no snapshots yet.";
-          const map = await api.sizeMap(p.id, snapshot, "", t);
-          const stored = await api.storedMap(p.id, "", t);
-          put(p.id, { snapshot, map, stored, seen: seen(p), reading: false });
-        }, `plan:${p.id}`)
-        .catch((e) => put(p.id, stopped(e) ? { reading: false } : { err: String(e), reading: false }));
+        .run((t) => Promise.race([read(t), halting]), `plan:${p.id}`)
+        .then(
+          (got) => put(p.id, { ...got, seen: seen(p), reading: false }),
+          (e) => put(p.id, stopped(e) ? { reading: false } : { err: String(e), reading: false }),
+        )
+        .finally(() => {
+          if (halts.current.get(p.id) === stop) halts.current.delete(p.id);
+        });
     }
     return () => {
       live = false;
@@ -152,11 +179,18 @@ export default function PlansMap() {
       const p = parts.find((x) => x.id === path.slice(0, i));
       if (!p) throw new Error("That plan has no backup any more.");
       const inner = path.slice(i + 1);
-      // A folder in the latest backup that has stored nothing of its own isn't on this map.
+      // A folder in the latest backup that has stored nothing of its own isn't on this map; any
+      // other error (a destination that can't be reached, say) is said as it is.
       const d = under(
-        await api
-          .storedMap(p.id, inner)
-          .catch(() => Promise.reject("Nothing from this folder is stored on its own: its files are all copies of data stored elsewhere.")),
+        await req
+          .run((t) => api.storedMap(p.id, inner, t), "zoomStored")
+          .catch((e) =>
+            Promise.reject(
+              String(e) === "Nothing from that folder is stored."
+                ? "Nothing from this folder is stored on its own: its files are all copies of data stored elsewhere."
+                : e,
+            ),
+          ),
         p.id,
         0,
       );
@@ -178,15 +212,23 @@ export default function PlansMap() {
     else go({ name: "restore", plan: plan.id, focus: { snapshot: plan.snapshot, path: inner, inFiles: true } });
   };
 
+  // A plan left out of Ask: nothing of its folders goes to it, so there's no asking about them.
+  const leftOut = (id?: string) => !!id && !!cfg?.plans.find((p) => p.id === id)?.askExclude;
+  const zoomed = at[at.length - 1]?.path ?? "";
+  const askOff = leftOut(zoomed ? split(zoomed).plan?.id : parts.length === 1 ? parts[0].id : undefined)
+    ? "This plan is left out of Ask"
+    : undefined;
   // Ask about the folder a map shows: what's in it, as the map has it, goes with the question.
   const ask = (stored: boolean) => (d: MapDir, crumbs: string) => {
     const { plan } = d.path ? split(d.path) : { plan: undefined };
-    const rows = d.kids
-      .slice(0, 30)
-      .map(
-        (k) =>
-          `- ${where(k.path) || k.name} · ${bytes(k.size)}${k.grew ? ` · ${delta(k.grew)} this week` : ""}${k.special ? " (not a folder)" : ""}`,
-      );
+    if (leftOut(plan?.id)) return;
+    // All plans: a plan left out of Ask isn't named among them.
+    const kids = d.path ? d.kids : d.kids.filter((k) => !leftOut(split(k.path).plan?.id));
+    const rows = kids.slice(0, 30).map(
+      // A block that isn't a folder goes by its name; its path is only the map's.
+      (k) =>
+        `- ${(k.special ? k.name : where(k.path)) || k.name} · ${bytes(k.size)}${k.grew ? ` · ${delta(k.grew)} this week` : ""}${k.special ? " (not a folder)" : ""}`,
+    );
     if (d.looseSize) rows.push(`- files directly in it · ${bytes(d.looseSize)}`);
     if (d.moreSize) rows.push(`- ${d.more} smaller folders · ${bytes(d.moreSize)}`);
     openAsk({
@@ -218,7 +260,7 @@ export default function PlansMap() {
               <button
                 className="btn small"
                 title="Stop reading; what's already on the maps stays"
-                onClick={() => waiting.forEach((p) => req.stop(`plan:${p.id}`))}
+                onClick={() => waiting.forEach((p) => halt(p.id))}
               >
                 Stop
               </button>
@@ -257,6 +299,7 @@ export default function PlansMap() {
               at={at}
               onAt={setAt}
               onAsk={ask(false)}
+              askOff={askOff}
             />
           </section>
           <section className="card col" style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
@@ -275,6 +318,7 @@ export default function PlansMap() {
               at={at}
               onAt={setAt}
               onAsk={ask(true)}
+              askOff={askOff}
             />
           </section>
         </div>

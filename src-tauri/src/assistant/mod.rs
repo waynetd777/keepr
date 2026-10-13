@@ -27,9 +27,8 @@ When a change to a plan would help and the user wants it, propose it as a fenced
 You have no tools and no files to read: answer from the message alone, run nothing, and never claim to have checked or changed anything. \
 Write tightly: short paragraphs or bullets, headings only when they help, paths as written in the message.";
 
-/// The in-app help's pages (src/help/), in the order the drawer shows them (src/guides.ts): the
-/// whole guide, about 20 KB, so Ask can explain the app's figures as the guide does and answer
-/// how anything in Tidemark works (Help's own button sends that question here).
+/// The in-app help's pages (src/help/): the whole guide, about 20 KB, so Ask can explain the
+/// app's figures as the help does and answer how anything in Keepr works.
 /// Each page's name (its file in src/help/ without `.md`) and its text.
 macro_rules! help_pages {
     ($($name:literal),* $(,)?) => {
@@ -234,6 +233,10 @@ pub async fn ask(
     model: String,
     session: Option<String>,
 ) -> Result<(), String> {
+    // The window hides Ask when it's off; this holds even if a page still showing it asks.
+    if !app.try_state::<Arc<crate::core::Core>>().is_some_and(|c| c.config.lock().unwrap().settings.ask) {
+        return Err("Ask is off in Settings.".into());
+    }
     let cli = if model.starts_with(antigravity::PREFIX) {
         "agy"
     } else if model.starts_with(copilot::PREFIX) {

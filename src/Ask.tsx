@@ -9,7 +9,7 @@
 // button elsewhere (a size map's folder, a run in Activity) opens it with a question and its own
 // details. A change an answer proposes is shown, checked and applied in AskChange.tsx.
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { GROUP_NAME, loadModel, modelGroups, pickModel, providerOf, saveModel, useAssistant, type Provider } from "./assistant";
@@ -80,15 +80,61 @@ const useAskState = () =>
     () => (shown ? (seedNow ? seedNow.n : 1) : 0),
   );
 
+// The toolbar's button, which takes the focus back when the panel closes.
+let toolbarButton: HTMLButtonElement | null = null;
+
 /** The toolbar's Ask button: green while the panel is open, as Help's is. */
 export function AskToolbarButton() {
   const open = useAskState() !== 0;
   return (
-    <button className={`btn askbtn${open ? " on" : ""}`} aria-pressed={open} onClick={toggleAsk} title="Ask an AI about your backups ⌘J">
+    <button
+      ref={(el) => {
+        toolbarButton = el;
+      }}
+      className={`btn askbtn${open ? " on" : ""}`}
+      aria-pressed={open}
+      onClick={toggleAsk}
+      title="Ask an AI about your backups ⌘J"
+    >
       <AskIcon />
       Ask
     </button>
   );
+}
+
+/** One question put to the AI tool: its events carry `id`, so what comes for an earlier one (a
+ * stopped answer's last words, its CLI's ask-done) can't land on this one's answer. */
+interface Asked {
+  id: string;
+  /** The chat it was asked in. */
+  chat: string;
+  stopped: boolean;
+  /** Waiting on the figures, which closing the panel then leaves to finish. */
+  figures: boolean;
+}
+
+/** An answer's text split from its keepr-change blocks, worked out once per text. */
+function Answer({ m, i, copied, copy }: { m: Message; i: number; copied: number | null; copy: (i: number, text: string) => void }) {
+  const { text, changes } = useMemo(() => splitChanges(m.text, !m.done && !m.error), [m.text, m.done, m.error]);
+  return (
+    <div className="ask-turn">
+      <div className={`ask-a${m.error ? " error" : ""}`} dangerouslySetInnerHTML={{ __html: mdToHtml(text) }} />
+      {m.done && changes.map((c, j) => <AskChange key={j} raw={c.raw} bad={c.bad} />)}
+      {!m.error && (
+        <button type="button" className="btn small ask-copy" title="Copy this answer" onClick={() => copy(i, text)}>
+          {copied === i ? "Copied" : "Copy"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Whether an event for question `id` counts: it's for `a`, which isn't stopped. A Stop before its
+ * CLI had started may not have reached it, so a stopped one is stopped again as it speaks. */
+function live(a: Asked | null, id: string) {
+  if (!a || a.id !== id) return false;
+  if (a.stopped) void api.askCancel(id);
+  return !a.stopped;
 }
 
 const uid = () => (typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -112,13 +158,13 @@ export default function AskPanel() {
   const [plan, setPlan] = useState<string | undefined>();
   const sessionTool = useRef<Provider | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
+  const panel = useRef<HTMLElement>(null);
   const composedAt = useRef(0);
   const scroller = useRef<HTMLDivElement>(null);
   const chatRef = useRef(chatId);
   chatRef.current = chatId;
-  // Each question's number, and the last one stopped: what comes for a stopped one is dropped.
-  const asked = useRef(0);
-  const stoppedAsk = useRef(-1);
+  // The question being answered (or last answered): only its events count, and none once stopped.
+  const asked = useRef<Asked | null>(null);
 
   // Help opening closes Ask: they share the right edge.
   useEffect(() => {
@@ -127,7 +173,7 @@ export default function AskPanel() {
 
   useEffect(() => {
     const chunk = listen<{ chatId: string; text: string }>("ask-chunk", (e) => {
-      if (e.payload.chatId !== chatRef.current) return;
+      if (!live(asked.current, e.payload.chatId)) return;
       setMessages((m) => {
         const last = m[m.length - 1];
         if (!last || last.role !== "assistant") return m;
@@ -135,11 +181,13 @@ export default function AskPanel() {
       });
     });
     const done = listen<{ chatId: string; sessionId: string | null; text: string; error: string | null }>("ask-done", (e) => {
-      if (e.payload.chatId !== chatRef.current) return;
       const d = e.payload;
-      // Stopped: the answer so far (or "Stopped.") stays, without the tool's complaint at being stopped.
-      if (stoppedAsk.current === asked.current) {
-        if (d.sessionId) setSession(d.sessionId);
+      const a = asked.current;
+      if (!a || a.id !== d.chatId) return;
+      // Stopped: the answer so far (or "Stopped.") stays, without the tool's complaint at being
+      // stopped; its session still serves a follow-up in the same chat.
+      if (a.stopped) {
+        if (d.sessionId && a.chat === chatRef.current) setSession(d.sessionId);
         return;
       }
       setMessages((m) => {
@@ -177,7 +225,7 @@ export default function AskPanel() {
   const [, tick] = useState(0);
   useEffect(() => {
     const un = listen<{ chatId: string; text: string }>("ask-status", (e) => {
-      if (e.payload.chatId === chatRef.current) setDoing(e.payload.text);
+      if (live(asked.current, e.payload.chatId)) setDoing(e.payload.text);
     });
     return () => void un.then((f) => f());
   }, []);
@@ -191,17 +239,22 @@ export default function AskPanel() {
     return () => void un.then((f) => f());
   }, []);
   // The figures, read as Ask opens so the first question needn't wait for them; a question within
-  // two minutes uses them, a later one reads them again.
+  // two minutes uses them, a later one reads them again, as does one after Ask or a plan's "leave
+  // out of Ask" changed (`fp`).
   const req = useRequests();
-  const figures = useRef<{ plan?: string; at: number; text: Promise<string> } | null>(null);
+  const fp = cfg ? JSON.stringify([cfg.settings.ask, cfg.plans.map((p) => [p.id, !!p.askExclude])]) : "";
+  const figures = useRef<{ plan?: string; fp: string; at: number; text: Promise<string> } | null>(null);
   const figuresFor = (p?: string) => {
     const f = figures.current;
-    if (f && f.plan === p && Date.now() - f.at < 120_000) return f.text;
+    if (f && f.plan === p && f.fp === fp && Date.now() - f.at < 120_000) return f.text;
     const text = req.run((t) => api.askContext(p, t), "figures");
-    figures.current = { plan: p, at: Date.now(), text };
+    const mine = { plan: p, fp, at: Date.now(), text };
+    figures.current = mine;
+    // A read replaced by a newer one leaves the newer one's reuse and progress alone.
     text.then(
-      () => setReading(null),
+      () => figures.current === mine && setReading(null),
       () => {
+        if (figures.current !== mine) return;
         setReading(null);
         figures.current = null;
       },
@@ -211,7 +264,23 @@ export default function AskPanel() {
   useEffect(() => {
     if (open && !off && assistant.available && !session) void figuresFor(plan).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, off, assistant.available, plan]);
+  }, [open, off, assistant.available, plan, fp]);
+  // Closing the panel (it's hidden, not gone) stops a read nobody is waiting on, and gives the
+  // focus back to the toolbar's Ask button.
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    if (wasOpen.current && !open) {
+      if (!asked.current?.figures) {
+        req.stop("figures");
+        figures.current = null;
+        setReading(null);
+      }
+      const el = document.activeElement;
+      if (!helpOpen && (!el || el === document.body || panel.current?.contains(el))) toolbarButton?.focus();
+    }
+    wasOpen.current = open;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // A new seed is typed into the box as it arrives, ready to finish or send.
   const [seen, setSeen] = useState(0);
@@ -233,9 +302,12 @@ export default function AskPanel() {
   // Stop: while the figures are still being read there's no AI to stop yet, so the reading stops
   // and the question isn't sent when they'd have come.
   const stop = () => {
-    stoppedAsk.current = asked.current;
+    const a = asked.current;
+    if (a) {
+      a.stopped = true;
+      void api.askCancel(a.id);
+    }
     req.stop("figures");
-    void api.askCancel(chatId);
     setMessages((m) => {
       const last = m[m.length - 1];
       return last?.role === "assistant" && !last.text ? [...m.slice(0, -1), { role: "assistant", text: "Stopped.", error: true }] : m;
@@ -247,7 +319,8 @@ export default function AskPanel() {
   const send = async (question: string) => {
     const text = question.trim();
     if (!text || busy || off) return;
-    const me = ++asked.current;
+    const me: Asked = { id: uid(), chat: chatId, stopped: false, figures: false };
+    asked.current = me;
     const tool = providerOf(model);
     let resume = session;
     if (sessionTool.current !== tool) {
@@ -266,21 +339,32 @@ export default function AskPanel() {
     try {
       let prompt = `${about}Question: ${text}`;
       if (!resume) {
-        const ctx = await figuresFor(plan);
-        if (stoppedAsk.current === me) return;
+        me.figures = true;
+        const ctx = await figuresFor(plan).finally(() => (me.figures = false));
+        // Stopped, or a new chat begun, while they were read.
+        if (me.stopped) return;
         prompt = `${ctx}\n\n${prompt}`;
         setDoing(`Sending ${bytes(new TextEncoder().encode(prompt).length)} of figures to ${GROUP_NAME[tool]}`);
       }
-      await api.ask(chatId, prompt, model, resume);
+      // Its events carry the question's own id; the chat carries on through `resume`.
+      await api.ask(me.id, prompt, model, resume);
+      // A Stop while it started may have come before its CLI could be stopped.
+      if (me.stopped) void api.askCancel(me.id);
     } catch (e) {
-      if (stoppedAsk.current === me) return;
+      if (me.stopped) return;
       setMessages((m) => [...m.slice(0, -1), { role: "assistant", text: String(e), error: true }]);
       setBusy(false);
     }
   };
 
   const fresh = () => {
-    if (busy) void api.askCancel(chatId);
+    const a = asked.current;
+    if (a && !a.stopped) {
+      a.stopped = true;
+      void api.askCancel(a.id);
+    }
+    req.stop("figures");
+    setReading(null);
     setChatId(uid());
     setMessages([]);
     setSession(null);
@@ -304,6 +388,7 @@ export default function AskPanel() {
 
   return (
     <aside
+      ref={panel}
       className="ask"
       hidden={!open}
       aria-label="Ask about your backups"
@@ -404,18 +489,7 @@ export default function AskPanel() {
                   </span>
                 </div>
               );
-            const { text, changes } = splitChanges(m.text);
-            return (
-              <div key={i} className="ask-turn">
-                <div className={`ask-a${m.error ? " error" : ""}`} dangerouslySetInnerHTML={{ __html: mdToHtml(text) }} />
-                {m.done && changes.map((c, j) => <AskChange key={j} raw={c.raw} bad={c.bad} />)}
-                {!m.error && (
-                  <button type="button" className="btn small ask-copy" title="Copy this answer" onClick={() => void copy(i, text)}>
-                    {copied === i ? "Copied" : "Copy"}
-                  </button>
-                )}
-              </div>
-            );
+            return <Answer key={i} m={m} i={i} copied={copied} copy={(i, text) => void copy(i, text)} />;
           })
         )}
       </div>

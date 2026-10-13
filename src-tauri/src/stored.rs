@@ -163,9 +163,10 @@ fn find<'a>(sh: &'a Shares, path: &str) -> Option<&'a Folder> {
     Some(here)
 }
 
-/// Works the plan's shares out now, if they aren't already, telling `read` how far it's got.
-pub fn warm(core: &Core, plan: &str, read: &dyn Fn(u64)) {
-    let _ = cached(core, plan, read);
+/// Works the plan's shares out now, if they aren't already, telling `read` how far it's got. An
+/// error says the figures can't be had now: asking again would read every listing again.
+pub fn warm(core: &Core, plan: &str, read: &dyn Fn(u64)) -> Result<(), String> {
+    cached(core, plan, read).map(|_| ())
 }
 
 /// What a folder holds stored, and what this week's backups stored in it, for Ask (ask.rs).

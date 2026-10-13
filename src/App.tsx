@@ -169,21 +169,30 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
   );
 }
 
-/** Runs `f` one call at a time: a call made while one runs makes it run once more after. */
+/** Runs `f` one call at a time: a call made while one runs makes it run once more after, and
+ * settles when that run does, so awaiting it means what it asked for has been done. */
 function oneAtATime(f: () => Promise<void>): () => Promise<void> {
-  let state: "idle" | "busy" | "again" = "idle";
+  let busy = false;
+  // The run after this one, shared by every call made meanwhile.
+  let again: { promise: Promise<void>; resolve: () => void; reject: (e: unknown) => void } | null = null;
   const run = async (): Promise<void> => {
-    if (state !== "idle") {
-      state = "again";
-      return;
+    if (busy) {
+      if (!again) {
+        let resolve = () => {};
+        let reject: (e: unknown) => void = () => {};
+        const promise = new Promise<void>((res, rej) => ((resolve = res), (reject = rej)));
+        again = { promise, resolve, reject };
+      }
+      return again.promise;
     }
-    state = "busy";
+    busy = true;
     try {
       await f();
     } finally {
-      const again = (state as string) === "again";
-      state = "idle";
-      if (again) void run();
+      busy = false;
+      const next = again;
+      again = null;
+      if (next) run().then(next.resolve, next.reject);
     }
   };
   return run;

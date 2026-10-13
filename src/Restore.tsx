@@ -172,6 +172,15 @@ function CompareSheet({ plan, snapshot, path, onClose }: { plan: string; snapsho
 }
 
 export default function Restore() {
+  const { ov, screen } = useApp();
+  const plans = ov?.plans ?? [];
+  const planId = (screen.name === "restore" && screen.plan) || plans.find((p) => p.snapshots > 0)?.id || plans[0]?.id;
+  // Opened with no plan named, the plan shown can change under it (the first to back up, say):
+  // everything ticked, picked and opened was of the other plan, so it starts again.
+  return <RestoreOf key={planId ?? ""} planId={planId} />;
+}
+
+function RestoreOf({ planId }: { planId: string | undefined }) {
   const { ov, cfg, screen, home, go } = useApp();
   const act = useAct();
   const toast = useToast();
@@ -180,7 +189,6 @@ export default function Restore() {
   const req = useRequests();
   const slowToast = useSlowToast();
   const plans = ov?.plans ?? [];
-  const planId = (screen.name === "restore" && screen.plan) || plans.find((p) => p.snapshots > 0)?.id || plans[0]?.id;
   const plan = plans.find((p) => p.id === planId);
   const [snaps, setSnaps] = useState<SnapInfo[] | null>(null);
   const [err, setErr] = useState("");
@@ -236,26 +244,40 @@ export default function Restore() {
 
   // A job of this plan's has ended: a backup adds a snapshot and Remove from backup rewrites them,
   // so fetch them again, staying on the same moment (or the newest, if that's where we were).
-  const planJob = ov?.job?.plan === planId ? ov.job.id : undefined;
+  const planJob = planId && ov?.job?.plan === planId ? ov.job.id : undefined;
   const lastJob = useRef(planJob);
   // Bumped when such a job ends, to list the open folders again: a restore changes the Mac.
   const [fresh, setFresh] = useState(0);
+  // The moment shown when the answer comes, not when it was asked for: one picked meanwhile stays.
+  const now = useRef({ snaps, sel });
+  useLayoutEffect(() => {
+    now.current = { snaps, sel };
+  });
   useEffect(() => {
     const ended = lastJob.current && lastJob.current !== planJob;
     lastJob.current = planJob;
     if (!ended || !planId || !snaps) return;
-    const was = snaps[sel];
-    const atNewest = sel === snaps.length - 1;
+    let live = true;
     api.snapshots(planId).then(
       (s) => {
-        const at = atNewest ? -1 : s.findIndex((x) => x.time === was?.time);
+        const { snaps: was, sel: at0 } = now.current;
+        if (!live || !was) return;
+        const atNewest = at0 === was.length - 1;
+        const at = atNewest ? -1 : s.findIndex((x) => x.time === was[at0]?.time);
         setSnaps(s);
         setSel(at >= 0 ? at : s.length - 1);
+        // Remove from backup rewrites the snapshots, so what was ticked (a deleted item's
+        // snapshot with it) may not be there any more: nothing stays ticked or picked.
+        setChecked(new Map());
         setPicked(null);
         setFresh((n) => n + 1);
       },
       () => {},
     );
+    return () => {
+      // Another job ended before the answer came: the newer answer is the one shown.
+      live = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planJob]);
 
@@ -287,6 +309,40 @@ export default function Restore() {
     },
     [planId, snap, showDeleted, req],
   );
+
+  // Another moment: what was ticked was ticked as it was then (a file that isn't in this one, a
+  // deleted item's last snapshot), so nothing stays ticked; the pane stays only on an item this
+  // moment has too, once the folder it's in is listed again.
+  const recheck = useRef(false);
+  const hitsAt = useRef("");
+  useEffect(() => {
+    if (!snapId) return;
+    if (checked.size) toast("Another snapshot: nothing is ticked any more.");
+    setChecked(new Map());
+    recheck.current = !!picked;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapId]);
+  useEffect(() => {
+    if (!recheck.current || !picked) return;
+    // Results found in the moment before don't count; the search runs again for this one.
+    const lists = [...(hitsAt.current === snapId ? (hits ?? []) : []), ...Object.values(kids).flat()];
+    const there = lists.find((e) => e.path === picked.path);
+    if (there) {
+      recheck.current = false;
+      setPicked(there);
+      return;
+    }
+    // Not listed yet, or listed and not there: the folder it's in (the sources, for a source).
+    const parent = picked.path.slice(0, picked.path.lastIndexOf("/")) || "/";
+    const inRoot = (kids[""] ?? []).some((r) => picked.path.startsWith(`${r.path}/`));
+    const where = kids[parent] ?? (inRoot ? undefined : kids[""]);
+    // While searching, the results are what's showing: not among them, it isn't shown.
+    if (where || (hits && hitsAt.current === snapId)) {
+      recheck.current = false;
+      setPicked(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kids, hits]);
 
   // A new moment or the deleted switch: reload the folders that are open.
   useEffect(() => {
@@ -332,6 +388,7 @@ export default function Restore() {
         .then(
           (h) => {
             if (!live) return;
+            hitsAt.current = snap.id;
             setHits(h);
             const f = focus && h.find((e) => e.path === focus.path);
             if (f) setPicked(f);
@@ -369,6 +426,8 @@ export default function Restore() {
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest("input, select, textarea") || !snaps) return;
+      // A dialog or sheet is up (Remove from backup's question, a comparison): the keys are its.
+      if (document.querySelector(".scrim")) return;
       if (e.key === "ArrowLeft") setSel((s) => Math.max(0, s - 1));
       if (e.key === "ArrowRight") setSel((s) => Math.min(snaps.length - 1, s + 1));
       if (e.key === " " && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && spaceLook.current) {
@@ -467,18 +526,14 @@ export default function Restore() {
   // A folder with something chosen inside it, but not all of it.
   const partlyChosen = (e: Entry) => !isChosen(e) && [...checked.keys()].some((p) => p.startsWith(`${e.path}/`));
   const toggleCheck = (e: Entry) => {
-    // Ticking an item picks it too, so the pane beside the list is about what was just ticked.
-    if (!checked.has(e.path)) setPicked(e);
     const m = new Map(checked);
     const folder = chosenFolder(e);
     if (m.has(e.path)) {
       m.delete(e.path);
-      // Unticking the picked item while others stay ticked: the pane goes to the last of those
-      // ticked, so its Remove from backup is never about what was just unticked.
-      if (picked?.path === e.path && m.size) setPicked([...m.values()][m.size - 1]);
+      // Unticking the picked item: the pane goes to the last of those still ticked, or to none,
+      // so its Remove from backup is never about what was just unticked.
+      if (picked?.path === e.path) setPicked(m.size ? [...m.values()][m.size - 1] : null);
     } else if (folder) {
-      // The pane isn't left on what was just left out.
-      if (picked?.path === e.path) setPicked(null);
       // Leaving one item out of a chosen folder: choose the rest of each folder on the way down
       // to it instead. They're all listed, since the item is showing.
       let at = folder;
@@ -487,6 +542,8 @@ export default function Restore() {
         toast("Open the folders down to it to leave it out.");
         return;
       }
+      // The pane isn't left on what was just left out.
+      if (picked?.path === e.path) setPicked(null);
       m.delete(folder);
       for (const part of way) {
         const next = `${at}/${part}`;
@@ -494,6 +551,8 @@ export default function Restore() {
         at = next;
       }
     } else {
+      // Ticking an item picks it too, so the pane beside the list is about what was just ticked.
+      setPicked(e);
       // A folder chosen whole replaces anything chosen inside it, so nothing is restored twice.
       for (const p of m.keys()) if (p.startsWith(`${e.path}/`)) m.delete(p);
       m.set(e.path, e);
@@ -526,11 +585,41 @@ export default function Restore() {
     setChecked(m);
   };
   // The header's box: everything at the top of the list (a folder brings all that's in it), or
-  // nothing. Choosing everything replaces what was chosen below the top, so nothing goes twice.
+  // nothing. Choosing everything replaces what was chosen inside it, so nothing goes twice.
   const top = (hits ?? kids[""] ?? []).filter((e) => !onlyOnMac(e));
-  const allChosen = top.length > 0 && top.every((e) => checked.has(e.path));
+  const allChosen = top.length > 0 && top.every(isChosen);
   const someChosen = checked.size > 0 && !allChosen;
-  const chooseAll = () => setChecked(allChosen ? new Map() : new Map(top.map((e) => [e.path, e])));
+  const chooseAll = () => {
+    if (!hits) {
+      if (allChosen) unchoose(items);
+      else {
+        const m = new Map(top.map((e) => [e.path, e]));
+        // A deleted item doesn't come with its folder, so one ticked on its own stays ticked.
+        for (const [p, e] of checked) if (!comesWithFolder(e)) m.set(p, e);
+        setChecked(m);
+      }
+      return;
+    }
+    // Search results: only they are ticked or unticked; what's ticked elsewhere stays as it is.
+    const under = (p: string, m: Map<string, Entry>) => [...m.keys()].some((q) => q !== p && p.startsWith(`${q}/`));
+    if (allChosen) {
+      // A result shows as ticked because a folder it's in is: that folder is unticked with it.
+      const out = new Map<string, Entry>();
+      for (const e of top) {
+        if (checked.has(e.path)) out.set(e.path, e);
+        const f = chosenFolder(e);
+        if (f) out.set(f, checked.get(f)!);
+      }
+      unchoose([...out.values()]);
+      return;
+    }
+    const m = new Map(checked);
+    for (const e of top) if (!isChosen(e)) m.set(e.path, e);
+    // A result inside another ticked folder (one of the results, or ticked before) comes with it,
+    // so it isn't restored or removed twice.
+    for (const [p, e] of m) if (comesWithFolder(e) && under(p, m)) m.delete(p);
+    setChecked(m);
+  };
   const total = items.reduce((n, e) => n + e.size, 0);
   // The original on the Mac, shown in its folder in Finder. An SMB share's files show no
   // "Not on Mac" until the share is connected, so Show in Finder finds out then.
@@ -576,31 +665,65 @@ export default function Restore() {
     const what = [dirs && count(dirs, "folder"), files && count(files, "file")].filter(Boolean).join(" and ");
     return `${what}${from || " from different folders"}${dirs ? ", with everything in the folders" : ""}`;
   };
+  // Each item by name, for a question about several: the first five, then how many more.
+  const named = (es: Entry[]) => {
+    const names = es.slice(0, 5).map((e) => tilde(e.path, home));
+    const more = es.length - names.length;
+    return more
+      ? `${names.join(", ")} and ${more.toLocaleString()} more`
+      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  };
+  // Whether a row is one of the sources the plan still backs up. A source's row is named as the
+  // snapshots name it (src-tauri/src/core.rs remove_source): a folder by its path, a bucket as
+  // s3://bucket/prefix, a share by where it's mounted, /Volumes/<share>[-n]/<folder>.
+  const sourceOf = (e: Entry) => {
+    const same = (a: string) => a.replace(/\/+$/, "") === e.path.replace(/\/+$/, "");
+    const roots = kids[""] ?? [];
+    const isRoot = roots.length === 0 || roots.some((r) => r.path === e.path);
+    for (const s of cfg?.plans.find((p) => p.id === plan.id)?.sources ?? []) {
+      if (s.kind === "folder" && same(s.path)) return "folder";
+      if (!isRoot) continue;
+      const prefix = s.kind === "s3" ? s.prefix.replace(/^\/+|\/+$/g, "") : "";
+      if (s.kind === "s3" && same(`s3://${s.bucket.trim()}${prefix ? `/${prefix}` : ""}`)) return "bucket";
+      if (s.kind === "smb") {
+        const [, vol, mount, ...rest] = e.path.split("/");
+        // Where macOS mounts it, by the share's name (-1 and on when that's taken), in any case.
+        const share = s.share.replace(/^\/+|\/+$/g, "").toLowerCase();
+        const sub = s.folder.replace(/^\/+|\/+$/g, "");
+        const m = mount?.toLowerCase() ?? "";
+        if (vol === "Volumes" && (m === share || /^-\d+$/.test(m.slice(share.length))) && m.startsWith(share) && rest.join("/") === sub)
+          return "share";
+      }
+    }
+    return undefined;
+  };
   // Deleting a file or folder from every snapshot: asked twice, as it can't be undone.
   const removeFromBackup = async (es: Entry[]) => {
     if (!es.length) return;
-    // A folder the plan still backs up goes by taking it out of the plan, not from here (Rust
+    // A source the plan still backs up goes by taking it out of the plan, not from here (Rust
     // refuses it too). One already taken out of the plan can go from here.
-    const folders = (cfg?.plans.find((p) => p.id === plan.id)?.sources ?? []).flatMap((s) => (s.kind === "folder" ? [s.path] : []));
-    const source = es.find((e) => folders.includes(e.path));
+    const source = es.find(sourceOf);
     if (source) {
+      const name = source.path.startsWith("/") ? tilde(source.path, home) : source.path;
       await tell(
-        `${tilde(source.path, home)} is a folder this plan backs up`,
-        `Remove from backup takes files and folders inside it out of the backup. To stop backing up ${tilde(source.path, home)} and delete what's stored, take it out of the plan's folders.`,
+        `${name} is a ${sourceOf(source)} this plan backs up`,
+        `Remove from backup takes files and folders inside it out of the backup. To stop backing up ${name} and delete what's stored, take it out of what the plan backs up.`,
       );
       return;
     }
     const one = es.length === 1;
     const what = describe(es);
+    // Several: each by name too, so nothing goes that isn't there in the question.
+    const which = one ? "" : named(es);
     const first = await confirm({
       title: `Remove ${one ? es[0].name : describe(es).split(" from ")[0]} from the backup`,
-      text: `Remove ${what} from every snapshot of ${plan.name}? Only ${one ? "it goes" : "they go"}; nothing else is touched. ${one ? "Its" : "Their"} space is freed, and none of ${one ? "its" : "their"} versions can be restored afterwards.`,
+      text: `Remove ${what} from every snapshot of ${plan.name}? ${which ? `That's ${which}. ` : ""}Only ${one ? "it goes" : "they go"}; nothing else is touched. ${one ? "Its" : "Their"} space is freed, and none of ${one ? "its" : "their"} versions can be restored afterwards.`,
       ok: "Continue",
     });
     if (!first) return;
     const sure = await confirm({
       title: "Are you sure?",
-      text: `Delete every backed-up version of ${what}? This can't be undone.`,
+      text: `Delete every backed-up version of ${what}${which ? ` (${which})` : ""}? This can't be undone.`,
       ok: "Delete",
       danger: true,
     });

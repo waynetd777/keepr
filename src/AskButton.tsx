@@ -4,7 +4,7 @@
 
 // A small Ask button beside something worth asking about: a size map's folder, a run in
 // Activity. It opens Ask with a question and the thing's details; disabled, with the reason, when
-// no AI tool is installed.
+// no AI tool is installed or the caller says why not (`off`: the plan is left out of Ask, say).
 
 import { useEffect, useState } from "react";
 import { useAssistant } from "./assistant";
@@ -17,7 +17,7 @@ export function AskIcon() {
   );
 }
 
-export function AskButton({ onAsk, title }: { onAsk: () => void | Promise<void>; title: string }) {
+export function AskButton({ onAsk, title, off }: { onAsk: () => void | Promise<void>; title: string; off?: string }) {
   const assistant = useAssistant();
   // A crash's reports are read first, which takes a moment.
   const [busy, setBusy] = useState(false);
@@ -29,11 +29,11 @@ export function AskButton({ onAsk, title }: { onAsk: () => void | Promise<void>;
     return () => window.clearTimeout(id);
   }, [failed]);
   return (
-    <span className="tipwrap" title={assistant.available ? undefined : (assistant.reason ?? undefined)}>
+    <span className="tipwrap" title={off ?? (assistant.available ? undefined : (assistant.reason ?? undefined))}>
       <button
         className="btn small askbtn"
-        disabled={!assistant.available || busy}
-        title={title}
+        disabled={!assistant.available || busy || !!off}
+        title={off ?? title}
         onClick={() => {
           setBusy(true);
           setFailed(null);

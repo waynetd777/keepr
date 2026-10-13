@@ -6,7 +6,11 @@
 //!
 //! Paths are the files' original absolute paths ("/Users/wayne/Documents/Budget.numbers"). The
 //! empty path is a snapshot's top level: one entry per source.
+//!
+//! What reads many snapshots or a whole tree (versions, search) takes a Control and stops at its
+//! cancel between snapshots and between folders.
 
+use crate::backup::Control;
 use crate::repo::{Repo, Snapshot};
 use crate::tree::{Node, NodeKind, Tree};
 use crate::{Id, Result};
@@ -87,12 +91,13 @@ pub struct Version {
 }
 
 /// A path's distinct versions, newest first: a new entry each time its contents changed.
-pub fn versions(repo: &Repo, snaps: &[Snapshot], path: &str) -> Result<Vec<Version>> {
+pub fn versions(repo: &Repo, snaps: &[Snapshot], path: &str, ctl: &Control) -> Result<Vec<Version>> {
     let mut out: Vec<Version> = Vec::new();
     let mut last_key: Option<String> = None;
     let mut ordered: Vec<&Snapshot> = snaps.iter().collect();
     ordered.sort_by(|a, b| a.time.cmp(&b.time));
     for s in ordered {
+        ctl.checkpoint()?;
         match node_at(repo, s, path)? {
             Some(n) => {
                 let key = n.content_key();
@@ -119,10 +124,11 @@ pub struct Hit {
 }
 
 /// Files and folders whose names contain `query` (any case), in one snapshot, up to `limit`.
-pub fn search(repo: &Repo, snap: &Snapshot, query: &str, limit: usize) -> Result<Vec<Hit>> {
+pub fn search(repo: &Repo, snap: &Snapshot, query: &str, limit: usize, ctl: &Control) -> Result<Vec<Hit>> {
     let q = query.to_lowercase();
     let mut out = Vec::new();
-    fn walk(repo: &Repo, t: Arc<Tree>, base: &str, q: &str, limit: usize, out: &mut Vec<Hit>) -> Result<()> {
+    fn walk(repo: &Repo, t: Arc<Tree>, base: &str, q: &str, limit: usize, ctl: &Control, out: &mut Vec<Hit>) -> Result<()> {
+        ctl.checkpoint()?;
         for n in &t.nodes {
             if out.len() >= limit {
                 return Ok(());
@@ -132,12 +138,12 @@ pub fn search(repo: &Repo, snap: &Snapshot, query: &str, limit: usize) -> Result
                 out.push(Hit { path: path.clone(), node: n.clone() });
             }
             if let Some(s) = n.subtree {
-                walk(repo, repo.load_tree(&s)?, &path, q, limit, out)?;
+                walk(repo, repo.load_tree(&s)?, &path, q, limit, ctl, out)?;
             }
         }
         Ok(())
     }
-    walk(repo, repo.load_tree(&snap.tree)?, "", &q, limit, &mut out)?;
+    walk(repo, repo.load_tree(&snap.tree)?, "", &q, limit, ctl, &mut out)?;
     Ok(out)
 }
 
@@ -154,7 +160,7 @@ pub struct FoundAnywhere {
 
 /// Names containing `query` (any case) in any snapshot, each path once, from the newest snapshot
 /// that has it. A folder tree shared by many snapshots is read once.
-pub fn search_all(repo: &Repo, snaps: &[Snapshot], query: &str, limit: usize) -> Result<Vec<FoundAnywhere>> {
+pub fn search_all(repo: &Repo, snaps: &[Snapshot], query: &str, limit: usize, ctl: &Control) -> Result<Vec<FoundAnywhere>> {
     let q = query.to_lowercase();
     let mut ordered: Vec<&Snapshot> = snaps.iter().collect();
     ordered.sort_by(|a, b| b.time.cmp(&a.time));
@@ -167,6 +173,7 @@ pub fn search_all(repo: &Repo, snaps: &[Snapshot], query: &str, limit: usize) ->
             if !seen_trees.insert(t) {
                 continue;
             }
+            ctl.checkpoint()?;
             for n in &repo.load_tree(&t)?.nodes {
                 let path = if base.is_empty() { n.name.clone() } else { format!("{base}/{}", n.name) };
                 if !base.is_empty() && n.name.to_lowercase().contains(&q) && !found.contains_key(&path) && found.len() < limit {
@@ -191,6 +198,7 @@ pub fn search_all(repo: &Repo, snaps: &[Snapshot], query: &str, limit: usize) ->
     // folder that was read earlier; check before calling it gone.
     if let Some(n) = snaps.iter().max_by(|a, b| a.time.cmp(&b.time)) {
         for f in found.values_mut().filter(|f| f.gone) {
+            ctl.checkpoint()?;
             if node_at(repo, n, &f.path)?.is_some() {
                 f.gone = false;
             }
@@ -226,7 +234,7 @@ mod tests {
         assert!(node_at(&repo, &s3, "/elsewhere").unwrap().is_none());
 
         let snaps = repo.snapshots().unwrap();
-        let v = versions(&repo, &snaps, &format!("{base}/docs/budget.txt")).unwrap();
+        let v = versions(&repo, &snaps, &format!("{base}/docs/budget.txt"), &Control::default()).unwrap();
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].size, 9);
         assert_eq!(v[1].kept_in, 1);
@@ -235,14 +243,21 @@ mod tests {
         let s4 = run(&repo, &opts(src.path()), Some(&s3), &Control::default()).unwrap();
         fs::remove_file(src.path().join("docs/old-notes.txt")).unwrap();
         run(&repo, &opts(src.path()), Some(&s4), &Control::default()).unwrap();
-        let all = search_all(&repo, &repo.snapshots().unwrap(), "notes", 10).unwrap();
+        let all = search_all(&repo, &repo.snapshots().unwrap(), "notes", 10, &Control::default()).unwrap();
         assert_eq!(all.len(), 1);
         assert!(all[0].gone && all[0].snapshot == s4.id);
-        let all = search_all(&repo, &repo.snapshots().unwrap(), "budget", 10).unwrap();
+        let all = search_all(&repo, &repo.snapshots().unwrap(), "budget", 10, &Control::default()).unwrap();
         assert!(!all[0].gone);
-        let hits = search(&repo, &s3, "BUDGET", 10).unwrap();
+        let hits = search(&repo, &s3, "BUDGET", 10, &Control::default()).unwrap();
         assert_eq!(hits.len(), 1);
         assert!(hits[0].path.ends_with("docs/budget.txt"));
         assert_eq!(du(&repo, &list(&repo, &s3, "").unwrap()[0].subtree.unwrap()).unwrap(), (9, 1));
+
+        // Cancelled, each stops rather than reading on.
+        let stop = Control::default();
+        stop.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        assert!(versions(&repo, &snaps, &format!("{base}/docs/budget.txt"), &stop).is_err());
+        assert!(search(&repo, &s3, "budget", 10, &stop).is_err());
+        assert!(search_all(&repo, &snaps, "budget", 10, &stop).is_err());
     }
 }

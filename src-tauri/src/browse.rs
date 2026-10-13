@@ -507,8 +507,8 @@ pub struct VersionInfo {
 pub fn versions(core: &Core, plan: &str, path: &str) -> Result<Vec<VersionInfo>, String> {
     let repo = core.repo(plan, false)?;
     let snaps = repo.snapshots().map_err(|e| e.0)?;
-    Ok(keepr_engine::browse::versions(&repo, &snaps, path)
-        .map_err(|e| e.0)?
+    Ok(keepr_engine::browse::versions(&repo, &snaps, path, &crate::cancel::control())
+        .map_err(stopped_or)?
         .into_iter()
         .map(|v| VersionInfo { snapshot: v.snapshot.hex(), time: v.time, size: v.size, mtime: v.mtime / 1_000_000, kept_in: v.kept_in })
         .collect())
@@ -562,7 +562,7 @@ pub struct Found {
 /// Every plan's backups, every snapshot, by name. Plans whose destination can't be reached are
 /// left out, and named in the second list.
 /// Every plan at once, each on its own thread, so one slow destination doesn't hold up the
-/// others' results. Stopped (cancel.rs) between plans.
+/// others' results. Stopped (cancel.rs) as each reads its folders.
 pub fn search_everywhere(core: &Core, query: &str) -> Result<(Vec<Found>, Vec<String>), String> {
     let plans: Vec<(String, String)> = core.config.lock().unwrap().plans.iter().map(|p| (p.id.clone(), p.name.clone())).collect();
     let (mut out, mut missed) = (Vec::new(), Vec::new());
@@ -579,7 +579,7 @@ pub fn search_everywhere(core: &Core, query: &str) -> Result<(Vec<Found>, Vec<St
                         }
                         let r = core.repo(&id, false)?;
                         let snaps = r.snapshots().map_err(|e| e.0)?;
-                        keepr_engine::browse::search_all(&r, &snaps, query, 300).map_err(|e| e.0)
+                        keepr_engine::browse::search_all(&r, &snaps, query, 300, &ctl).map_err(|e| e.0)
                     })();
                     (id, name, res)
                 })
@@ -605,11 +605,20 @@ pub fn search_everywhere(core: &Core, query: &str) -> Result<(Vec<Found>, Vec<St
     Ok((out, missed))
 }
 
+/// An engine error, or STOPPED when it stopped because the request was cancelled.
+fn stopped_or(e: keepr_engine::Error) -> String {
+    if crate::cancel::check().is_err() {
+        crate::cancel::STOPPED.into()
+    } else {
+        e.0
+    }
+}
+
 pub fn search(core: &Core, plan: &str, snapshot: &str, query: &str) -> Result<Vec<Entry>, String> {
     let repo = core.repo(plan, false)?;
     let snap = self::snapshot(&repo, snapshot)?;
-    Ok(keepr_engine::browse::search(&repo, &snap, query, 200)
-        .map_err(|e| e.0)?
+    Ok(keepr_engine::browse::search(&repo, &snap, query, 200, &crate::cancel::control())
+        .map_err(stopped_or)?
         .into_iter()
         .map(|h| Entry::from_node(&h.node, h.path, ""))
         .collect())
