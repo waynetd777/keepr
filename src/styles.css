@@ -1895,3 +1895,23 @@ html.tray body {
   background: var(--accent-soft);
   color: var(--accent-text);
 }
+
+/* The size map's growth layer (src/growth.ts): in ink, so it stands out on the coloured blocks. */
+.blk.grew {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+.blk > .gtag {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--ground);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}

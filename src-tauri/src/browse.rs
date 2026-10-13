@@ -325,6 +325,15 @@ pub struct MapDir {
     pub more_size: u64,
     /// False when the budget ran out before its contents were read.
     pub read: bool,
+    /// How much it grew (or, below 0, shrank) since the snapshot `since` names; None when there's
+    /// nothing to compare it with.
+    pub grew: Option<i64>,
+    /// On the map's top folder only: when the snapshot it's compared with was taken, and whether
+    /// that's the week before the plan's latest backup, so the map can say "this week".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub weekly: bool,
     pub kids: Vec<MapDir>,
 }
 
@@ -333,24 +342,66 @@ pub struct MapDir {
 const MAP_BUDGET: usize = 3000;
 const MAP_KIDS: usize = 60;
 
-/// The size map of `path` in a snapshot, biggest folders read first.
-pub fn size_map(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result<MapDir, String> {
-    let repo = core.repo(plan, false)?;
-    let snap = self::snapshot(&repo, snapshot)?;
-    let (tree, size, files) = if path.is_empty() {
+/// The snapshot a size map compares with to show what grew: the latest taken a week or more
+/// before `snap`, else the plan's first one (which then says since when). None for the first.
+fn week_before<'a>(snaps: &'a [Snapshot], snap: &Snapshot) -> Option<&'a Snapshot> {
+    let at = |s: &Snapshot| chrono::DateTime::parse_from_rfc3339(&s.time).ok();
+    let t = at(snap)?;
+    let mut older: Vec<&Snapshot> = snaps.iter().filter(|s| at(s).is_some_and(|x| x < t)).collect();
+    older.sort_by_key(|s| at(s));
+    let week = t - chrono::Duration::days(7);
+    older.iter().rev().find(|s| at(s).is_some_and(|x| x <= week)).or(older.first()).copied()
+}
+
+/// A folder's size, files and tree in a snapshot ("" for the top: every source together).
+fn map_root(repo: &Repo, snap: &Snapshot, path: &str) -> Result<Option<(Option<Id>, u64, u64)>, String> {
+    if path.is_empty() {
         let t = repo.load_tree(&snap.tree).map_err(|e| e.0)?;
-        (
+        return Ok(Some((
             Some(snap.tree),
             t.nodes.iter().map(|n| n.size).sum(),
             t.nodes.iter().map(|n| n.files.max((n.kind == NodeKind::File) as u64)).sum(),
-        )
-    } else {
-        let n = keepr_engine::browse::node_at(&repo, &snap, path).map_err(|e| e.0)?.ok_or("That folder isn't in this snapshot.")?;
-        (n.subtree, n.size, n.files)
+        )));
+    }
+    Ok(keepr_engine::browse::node_at(repo, snap, path).map_err(|e| e.0)?.map(|n| (n.subtree, n.size, n.files)))
+}
+
+/// The size map of `path` in a snapshot, biggest folders read first, each folder with how much it
+/// grew since the week before (`week_before`).
+pub fn size_map(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result<MapDir, String> {
+    let repo = core.repo(plan, false)?;
+    let snaps = repo.snapshots().map_err(|e| e.0)?;
+    let snap = snaps.iter().find(|s| s.id.hex() == snapshot).cloned().ok_or("That snapshot is no longer in the backup.")?;
+    let (tree, size, files) = map_root(&repo, &snap, path)?.ok_or("That folder isn't in this snapshot.")?;
+    let then = week_before(&snaps, &snap);
+    // The same folder then: its tree and size, or None when it wasn't there (all of it is new).
+    let old = match then {
+        Some(t) => Some(map_root(&repo, t, path)?.map(|(tree, size, _)| (tree, size))),
+        None => None,
     };
     let name = if path.is_empty() { String::new() } else { path.rsplit('/').next().unwrap_or(path).to_string() };
-    // A flat list of folders, each with its parent's place, filled biggest first.
-    let mut all = vec![(usize::MAX, MapDir { name, path: path.to_string(), size, files, depth: 0, ..Default::default() }, tree)];
+    let latest = snaps.iter().filter_map(|s| chrono::DateTime::parse_from_rfc3339(&s.time).ok()).max();
+    let root = MapDir {
+        name,
+        path: path.to_string(),
+        size,
+        files,
+        depth: 0,
+        grew: old.map(|o| size as i64 - o.map_or(0, |(_, s)| s) as i64),
+        since: then.map(|t| t.time.clone()),
+        weekly: then.is_some_and(|t| {
+            let (Ok(a), Ok(b)) = (chrono::DateTime::parse_from_rfc3339(&t.time), chrono::DateTime::parse_from_rfc3339(&snap.time)) else {
+                return false;
+            };
+            (6..=9).contains(&(b - a).num_days()) && latest == Some(b)
+        }),
+        ..Default::default()
+    };
+    // A flat list of folders, each with its parent's place, filled biggest first, beside the same
+    // folder's tree then (None: it wasn't there; Some(None): no comparison).
+    let compare = then.is_some();
+    let mut olds: Vec<Option<Option<Id>>> = vec![old.map(|o| o.and_then(|(t, _)| t))];
+    let mut all = vec![(usize::MAX, root, tree)];
     let mut todo = std::collections::BinaryHeap::from([(size, 0usize)]);
     // Folders too small to show at any sensible size aren't read.
     let floor = size / 50_000;
@@ -359,6 +410,13 @@ pub fn size_map(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result<M
             break;
         }
         let Some(t) = all[i].2 else { continue };
+        // The folder then, by name: none to load when its tree hasn't changed since.
+        let then_tree = olds[i].flatten();
+        let same = then_tree == Some(t);
+        let then_kids: HashMap<String, Node> = match then_tree {
+            Some(o) if !same => repo.load_tree(&o).map_err(|e| e.0)?.nodes.iter().map(|n| (n.name.clone(), n.clone())).collect(),
+            _ => HashMap::new(),
+        };
         let t = repo.load_tree(&t).map_err(|e| e.0)?;
         let mut dirs: Vec<&Node> = vec![];
         let d = &mut all[i].1;
@@ -382,7 +440,22 @@ pub fn size_map(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result<M
                 continue;
             }
             let p = if base.is_empty() { n.name.clone() } else { format!("{base}/{}", n.name) };
-            all.push((i, MapDir { name: n.name.clone(), path: p, size: n.size, files: n.files, depth, ..Default::default() }, n.subtree));
+            let (grew, then) = if !compare {
+                (None, None)
+            } else if same {
+                (Some(0), Some(n.subtree))
+            } else {
+                match then_kids.get(&n.name).filter(|o| o.kind == NodeKind::Dir) {
+                    Some(o) => (Some(n.size as i64 - o.size as i64), Some(o.subtree)),
+                    None => (Some(n.size as i64), Some(None)),
+                }
+            };
+            all.push((
+                i,
+                MapDir { name: n.name.clone(), path: p, size: n.size, files: n.files, depth, grew, ..Default::default() },
+                n.subtree,
+            ));
+            olds.push(then);
             todo.push((n.size, all.len() - 1));
         }
     }
@@ -611,4 +684,38 @@ pub fn compare(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result<Co
     }
     out.lines.pop();
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snap(n: u8, time: &str) -> Snapshot {
+        Snapshot {
+            id: Id([n; 32]),
+            time: time.into(),
+            plan: String::new(),
+            host: String::new(),
+            sources: vec![],
+            tree: Id::default(),
+            parent: None,
+            kind: "incremental".into(),
+            stats: Default::default(),
+        }
+    }
+
+    #[test]
+    fn compares_with_the_week_before_else_the_first() {
+        let s = [
+            snap(1, "2026-10-01T09:00:00.000Z"),
+            snap(2, "2026-10-05T09:00:00.000Z"),
+            snap(3, "2026-10-06T10:00:00.000Z"),
+            snap(4, "2026-10-13T09:00:00.000Z"),
+        ];
+        // The latest a week or more before: the 5th, not the 6th (a few hours short of a week).
+        assert_eq!(week_before(&s, &s[3]).map(|x| x.id), Some(s[1].id));
+        // Nothing a week before the 6th: the first, which says since when.
+        assert_eq!(week_before(&s, &s[2]).map(|x| x.id), Some(s[0].id));
+        assert!(week_before(&s, &s[0]).is_none());
+    }
 }

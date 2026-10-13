@@ -156,6 +156,11 @@ export type MapDir = {
   more: number;
   moreSize: number;
   read: boolean;
+  /** Growth since the snapshot `since` names (src/growth.ts); null with nothing to compare. */
+  grew: number | null;
+  /** On the map's top folder: when the snapshot it's compared with was taken, and whether that's the week before the latest backup. */
+  since?: string;
+  weekly?: boolean;
   kids: MapDir[];
 };
 export type Version = { snapshot: string; time: string; size: number; mtime: number; keptIn: number };

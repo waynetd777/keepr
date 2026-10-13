@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { MapDir } from "./api";
 import { bytes, count, tilde } from "./format";
+import { delta, landed, sinceWhen } from "./growth";
 import { Icon } from "./icons";
 
 /// What one block stands for: a folder, the files directly in a folder, or the folders of a
@@ -19,6 +20,7 @@ type Item = { block: Block; size: number };
 type Rect = { item: Item; x: number; y: number; w: number; h: number };
 
 const GAP = 3;
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const HEAD = 20;
 const PAD = 3;
 
@@ -148,6 +150,9 @@ export default function SizeMap({
       map.innerHTML = "";
       return;
     }
+    // This week's growth, outlined and tagged where it landed.
+    const grewIn = landed(tree);
+    const when = sinceWhen(tree);
     const draw = (b: Block, x: number, y: number, w: number, h: number, out: HTMLElement, id: string) => {
       if (w < 3 || h < 3) return;
       blocks.current.set(id, b);
@@ -157,6 +162,16 @@ export default function SizeMap({
       el.className = b.kind === "dir" ? `blk d${((d.depth - 1) % 8) + 1}${zoomable ? " zoom" : ""}` : `blk ${b.kind}`;
       el.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
       el.dataset.id = id;
+      const grew = b.kind === "dir" ? grewIn.get(d.path) : undefined;
+      if (grew) {
+        el.classList.add("grew");
+        if (w >= 70 && h >= 44) {
+          const tag = document.createElement("span");
+          tag.className = "gtag";
+          tag.textContent = `${delta(grew)}${w >= 170 ? ` ${when}` : ""}`;
+          el.appendChild(tag);
+        }
+      }
       let labelled = false;
       if (w >= 56 && h >= 30) {
         labelled = true;
@@ -270,7 +285,9 @@ export default function SizeMap({
     } else {
       html =
         `<b>${esc(label(d.name))}</b><div class="p">${place}</div>` +
-        `<div class="r"><span>Size</span><b>${bytes(d.size)}</b><span>Files</span><b>${d.files.toLocaleString()}</b></div>` +
+        `<div class="r"><span>Size</span><b>${bytes(d.size)}</b><span>Files</span><b>${d.files.toLocaleString()}</b>` +
+        (d.grew && tree ? `<span>${esc(cap(sinceWhen(tree)))}</span><b>${delta(d.grew)}</b>` : "") +
+        `</div>` +
         `<div class="hint">${el.classList.contains("zoom") ? "Click to zoom in · " : ""}⌘-click to ${showHint}</div>`;
     }
     tip.innerHTML = html;
@@ -304,6 +321,7 @@ export default function SizeMap({
         {tree && (
           <span className="small muted nowrap">
             {bytes(tree.size)} · {count(tree.files, "file")}
+            {tree.grew ? ` · ${delta(tree.grew)} ${sinceWhen(tree)}` : ""}
           </span>
         )}
       </div>

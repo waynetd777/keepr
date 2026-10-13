@@ -74,6 +74,9 @@ export default function PlansMap() {
           return { ...under(p.map!, p.id, 0), name: p.name };
         }
         const kids = ready.map((p) => ({ ...under(p.map!, p.id, 1), name: p.name })).sort((a, b) => b.size - a.size);
+        // Compared with the week before when every plan is; else since the latest plan's first backup.
+        const compared = kids.filter((k) => k.since);
+        const since = compared.map((k) => k.since!).sort()[compared.length - 1];
         return {
           name: "",
           path: "",
@@ -85,6 +88,9 @@ export default function PlansMap() {
           more: 0,
           moreSize: 0,
           read: true,
+          grew: compared.length ? compared.reduce((n, k) => n + (k.grew ?? 0), 0) : null,
+          since,
+          weekly: compared.length > 0 && compared.every((k) => k.weekly),
           kids,
         };
       }
