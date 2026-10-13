@@ -419,7 +419,7 @@ function DeletePlanSheet({
   return (
     <Sheet
       title={`Delete ${name}?`}
-      subtitle={`Keepr stops backing it up. Its backup at ${dest} can stay there, or be deleted too to free its space.`}
+      subtitle={`Keepr stops backing it up. It already has a backup at ${dest}.`}
       width={560}
       onClose={onClose}
       foot={
@@ -449,10 +449,17 @@ function DeletePlanSheet({
         </>
       }
     >
-      <p className="muted" style={{ margin: 0 }}>
-        <b>Delete Plan, Keep Backup</b> leaves the backup's folder at {dest} as it is. <b>Delete Plan and Backup</b> deletes every version
-        it kept and frees its space; it can't be undone, and Activity shows it going.
-      </p>
+      <div className="sheet-body">
+        <div className="col" style={{ gap: 8, lineHeight: 1.5 }}>
+          <span>
+            <b>Keep Backup:</b> its folder stays at {dest} as it is, and nothing in it is deleted.
+          </span>
+          <span>
+            <b>Delete Plan and Backup:</b> every version it kept is deleted and the space it used is freed. This can't be undone; Activity
+            shows it going.
+          </span>
+        </div>
+      </div>
     </Sheet>
   );
 }
