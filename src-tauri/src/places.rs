@@ -54,6 +54,23 @@ pub fn mount_point(p: &Path) -> Option<PathBuf> {
 
 /// Free and total bytes on the volume holding `p`.
 pub fn space(p: &Path) -> Option<(u64, u64)> {
+    // A share that has stopped answering can hold statfs for minutes, and Backup Plans asks every
+    // half minute: asked on a thread of its own and waited for two seconds at most, it's unknown
+    // until it answers. One still waiting isn't asked again.
+    static WAITING: std::sync::Mutex<Option<std::collections::HashSet<PathBuf>>> = std::sync::Mutex::new(None);
+    let key = p.to_path_buf();
+    if !WAITING.lock().unwrap().get_or_insert_with(Default::default).insert(key.clone()) {
+        return None;
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(statfs(&key));
+        WAITING.lock().unwrap().get_or_insert_with(Default::default).remove(&key);
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(2)).ok().flatten()
+}
+
+fn statfs(p: &Path) -> Option<(u64, u64)> {
     let c = std::ffi::CString::new(p.to_string_lossy().as_bytes()).ok()?;
     let mut s: libc::statfs = unsafe { std::mem::zeroed() };
     if unsafe { libc::statfs(c.as_ptr(), &mut s) } != 0 {

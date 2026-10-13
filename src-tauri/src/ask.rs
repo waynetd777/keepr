@@ -93,6 +93,7 @@ fn survey(repo: &Repo, tree: Id, listed: &HashSet<String>, key: String, read: &d
     let mut todo: Vec<(Id, String, Vec<String>, Vec<String>)> = vec![(tree, String::new(), vec![], vec![])];
     let mut n = 0u64;
     while let Some((tid, path, inside, above)) = todo.pop() {
+        crate::cancel::check()?;
         n += 1;
         if n.is_multiple_of(256) {
             read(n);
@@ -430,7 +431,9 @@ pub fn context(core: &Core, plan: Option<&str>) -> Result<String, String> {
         let _ = writeln!(out, "- Left out of Ask by the user, so not described: {}", left_out.join(", "));
     }
     for p in plans.iter().filter(|p| !p.ask_exclude) {
+        crate::cancel::check()?;
         if let Err(e) = plan_text(core, p, &mut out) {
+            crate::cancel::check()?;
             let _ = writeln!(out, "- Couldn't read this plan's backup: {e}");
         }
     }
@@ -643,6 +646,7 @@ fn left_out(repo: &Repo, a: &Plan, b: &Plan) -> Result<Option<LeftOut>, String> 
     }
     let mut todo: Vec<(Id, PathBuf)> = vec![(snap.tree, PathBuf::new())];
     while let Some((tid, path)) = todo.pop() {
+        crate::cancel::check()?;
         for n in &repo.load_tree(&tid).map_err(|e| e.0)?.nodes {
             let p = if path.as_os_str().is_empty() { PathBuf::from(&n.name) } else { path.join(&n.name) };
             let dir = n.kind == NodeKind::Dir;

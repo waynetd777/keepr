@@ -97,24 +97,24 @@ fn kind(k: NodeKind) -> &'static str {
 }
 
 /// A folder's tree id in each snapshot (None where the folder isn't).
-fn dir_trees(repo: &Repo, snaps: &[Snapshot], path: &str) -> Vec<Option<Id>> {
-    snaps
-        .iter()
-        .map(|s| {
-            if path.is_empty() {
-                Some(s.tree)
-            } else {
-                keepr_engine::browse::node_at(repo, s, path).ok().flatten().and_then(|n| n.subtree)
-            }
-        })
-        .collect()
+fn dir_trees(repo: &Repo, snaps: &[Snapshot], path: &str) -> Result<Vec<Option<Id>>, String> {
+    let mut out = Vec::with_capacity(snaps.len());
+    for s in snaps {
+        crate::cancel::check()?;
+        out.push(if path.is_empty() {
+            Some(s.tree)
+        } else {
+            keepr_engine::browse::node_at(repo, s, path).ok().flatten().and_then(|n| n.subtree)
+        });
+    }
+    Ok(out)
 }
 
 pub fn list(core: &Core, plan: &str, snapshot: &str, path: &str, show_deleted: bool) -> Result<Vec<Entry>, String> {
     let repo = core.repo(plan, false)?;
     let snaps = repo.snapshots().map_err(|e| e.0)?;
     let at = snaps.iter().position(|s| s.id.hex() == snapshot).ok_or("That snapshot is no longer in the backup.")?;
-    let trees = dir_trees(&repo, &snaps, path);
+    let trees = dir_trees(&repo, &snaps, path)?;
 
     // Versions: walk the snapshots up to this one, counting changes of each name's contents.
     // Identical folders share a tree, so each distinct tree is read once.
@@ -124,6 +124,7 @@ pub fn list(core: &Core, plan: &str, snapshot: &str, path: &str, show_deleted: b
     // Everything the folder has held up to this snapshot: each name's last node, and where.
     let mut ever: HashMap<String, (Node, usize)> = HashMap::new();
     for (i, t) in trees.iter().take(at + 1).enumerate() {
+        crate::cancel::check()?;
         let Some(t) = t else {
             last.clear();
             continue;
@@ -428,6 +429,7 @@ pub fn size_map(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result<M
         if all.len() >= MAP_BUDGET {
             break;
         }
+        crate::cancel::check()?;
         let Some(t) = all[i].2 else { continue };
         // The folder then, by name: none to load when its tree hasn't changed since.
         let then_tree = olds[i].flatten();
@@ -537,7 +539,7 @@ pub fn preview_copy(core: &Core, plan: &str, snapshot: &str, path: &str) -> Resu
         &[path.to_string()],
         &keepr_engine::restore::Target::Folder(dir.clone()),
         keepr_engine::restore::Conflict::Replace,
-        &Default::default(),
+        &crate::cancel::control(),
     )
     .map_err(|e| e.0)?;
     if r.files == 0 {
@@ -559,14 +561,34 @@ pub struct Found {
 
 /// Every plan's backups, every snapshot, by name. Plans whose destination can't be reached are
 /// left out, and named in the second list.
-pub fn search_everywhere(core: &Core, query: &str) -> (Vec<Found>, Vec<String>) {
+/// Every plan at once, each on its own thread, so one slow destination doesn't hold up the
+/// others' results. Stopped (cancel.rs) between plans.
+pub fn search_everywhere(core: &Core, query: &str) -> Result<(Vec<Found>, Vec<String>), String> {
     let plans: Vec<(String, String)> = core.config.lock().unwrap().plans.iter().map(|p| (p.id.clone(), p.name.clone())).collect();
     let (mut out, mut missed) = (Vec::new(), Vec::new());
-    for (id, name) in plans {
-        let res = core.repo(&id, false).and_then(|r| {
-            let snaps = r.snapshots().map_err(|e| e.0)?;
-            keepr_engine::browse::search_all(&r, &snaps, query, 300).map_err(|e| e.0)
-        });
+    let ctl = crate::cancel::control();
+    let results: Vec<(String, String, Result<Vec<keepr_engine::browse::FoundAnywhere>, String>)> = std::thread::scope(|sc| {
+        let handles: Vec<_> = plans
+            .into_iter()
+            .map(|(id, name)| {
+                let ctl = ctl.clone();
+                sc.spawn(move || {
+                    let res = (|| {
+                        if ctl.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                            return Err(crate::cancel::STOPPED.to_string());
+                        }
+                        let r = core.repo(&id, false)?;
+                        let snaps = r.snapshots().map_err(|e| e.0)?;
+                        keepr_engine::browse::search_all(&r, &snaps, query, 300).map_err(|e| e.0)
+                    })();
+                    (id, name, res)
+                })
+            })
+            .collect();
+        handles.into_iter().filter_map(|h| h.join().ok()).collect()
+    });
+    crate::cancel::check()?;
+    for (id, name, res) in results {
         match res {
             Ok(hits) => out.extend(hits.into_iter().map(|h| Found {
                 plan: id.clone(),
@@ -580,7 +602,7 @@ pub fn search_everywhere(core: &Core, query: &str) -> (Vec<Found>, Vec<String>) 
             Err(_) => missed.push(name),
         }
     }
-    (out, missed)
+    Ok((out, missed))
 }
 
 pub fn search(core: &Core, plan: &str, snapshot: &str, query: &str) -> Result<Vec<Entry>, String> {

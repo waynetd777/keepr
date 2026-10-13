@@ -78,6 +78,7 @@ fn shares(repo: &Repo, read: &dyn Fn(u64)) -> Result<Shares, String> {
         };
         let mut todo: Vec<(Id, Vec<String>)> = vec![(s.tree, vec![])];
         while let Some((tid, path)) = todo.pop() {
+            crate::cancel::check()?;
             listed += 1;
             if listed.is_multiple_of(256) {
                 read(listed);

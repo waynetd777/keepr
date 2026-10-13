@@ -169,6 +169,26 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
   );
 }
 
+/** Runs `f` one call at a time: a call made while one runs makes it run once more after. */
+function oneAtATime(f: () => Promise<void>): () => Promise<void> {
+  let state: "idle" | "busy" | "again" = "idle";
+  const run = async (): Promise<void> => {
+    if (state !== "idle") {
+      state = "again";
+      return;
+    }
+    state = "busy";
+    try {
+      await f();
+    } finally {
+      const again = (state as string) === "again";
+      state = "idle";
+      if (again) void run();
+    }
+  };
+  return run;
+}
+
 export default function App() {
   const [ov, setOv] = useState<OverviewData | null>(null);
   const [cfg, setCfg] = useState<Config | null>(null);
@@ -183,13 +203,17 @@ export default function App() {
   const { past, screen, future } = nav;
   const [updateScene, setUpdateScene] = useState<UpdateShown | null>(null);
 
-  const refresh = useCallback(async () => {
-    const [o, c] = await Promise.all([api.overview(), api.config()]);
-    setOv(o);
-    setCfg(c);
-    setJob(o.job);
-    hideSplash();
-  }, []);
+  // One refresh at a time: a slow destination can hold one up, and those asked meanwhile (the
+  // half-minute tick, "changed" events) would pile up behind it and land out of order.
+  const [refresh] = useState(() =>
+    oneAtATime(async () => {
+      const [o, c] = await Promise.all([api.overview(), api.config()]);
+      setOv(o);
+      setCfg(c);
+      setJob(o.job);
+      hideSplash();
+    }),
+  );
 
   const go = useCallback((s: Screen) => {
     setNav((n) => (JSON.stringify(n.screen) === JSON.stringify(s) ? n : { past: [...n.past.slice(-50), n.screen], screen: s, future: [] }));

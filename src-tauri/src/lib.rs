@@ -11,6 +11,7 @@ mod assistant;
 mod aws_setup;
 mod b2_setup;
 mod browse;
+mod cancel;
 mod cli;
 mod cloud_setup;
 mod config;
@@ -867,14 +868,20 @@ async fn show_in_finder(core: State<'_, Core_>, plan: String, path: String) -> R
 }
 
 #[tauri::command]
-async fn size_map(core: State<'_, Core_>, plan: String, snapshot: String, path: String) -> Result<browse::MapDir, String> {
-    with_core(core, move |c| browse::size_map(c, &plan, &snapshot, &path)).await?
+async fn size_map(
+    core: State<'_, Core_>,
+    plan: String,
+    snapshot: String,
+    path: String,
+    token: Option<String>,
+) -> Result<browse::MapDir, String> {
+    with_core(core, move |c| cancel::with(token, || browse::size_map(c, &plan, &snapshot, &path))).await?
 }
 
 /// What a question to Ask carries (ask.rs), `plan` first when given.
 #[tauri::command]
-async fn ask_context(core: State<'_, Core_>, plan: Option<String>) -> Result<String, String> {
-    with_core(core, move |c| ask::context(c, plan.as_deref())).await?
+async fn ask_context(core: State<'_, Core_>, plan: Option<String>, token: Option<String>) -> Result<String, String> {
+    with_core(core, move |c| cancel::with(token, || ask::context(c, plan.as_deref()))).await?
 }
 
 /// What a change Ask proposes would do, changing nothing.
@@ -901,8 +908,8 @@ async fn ask_undo(core: State<'_, Core_>, id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn stored_map(core: State<'_, Core_>, plan: String, path: String) -> Result<browse::MapDir, String> {
-    with_core(core, move |c| stored::stored_map(c, &plan, &path)).await?
+async fn stored_map(core: State<'_, Core_>, plan: String, path: String, token: Option<String>) -> Result<browse::MapDir, String> {
+    with_core(core, move |c| cancel::with(token, || stored::stored_map(c, &plan, &path))).await?
 }
 
 #[tauri::command]
@@ -912,18 +919,30 @@ async fn list_dir(
     snapshot: String,
     path: String,
     show_deleted: bool,
+    token: Option<String>,
 ) -> Result<Vec<browse::Entry>, String> {
-    with_core(core, move |c| browse::list(c, &plan, &snapshot, &path, show_deleted)).await?
+    with_core(core, move |c| cancel::with(token, || browse::list(c, &plan, &snapshot, &path, show_deleted))).await?
 }
 
 #[tauri::command]
-async fn file_versions(core: State<'_, Core_>, plan: String, path: String) -> Result<Vec<browse::VersionInfo>, String> {
-    with_core(core, move |c| browse::versions(c, &plan, &path)).await?
+async fn file_versions(
+    core: State<'_, Core_>,
+    plan: String,
+    path: String,
+    token: Option<String>,
+) -> Result<Vec<browse::VersionInfo>, String> {
+    with_core(core, move |c| cancel::with(token, || browse::versions(c, &plan, &path))).await?
 }
 
 #[tauri::command]
-async fn search_snapshot(core: State<'_, Core_>, plan: String, snapshot: String, query: String) -> Result<Vec<browse::Entry>, String> {
-    with_core(core, move |c| browse::search(c, &plan, &snapshot, &query)).await?
+async fn search_snapshot(
+    core: State<'_, Core_>,
+    plan: String,
+    snapshot: String,
+    query: String,
+    token: Option<String>,
+) -> Result<Vec<browse::Entry>, String> {
+    with_core(core, move |c| cancel::with(token, || browse::search(c, &plan, &snapshot, &query))).await?
 }
 
 #[tauri::command]
@@ -940,17 +959,26 @@ struct Everywhere {
 }
 
 #[tauri::command]
-async fn search_everywhere(core: State<'_, Core_>, query: String) -> Result<Everywhere, String> {
+async fn search_everywhere(core: State<'_, Core_>, query: String, token: Option<String>) -> Result<Everywhere, String> {
     with_core(core, move |c| {
-        let (found, missed) = browse::search_everywhere(c, &query);
-        Everywhere { found, missed }
+        cancel::with(token, || {
+            let (found, missed) = browse::search_everywhere(c, &query)?;
+            Ok(Everywhere { found, missed })
+        })
     })
-    .await
+    .await?
 }
 
 #[tauri::command]
-async fn quick_look(app: AppHandle, core: State<'_, Core_>, plan: String, snapshot: String, path: String) -> Result<(), String> {
-    let file = with_core(core, move |c| browse::preview_copy(c, &plan, &snapshot, &path)).await??;
+async fn quick_look(
+    app: AppHandle,
+    core: State<'_, Core_>,
+    plan: String,
+    snapshot: String,
+    path: String,
+    token: Option<String>,
+) -> Result<(), String> {
+    let file = with_core(core, move |c| cancel::with(token, || browse::preview_copy(c, &plan, &snapshot, &path))).await??;
     #[cfg(target_os = "macos")]
     {
         let window = app.get_webview_window("main").ok_or("No window to show Quick Look over.")?;
@@ -1380,6 +1408,7 @@ pub fn run() {
             ask_apply,
             ask_undoable,
             ask_undo,
+            cancel::cancel,
             assistant::assistant_status,
             assistant::ask,
             assistant::ask_cancel,
