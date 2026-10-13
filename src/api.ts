@@ -159,6 +159,8 @@ export type Entry = {
   items: number;
   /** The newest snapshot against the Mac now: in the backup but gone, or here but not backed up. */
   disk: "" | "gone" | "unsaved";
+  /** A deleted item's last version: the snapshot that has it. */
+  lastSnapshot?: string;
 };
 /** A folder in Restore's size map; see browse::MapDir. */
 export type MapDir = {

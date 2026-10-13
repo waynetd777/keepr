@@ -13,7 +13,7 @@ The tabs along the top are your plans. Pick one, and it opens at its latest snap
 - **Earlier** and **Later**, or `←` and `→`, step through the snapshots; **Latest** goes back to the newest.
 - The strip shows ten days at a time, one bar per snapshot, taller for more new data. Click a bar to go to that snapshot.
 - **Find in** searches this snapshot by name.
-- **Show deleted files** also lists files that were in an earlier snapshot but not this one, struck through.
+- **Show deleted files** also lists files that were in an earlier snapshot but not this one, however long ago they went, struck through. A deleted folder opens to show what it last held. At the latest snapshot they show as **Not on Mac**, ready to restore or to remove from the backup.
 
 Each file shows whether it's **New**, **Changed** or **Deleted** in this snapshot. At the latest snapshot the list is also checked against your Mac now: **Not on Mac** is in the backup but gone from the Mac, **Not backed up** is on the Mac but not in the backup yet.
 

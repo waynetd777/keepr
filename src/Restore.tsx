@@ -168,6 +168,7 @@ export default function Restore() {
   const [picked, setPicked] = useState<Entry | null>(null);
   const [versions, setVersions] = useState<Version[] | null>(null);
   const [ver, setVer] = useState(0);
+  // On to begin with, so what the Size map sends here shows even if it has been deleted since.
   const [showDeleted, setShowDeleted] = useState(true);
   const [dest, setDest] = useState<"original" | "folder">("original");
   const [folder, setFolder] = useState("");
@@ -446,11 +447,16 @@ export default function Restore() {
   const targets = (e: Entry) => (inMulti(e) ? items : [e]);
   const restoreItems = async (es: Entry[]) => {
     if (!snap) return;
-    // A deleted item's last version is in the snapshot before this one.
+    // A deleted item's last version is in the snapshot that says so: the one before this, or one
+    // long before for something deleted since.
     const here = es.filter((e) => e.tag !== "deleted").map((e) => e.path);
-    const gone = es.filter((e) => e.tag === "deleted").map((e) => e.path);
     if (here.length && !(await start(snap.id, here))) return;
-    if (gone.length && sel > 0) await start(snaps![sel - 1].id, gone);
+    const gone = new Map<string, string[]>();
+    for (const e of es.filter((e) => e.tag === "deleted")) {
+      const at = e.lastSnapshot ?? (sel > 0 ? snaps![sel - 1].id : undefined);
+      if (at) gone.set(at, [...(gone.get(at) ?? []), e.path]);
+    }
+    for (const [at, paths] of gone) if (!(await start(at, paths))) return;
   };
   const unchoose = (es: Entry[]) => {
     const m = new Map(checked);
@@ -667,7 +673,7 @@ export default function Restore() {
                   inSnapshot={e.tag !== "deleted" && !onlyOnMac(e)}
                   canRestore={targets(e).every((x) => !onlyOnMac(x))}
                   chosen={isChosen(e)}
-                  canOpen={e.kind === "dir" && !hits && e.tag !== "deleted" && !onlyOnMac(e)}
+                  canOpen={e.kind === "dir" && !hits && !onlyOnMac(e)}
                   isOpen={open.has(e.path)}
                   restoreTo={dest === "folder" ? (folder.split("/").pop() ?? "") : "where it was"}
                   onMac={onMac(e)}

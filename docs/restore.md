@@ -13,7 +13,7 @@ The tabs along the top are your plans, each with the number of snapshots it has.
 - **Earlier** and **Later**, or the ← and → keys, step through the snapshots; **Latest** goes back to the newest.
 - The strip shows ten days at a time, one bar per snapshot, taller for more new data. Click a bar to go to that snapshot; the button at its left goes back to earlier days.
 - **Find in** searches this snapshot by name.
-- **Show deleted files** also lists files that were in an earlier snapshot but not this one, struck through.
+- **Show deleted files** also lists files that were in an earlier snapshot but not this one, however long ago they went, struck through. A deleted folder opens to show what it last held. At the latest snapshot they show as **Not on Mac**, ready to restore or to remove from the backup.
 
 The list shows each file's modified time and size, how many versions of it are kept, and whether it's **New**, **Changed** or **Deleted** in this snapshot. Click the arrow beside a folder, or double-click it, to open it.
 

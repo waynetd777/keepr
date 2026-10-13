@@ -184,7 +184,8 @@ export function FileList(p: {
         // By position: a source's name is its whole path, so names joined up can collide.
         const key = `${under}.${i}`;
         rows.push({ e, depth, key });
-        if (e.kind === "dir" && open.has(e.path) && e.tag !== "deleted" && !onlyOnMac(e)) walk(e.path, depth + 1, key);
+        // A deleted folder opens too: it lists what it last held, all deleted.
+        if (e.kind === "dir" && open.has(e.path) && !onlyOnMac(e)) walk(e.path, depth + 1, key);
       });
     };
     if (hits) sorted(hits).forEach((e, i) => rows.push({ e, depth: 0, key: `${i}` }));
@@ -287,7 +288,7 @@ export function FileList(p: {
               />
               {/* Keeps the gap the indent had, so names stay where they were. */}
               <span style={{ width: 0, flexShrink: 0 }} />
-              {e.kind === "dir" && !hits && e.tag !== "deleted" && !onlyOnMac(e) ? (
+              {e.kind === "dir" && !hits && !onlyOnMac(e) ? (
                 <button
                   className={`disc${open.has(e.path) ? " open" : ""}`}
                   aria-label={`${open.has(e.path) ? "Collapse" : "Expand"} ${e.name}`}

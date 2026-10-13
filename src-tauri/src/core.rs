@@ -1402,7 +1402,8 @@ mod tests {
         // A copy stores nothing new; a deleted folder's data stays until it's tidied up.
         std::fs::copy(src.path().join("keep/a.bin"), src.path().join("keep/copy.bin")).unwrap();
         std::fs::remove_dir_all(src.path().join("gone")).unwrap();
-        c.enqueue(Job::Backup { plan: "p1".into(), full: false });
+        // Full, so the folder's going is seen without waiting for FSEvents.
+        c.enqueue(Job::Backup { plan: "p1".into(), full: true });
         wait(&c);
         let repo = c.repo("p1", false).unwrap();
         let total: u64 = repo.index.read().unwrap().blobs.values().map(|l| l.len as u64).sum();
@@ -1424,6 +1425,21 @@ mod tests {
         assert_eq!(keep.loose_files, 1, "the copy stored nothing");
         let gone = crate::stored::stored_map(&c, "p1", &format!("{}/gone", source.path)).unwrap();
         assert!(gone.size > 0);
+
+        // Another backup later, Restore still lists the deleted folder, with the snapshot that has
+        // its last version, and what it held; and it's not on the Mac.
+        std::fs::write(src.path().join("keep/new.bin"), noise(1000, 4)).unwrap();
+        c.enqueue(Job::Backup { plan: "p1".into(), full: true });
+        wait(&c);
+        let snaps = c.snapshots("p1").unwrap();
+        let latest = snaps.last().unwrap().id.hex();
+        let list = crate::browse::list(&c, "p1", &latest, &source.path, true).unwrap();
+        let g = list.iter().find(|e| e.name == "gone").expect("the deleted folder is listed");
+        assert_eq!((g.tag.as_str(), g.disk.as_str()), ("deleted", "gone"));
+        assert_eq!(g.last_snapshot.as_deref(), Some(snaps[0].id.hex().as_str()));
+        let inside = crate::browse::list(&c, "p1", &latest, &g.path, true).unwrap();
+        assert_eq!(inside.iter().map(|e| (e.name.as_str(), e.tag.as_str())).collect::<Vec<_>>(), vec![("b.bin", "deleted")]);
+        assert!(!crate::browse::list(&c, "p1", &latest, &source.path, false).unwrap().iter().any(|e| e.name == "gone"));
     }
 
     #[test]

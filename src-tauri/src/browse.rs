@@ -30,6 +30,10 @@ pub struct Entry {
     /// In the newest snapshot, against the Mac now: "gone" (in the backup, not on the Mac),
     /// "unsaved" (on the Mac, not in the snapshot) or "".
     pub disk: String,
+    /// For a deleted item, the snapshot with its last version: the one before, or one long before
+    /// for something deleted since (it's still stored while a kept snapshot has it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_snapshot: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -70,6 +74,7 @@ impl Entry {
             versions: 0,
             items: 0,
             disk: String::new(),
+            last_snapshot: None,
         }
     }
 }
@@ -116,7 +121,9 @@ pub fn list(core: &Core, plan: &str, snapshot: &str, path: &str, show_deleted: b
     let mut loaded: HashMap<Id, std::sync::Arc<keepr_engine::tree::Tree>> = HashMap::new();
     let mut last: HashMap<String, String> = HashMap::new();
     let mut versions: HashMap<String, u32> = HashMap::new();
-    for t in trees.iter().take(at + 1) {
+    // Everything the folder has held up to this snapshot: each name's last node, and where.
+    let mut ever: HashMap<String, (Node, usize)> = HashMap::new();
+    for (i, t) in trees.iter().take(at + 1).enumerate() {
         let Some(t) = t else {
             last.clear();
             continue;
@@ -132,6 +139,9 @@ pub fn list(core: &Core, plan: &str, snapshot: &str, path: &str, show_deleted: b
                 *versions.entry(n.name.clone()).or_default() += 1;
             }
             seen.insert(n.name.clone(), key);
+            if i < at {
+                ever.insert(n.name.clone(), (n.clone(), i));
+            }
         }
         last = seen;
     }
@@ -161,11 +171,18 @@ pub fn list(core: &Core, plan: &str, snapshot: &str, path: &str, show_deleted: b
             }
         })
         .collect();
+    // Deleted: whatever an earlier kept snapshot has here and this one hasn't, however long ago it
+    // went, with the snapshot that has its last version. A folder that's gone itself lists what it
+    // last held, all of it deleted.
     if show_deleted {
         let names: std::collections::HashSet<&str> = here.iter().map(|n| n.name.as_str()).collect();
-        for (name, n) in &prev {
-            if !names.contains(name) {
-                out.push(Entry { versions: versions.get(*name).copied().unwrap_or(1), ..Entry::from_node(n, join(&n.name), "deleted") });
+        for (name, (n, i)) in &ever {
+            if !names.contains(name.as_str()) {
+                out.push(Entry {
+                    versions: versions.get(name).copied().unwrap_or(1),
+                    last_snapshot: Some(snaps[*i].id.hex()),
+                    ..Entry::from_node(n, join(&n.name), "deleted")
+                });
             }
         }
     }
@@ -196,10 +213,7 @@ fn against_disk(
         p.sources.iter().filter_map(|s| if let Place::Folder { path, .. } = s { Some(PathBuf::from(path)) } else { None }).collect();
     let local = |e: &str| e.starts_with('/') && folders.iter().any(|f| Path::new(e).starts_with(f));
     for e in out.iter_mut() {
-        if local(&e.path)
-            && e.tag != "deleted"
-            && std::fs::symlink_metadata(&e.path).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
-        {
+        if local(&e.path) && std::fs::symlink_metadata(&e.path).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
             e.disk = "gone".into();
         }
     }
@@ -252,6 +266,7 @@ fn against_disk(
             versions: versions.get(&name).copied().unwrap_or(0),
             items: 0,
             disk: "unsaved".into(),
+            last_snapshot: None,
             name,
         });
     }
