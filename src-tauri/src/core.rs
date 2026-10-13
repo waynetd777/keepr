@@ -1188,9 +1188,22 @@ impl Core {
 
     /// Takes a path (a source, or anything inside one) out of every snapshot.
     fn remove_key(&self, cur: &Arc<Current>, plan_id: &str, key: &str, run: &mut Run) -> Result<(), String> {
+        let repo = self.repo(plan_id, false)?;
+        // A whole folder the plan backs up goes only by taking it out of the plan, which asks
+        // about its backed-up data there: never by Remove from backup.
+        if repo
+            .snapshots()
+            .map_err(|e| e.0)?
+            .iter()
+            .any(|s| s.sources.iter().any(|src| src.trim_end_matches('/') == key.trim_end_matches('/')))
+        {
+            return Err(format!(
+                "{} is one of the folders this plan backs up. To stop backing it up and delete what's stored, take it out of the plan.",
+                places::tilde(key)
+            ));
+        }
         Self::set_stage(cur, "Removing");
         run.note(format!("Taking {} out of every snapshot", places::tilde(key)));
-        let repo = self.repo(plan_id, false)?;
         let p = keepr_engine::prune::remove_path(&repo, key, &cur.ctl).map_err(|e| e.0)?;
         run.note(format!("{} snapshots rewritten, {} unchanged; {} freed", p.forgotten, p.kept, human_bytes(p.bytes_freed)));
         {
@@ -1306,6 +1319,10 @@ mod tests {
             after: String::new(),
             ask_exclude: false,
         }
+    }
+
+    fn latest_now(c: &Core) -> String {
+        c.snapshots("p1").unwrap().last().unwrap().id.hex()
     }
 
     fn wait(c: &Core) {
@@ -1440,6 +1457,19 @@ mod tests {
         let inside = crate::browse::list(&c, "p1", &latest, &g.path, true).unwrap();
         assert_eq!(inside.iter().map(|e| (e.name.as_str(), e.tag.as_str())).collect::<Vec<_>>(), vec![("b.bin", "deleted")]);
         assert!(!crate::browse::list(&c, "p1", &latest, &source.path, false).unwrap().iter().any(|e| e.name == "gone"));
+
+        // A folder the plan backs up can't be taken out by Remove from backup; what's inside can.
+        let before = c.snapshots("p1").unwrap().len();
+        c.enqueue(Job::RemovePath { plan: "p1".into(), path: source.path.clone() });
+        wait(&c);
+        let last = c.state.lock().unwrap().history.last().cloned().unwrap();
+        assert_eq!(last.result, "failed");
+        assert!(last.message.contains("one of the folders this plan backs up"), "{}", last.message);
+        assert_eq!(c.snapshots("p1").unwrap().len(), before);
+        c.enqueue(Job::RemovePath { plan: "p1".into(), path: g.path.clone() });
+        wait(&c);
+        assert_eq!(c.state.lock().unwrap().history.last().unwrap().result, "ok");
+        assert!(!crate::browse::list(&c, "p1", &latest_now(&c), &source.path, true).unwrap().iter().any(|e| e.name == "gone"));
     }
 
     #[test]

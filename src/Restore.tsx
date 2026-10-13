@@ -13,7 +13,7 @@ import { VersionsPane } from "./RestoreVersions";
 import { statusDot, useApp } from "./context";
 import { Icon } from "./icons";
 import SizeMap from "./SizeMap";
-import { ClearButton, confirm, Sheet, Switch, useAct, useToast } from "./ui";
+import { ClearButton, confirm, Sheet, Switch, tell, useAct, useToast } from "./ui";
 import { bytes, count, dayKey, dayLabel, longWhen, tilde } from "./format";
 
 const DAYS_SHOWN = 10;
@@ -414,6 +414,8 @@ export default function Restore() {
   // A folder with something chosen inside it, but not all of it.
   const partlyChosen = (e: Entry) => !isChosen(e) && [...checked.keys()].some((p) => p.startsWith(`${e.path}/`));
   const toggleCheck = (e: Entry) => {
+    // Ticking an item picks it too, so the pane beside the list is about what was just ticked.
+    if (!checked.has(e.path)) setPicked(e);
     const m = new Map(checked);
     const folder = chosenFolder(e);
     if (m.has(e.path)) m.delete(e.path);
@@ -516,6 +518,16 @@ export default function Restore() {
   // Deleting a file or folder from every snapshot: asked twice, as it can't be undone.
   const removeFromBackup = async (es: Entry[]) => {
     if (!es.length) return;
+    // A folder the plan backs up is a source, listed at the top by its whole path: it goes by
+    // taking it out of the plan, not from here (Rust refuses it too).
+    const source = es.find((e) => (kids[""] ?? []).some((r) => r.path === e.path));
+    if (source) {
+      await tell(
+        `${tilde(source.path, home)} is a folder this plan backs up`,
+        `Remove from backup takes files and folders inside it out of the backup. To stop backing up ${tilde(source.path, home)} and delete what's stored, take it out of the plan's folders.`,
+      );
+      return;
+    }
     const one = es.length === 1;
     const what = describe(es);
     const first = await confirm({
