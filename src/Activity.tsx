@@ -11,7 +11,7 @@ const PAGE = 50;
 import { api, type Run } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
-import { AFTER_COMMAND, BEFORE_COMMAND, pct as progressOf, Seg, STOPPING, StopButton } from "./ui";
+import { AFTER_COMMAND, BEFORE_COMMAND, pct as progressOf, Seg, STOPPING, StopButton, tell } from "./ui";
 import { bytes, duration, secondsLeft, tilde, when } from "./format";
 import { resultLabel, resultTone } from "./runResult";
 import { openAsk } from "./Ask";
@@ -401,7 +401,7 @@ export default function Activity() {
                                 onClick={() =>
                                   api.askUndo(r.id).then(
                                     () => setUndoable((u) => u.filter((x) => x !== r.id)),
-                                    (e) => window.alert(String(e)),
+                                    (e) => void tell("Couldn't undo the change", String(e)),
                                   )
                                 }
                               >

@@ -2225,3 +2225,13 @@ html.tray body {
   width: 13px;
   height: 13px;
 }
+
+/* The button that goes ahead in a confirm (src/ui.tsx) when it deletes or can't be undone. */
+.btn.destroy {
+  background: var(--red);
+  border-color: var(--red);
+  color: #ffffff;
+}
+.btn.destroy:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--red) 88%, #000000);
+}

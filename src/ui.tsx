@@ -131,13 +131,18 @@ export function Sheet({
   children: ReactNode;
   foot?: ReactNode;
 }) {
+  const scrim = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    // Esc closes the sheet on top only: a question asked over a sheet goes first.
+    const k = (e: KeyboardEvent) => {
+      const all = document.querySelectorAll(".scrim");
+      if (e.key === "Escape" && all[all.length - 1] === scrim.current) onClose();
+    };
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   }, [onClose]);
   return (
-    <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="scrim" ref={scrim} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <section role="dialog" aria-modal="true" aria-label={title} className="sheet" style={{ width }}>
         <div className={icon ? "sheet-head with-icon" : "sheet-head"}>
           {icon}
@@ -437,4 +442,89 @@ export function useSavedLogin(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [server]);
   return source;
+}
+
+/** What `confirm` asks: a title, the question, and the button that goes ahead. */
+export type Ask = {
+  title: string;
+  text: string;
+  /** The button that goes ahead: "Delete", "Turn Off". */
+  ok: string;
+  /** It deletes or can't be undone: the button is red. */
+  danger?: boolean;
+  /** No Cancel, for a message that only needs reading ("OK"). */
+  only?: boolean;
+};
+
+// The question on screen, if any, and how it's answered; kept outside React so any handler can
+// await an answer. One at a time: a second waits for the first.
+let asking: { q: Ask; answer: (yes: boolean) => void } | null = null;
+const waiting: { q: Ask; answer: (yes: boolean) => void }[] = [];
+const askSubs = new Set<() => void>();
+const askChanged = () => askSubs.forEach((f) => f());
+
+/** Asks in the app's own dialog, in place of the system's; true when the user goes ahead. */
+export function confirm(q: Ask): Promise<boolean> {
+  return new Promise((answer) => {
+    waiting.push({ q, answer });
+    if (!asking) {
+      asking = waiting.shift() ?? null;
+      askChanged();
+    }
+  });
+}
+
+/** Says something in the app's own dialog, with OK. */
+export const tell = (title: string, text: string) => confirm({ title, text, ok: "OK", only: true }).then(() => {});
+
+/** Shows the question `confirm` asks; mounted once, in App. */
+export function Confirm() {
+  const [, redraw] = useState(0);
+  useEffect(() => {
+    const f = () => redraw((n) => n + 1);
+    askSubs.add(f);
+    return () => void askSubs.delete(f);
+  }, []);
+  if (!asking) return null;
+  const { q, answer } = asking;
+  const done = (yes: boolean) => {
+    answer(yes);
+    asking = waiting.shift() ?? null;
+    askChanged();
+  };
+  return (
+    <Sheet
+      title={q.title}
+      icon={
+        q.danger ? (
+          <span style={{ color: "var(--amber)", display: "flex", flexShrink: 0 }}>
+            <Icon name="warning" size={30} />
+          </span>
+        ) : undefined
+      }
+      width={460}
+      onClose={() => done(false)}
+      foot={
+        <>
+          {!q.only && (
+            <button className="btn" autoFocus={q.danger} title="Leave it as it is" onClick={() => done(false)}>
+              Cancel
+            </button>
+          )}
+          <button
+            className={`btn ${q.danger ? "destroy" : "primary"}`}
+            autoFocus={!q.danger}
+            title={q.only ? "Close" : q.ok}
+            onClick={() => done(true)}
+          >
+            {q.ok}
+          </button>
+        </>
+      }
+    >
+      <div className="sheet-body">
+        <p style={{ margin: 0, lineHeight: 1.5, userSelect: "text" }}>{q.text}</p>
+      </div>
+    </Sheet>
+  );
 }

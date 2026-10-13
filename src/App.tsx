@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Ctx, useApp, type AppCtx, type Screen } from "./context";
 import { api, on, type Config, type JobStatus, type Overview as OverviewData, type UpdateShown } from "./api";
 import { Icon, Mark } from "./icons";
-import { ClearButton, jobTitle, pct, StopButton, ToastProvider, Tooltips } from "./ui";
+import { ClearButton, Confirm, jobTitle, pct, StopButton, ToastProvider, Tooltips } from "./ui";
 import Overview from "./Overview";
 import Plans from "./Plans";
 import Restore from "./Restore";
@@ -288,6 +288,7 @@ export default function App() {
           <AskPanel />
         </div>
         <UpdateDialog scene={updateScene} />
+        <Confirm />
         <QuitDialog />
         <Tooltips />
       </ToastProvider>

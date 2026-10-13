@@ -13,7 +13,7 @@ import { VersionsPane } from "./RestoreVersions";
 import { statusDot, useApp } from "./context";
 import { Icon } from "./icons";
 import SizeMap from "./SizeMap";
-import { ClearButton, Sheet, Switch, useAct, useToast } from "./ui";
+import { ClearButton, confirm, Sheet, Switch, useAct, useToast } from "./ui";
 import { bytes, dayKey, dayLabel, longWhen, tilde } from "./format";
 
 const DAYS_SHOWN = 10;
@@ -500,26 +500,21 @@ export default function Restore() {
   // Deleting a file or folder from every snapshot: asked twice, as it can't be undone.
   const removeFromBackup = async (es: Entry[]) => {
     if (!es.length) return;
-    const { ask } = await import("@tauri-apps/plugin-dialog");
     const one = es.length === 1;
     const where = one ? tilde(es[0].path, home) : `these ${es.length} items`;
-    const first = await ask(
-      one
+    const first = await confirm({
+      title: one ? `Remove ${es[0].name} from the backup` : `Remove ${es.length} items from the backup`,
+      text: one
         ? `Remove ${where} from every snapshot of ${plan.name}? Its space is freed, and none of its versions can be restored afterwards.`
         : `Remove ${where} from every snapshot of ${plan.name}? Their space is freed, and none of their versions can be restored afterwards.`,
-      {
-        title: one ? `Remove ${es[0].name} from the backup` : `Remove ${es.length} items from the backup`,
-        kind: "warning",
-        okLabel: "Continue",
-        cancelLabel: "Cancel",
-      },
-    );
+      ok: "Continue",
+    });
     if (!first) return;
-    const sure = await ask(`Delete every backed-up version of ${where}? This can't be undone.`, {
+    const sure = await confirm({
       title: "Are you sure?",
-      kind: "warning",
-      okLabel: "Delete",
-      cancelLabel: "Cancel",
+      text: `Delete every backed-up version of ${where}? This can't be undone.`,
+      ok: "Delete",
+      danger: true,
     });
     if (!sure) return;
     // Stops at the first that can't be removed (act's toast says why), and says only what was.

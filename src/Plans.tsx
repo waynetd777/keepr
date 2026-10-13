@@ -11,7 +11,7 @@ import { api, type Every, type Often, type Place, type Plan, type Retention } fr
 import { useApp } from "./context";
 import { Icon } from "./icons";
 import { S3SourceSheet } from "./S3Source";
-import { DestIcon, PlanProgress, Seg, Sheet, Switch, useAct, useMenu, useToast } from "./ui";
+import { confirm, DestIcon, PlanProgress, Seg, Sheet, Switch, useAct, useMenu, useToast } from "./ui";
 import { SmbFields, useSmbForm } from "./SmbFields";
 import { ago, bytes, next, tilde } from "./format";
 
@@ -335,11 +335,12 @@ function RemoveSourceSheet({
           <button
             className="btn danger"
             onClick={async () => {
-              const { ask } = await import("@tauri-apps/plugin-dialog");
-              const sure = await ask(
-                `Delete every backed-up version of ${where} from ${dest}? This can't be undone: those files can no longer be restored.`,
-                { title: `Delete ${name}'s backed-up data`, kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" },
-              );
+              const sure = await confirm({
+                title: `Delete ${name}'s backed-up data`,
+                text: `Delete every backed-up version of ${where} from ${dest}? This can't be undone: those files can no longer be restored.`,
+                ok: "Delete",
+                danger: true,
+              });
               if (sure) onDelete();
             }}
           >
@@ -519,11 +520,11 @@ export default function Plans() {
                 on={plan.enabled}
                 onChange={async (v) => {
                   if (!v) {
-                    const { ask } = await import("@tauri-apps/plugin-dialog");
-                    const sure = await ask(
-                      `Turn off ${plan.name}? It won't back up until you turn it on again. Its backups so far stay as they are.`,
-                      { title: "Turn off this plan", kind: "warning", okLabel: "Turn Off", cancelLabel: "Cancel" },
-                    );
+                    const sure = await confirm({
+                      title: "Turn off this plan",
+                      text: `Turn off ${plan.name}? It won't back up until you turn it on again. Its backups so far stay as they are.`,
+                      ok: "Turn Off",
+                    });
                     if (!sure) return;
                   }
                   update((p) => ({ ...p, enabled: v }));
@@ -540,12 +541,12 @@ export default function Plans() {
               <hr />
               <button
                 onClick={async () => {
-                  const { ask } = await import("@tauri-apps/plugin-dialog");
                   if (
-                    await ask(
-                      `Start a new backup for ${plan.name}? Use this only if the old one is gone for good: Keepr makes a new, empty backup at ${dest?.name}.`,
-                      { title: "Start a new backup", kind: "warning" },
-                    )
+                    await confirm({
+                      title: "Start a new backup",
+                      text: `Start a new backup for ${plan.name}? Use this only if the old one is gone for good: Keepr makes a new, empty backup at ${dest?.name}.`,
+                      ok: "Start a New Backup",
+                    })
                   )
                     act(() => api.startNewBackup(plan.id));
                 }}
@@ -555,11 +556,12 @@ export default function Plans() {
               <button
                 style={{ color: "var(--red)" }}
                 onClick={async () => {
-                  const { ask } = await import("@tauri-apps/plugin-dialog");
                   if (
-                    await ask(`Delete the plan ${plan.name}? Its backup stays at ${dest?.name} and isn't deleted.`, {
+                    await confirm({
                       title: "Delete plan",
-                      kind: "warning",
+                      text: `Delete the plan ${plan.name}? Its backup stays at ${dest?.name} and isn't deleted.`,
+                      ok: "Delete Plan",
+                      danger: true,
                     })
                   ) {
                     await act(() => api.deletePlan(plan.id));
