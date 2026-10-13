@@ -69,6 +69,8 @@ export function VersionsPane(p: {
   /// Its original is on the Mac, to be shown in Finder.
   onMac: boolean;
   looking: boolean;
+  /// Stops a Quick Look still copying the file out of the backup.
+  stopLooking: () => void;
   quickLook: () => void;
   compare: (v: Version) => void;
   restore: (v: Version) => void;
@@ -157,6 +159,11 @@ export function VersionsPane(p: {
               {p.looking ? <span className="dot spin" style={{ width: 12, height: 12 }} /> : <Icon name="eye" size={14} stroke={1.9} />}
               {p.looking ? "Opening…" : "Quick Look"}
             </button>
+            {p.looking && (
+              <button className="btn" title="Stop getting the file for Quick Look" onClick={p.stopLooking}>
+                Cancel
+              </button>
+            )}
             <button
               className="btn"
               title={multi ? ONE_ONLY : "Show what changed from the file on your Mac"}

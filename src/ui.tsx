@@ -528,3 +528,50 @@ export function Confirm() {
     </Sheet>
   );
 }
+
+let tokens = 0;
+/** What a request stopped with Cancel answers (src-tauri/src/cancel.rs); not an error to show. */
+export const STOPPED = "Stopped.";
+export const stopped = (e: unknown) => String(e) === STOPPED;
+
+/**
+ * A screen's requests to the backend that it can stop: `run(f)` gives `f` a token for its call
+ * and stops it when the screen goes; with a `slot`, a new request in the slot stops the one before
+ * (a new search stops the last). `stop(slot)` stops one slot's, `stop()` all of them.
+ */
+export function useRequests() {
+  const live = useRef(new Map<string, string | undefined>());
+  useEffect(() => {
+    const m = live.current;
+    return () => m.forEach((_, t) => void api.stopRequest(t));
+  }, []);
+  const stop = useCallback((slot?: string) => {
+    for (const [t, s] of live.current)
+      if (slot === undefined || s === slot) {
+        live.current.delete(t);
+        void api.stopRequest(t);
+      }
+  }, []);
+  const run = useCallback(
+    <T,>(f: (token: string) => Promise<T>, slot?: string): Promise<T> => {
+      if (slot !== undefined) stop(slot);
+      const t = `r${Date.now().toString(36)}-${(tokens++).toString(36)}`;
+      live.current.set(t, slot);
+      return f(t).finally(() => live.current.delete(t));
+    },
+    [stop],
+  );
+  return { run, stop };
+}
+
+/** Shows `msg` as a toast if `p` takes longer than half a second, for a wait with nothing else to show. */
+export function useSlowToast() {
+  const toast = useToast();
+  return useCallback(
+    <T,>(p: Promise<T>, msg: string): Promise<T> => {
+      const t = window.setTimeout(() => toast(msg), 500);
+      return p.finally(() => window.clearTimeout(t));
+    },
+    [toast],
+  );
+}

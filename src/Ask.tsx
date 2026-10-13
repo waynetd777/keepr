@@ -18,6 +18,7 @@ import { AskIcon } from "./AskButton";
 import { useApp } from "./context";
 import { closeHelp, useHelpOpen } from "./help/HelpDrawer";
 import { Icon } from "./icons";
+import { useRequests } from "./ui";
 import { mdToHtml } from "./md";
 import { bytes } from "./format";
 
@@ -115,6 +116,9 @@ export default function AskPanel() {
   const scroller = useRef<HTMLDivElement>(null);
   const chatRef = useRef(chatId);
   chatRef.current = chatId;
+  // Each question's number, and the last one stopped: what comes for a stopped one is dropped.
+  const asked = useRef(0);
+  const stoppedAsk = useRef(-1);
 
   // Help opening closes Ask: they share the right edge.
   useEffect(() => {
@@ -133,6 +137,11 @@ export default function AskPanel() {
     const done = listen<{ chatId: string; sessionId: string | null; text: string; error: string | null }>("ask-done", (e) => {
       if (e.payload.chatId !== chatRef.current) return;
       const d = e.payload;
+      // Stopped: the answer so far (or "Stopped.") stays, without the tool's complaint at being stopped.
+      if (stoppedAsk.current === asked.current) {
+        if (d.sessionId) setSession(d.sessionId);
+        return;
+      }
       setMessages((m) => {
         const last = m[m.length - 1];
         if (!last || last.role !== "assistant") return m;
@@ -183,11 +192,12 @@ export default function AskPanel() {
   }, []);
   // The figures, read as Ask opens so the first question needn't wait for them; a question within
   // two minutes uses them, a later one reads them again.
+  const req = useRequests();
   const figures = useRef<{ plan?: string; at: number; text: Promise<string> } | null>(null);
   const figuresFor = (p?: string) => {
     const f = figures.current;
     if (f && f.plan === p && Date.now() - f.at < 120_000) return f.text;
-    const text = api.askContext(p);
+    const text = req.run((t) => api.askContext(p, t), "figures");
     figures.current = { plan: p, at: Date.now(), text };
     text.then(
       () => setReading(null),
@@ -220,9 +230,24 @@ export default function AskPanel() {
     }
   }, [state]);
 
+  // Stop: while the figures are still being read there's no AI to stop yet, so the reading stops
+  // and the question isn't sent when they'd have come.
+  const stop = () => {
+    stoppedAsk.current = asked.current;
+    req.stop("figures");
+    void api.askCancel(chatId);
+    setMessages((m) => {
+      const last = m[m.length - 1];
+      return last?.role === "assistant" && !last.text ? [...m.slice(0, -1), { role: "assistant", text: "Stopped.", error: true }] : m;
+    });
+    setReading(null);
+    setBusy(false);
+  };
+
   const send = async (question: string) => {
     const text = question.trim();
     if (!text || busy || off) return;
+    const me = ++asked.current;
     const tool = providerOf(model);
     let resume = session;
     if (sessionTool.current !== tool) {
@@ -242,11 +267,13 @@ export default function AskPanel() {
       let prompt = `${about}Question: ${text}`;
       if (!resume) {
         const ctx = await figuresFor(plan);
+        if (stoppedAsk.current === me) return;
         prompt = `${ctx}\n\n${prompt}`;
         setDoing(`Sending ${bytes(new TextEncoder().encode(prompt).length)} of figures to ${GROUP_NAME[tool]}`);
       }
       await api.ask(chatId, prompt, model, resume);
     } catch (e) {
+      if (stoppedAsk.current === me) return;
       setMessages((m) => [...m.slice(0, -1), { role: "assistant", text: String(e), error: true }]);
       setBusy(false);
     }
@@ -429,7 +456,7 @@ export default function AskPanel() {
           }}
         />
         {busy ? (
-          <button type="button" className="btn stop" onClick={() => void api.askCancel(chatId)} title="Stop the answer">
+          <button type="button" className="btn stop" onClick={stop} title="Stop the answer">
             Stop
           </button>
         ) : (

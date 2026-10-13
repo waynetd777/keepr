@@ -17,6 +17,7 @@ import { openAsk } from "./Ask";
 import { bytes } from "./format";
 import { delta } from "./growth";
 import { tilde } from "./format";
+import { stopped, useRequests } from "./ui";
 
 // A path on this map is the plan's id, this, then the path in its snapshot.
 const SEP = "\t";
@@ -27,7 +28,9 @@ function under(d: MapDir, plan: string, shift: number): MapDir {
 }
 
 /// One plan on the map: its latest snapshot and top-level map once read, or why it couldn't be.
-type Part = { id: string; name: string; snapshot?: string; map?: MapDir; stored?: MapDir; err?: string };
+/// `seen` is the plan's backups the maps are of ("snapshots:last success"); `reading` while newer
+/// ones are being read, the older maps still drawn meanwhile.
+type Part = { id: string; name: string; seen?: string; reading?: boolean; snapshot?: string; map?: MapDir; stored?: MapDir; err?: string };
 
 /// The map's top: one plan's folders, or a block per plan, with growth taken together.
 function topOf(parts: { id: string; name: string; map: MapDir }[], alone: boolean): MapDir {
@@ -66,20 +69,31 @@ export default function PlansMap() {
   // Where both maps are zoomed.
   const [at, setAt] = useState<Crumb[]>([{ path: "", name: "" }]);
 
+  // A backup since: only that plan is read again, its maps staying up until the new ones come.
+  // Each read is stopped by Stop, by a newer read of the same plan, or by leaving the screen.
+  const req = useRequests();
   useEffect(() => {
     let live = true;
-    setParts(kept.map((p) => ({ id: p.id, name: p.name })));
+    const seen = (p: (typeof kept)[number]) => `${p.snapshots}:${p.lastSuccess}`;
+    const stale = kept.filter((p) => parts.find((x) => x.id === p.id)?.seen !== seen(p));
+    setParts((ps) =>
+      kept.map((p) => {
+        const had = ps.find((x) => x.id === p.id);
+        return had && had.seen === seen(p) ? had : { ...(had ?? {}), id: p.id, name: p.name, reading: true, err: undefined };
+      }),
+    );
     const put = (id: string, part: Partial<Part>) => live && setParts((ps) => ps.map((x) => (x.id === id ? { ...x, ...part } : x)));
-    for (const p of kept) {
-      api
-        .snapshots(p.id)
-        .then(async (s) => {
+    for (const p of stale) {
+      req
+        .run(async (t) => {
+          const s = await api.snapshots(p.id);
           const snapshot = s[s.length - 1]?.id;
           if (!snapshot) throw "It has no snapshots yet.";
-          put(p.id, { snapshot, map: await api.sizeMap(p.id, snapshot, "") });
-          put(p.id, { stored: await api.storedMap(p.id, "") });
-        })
-        .catch((e) => put(p.id, { err: String(e) }));
+          const map = await api.sizeMap(p.id, snapshot, "", t);
+          const stored = await api.storedMap(p.id, "", t);
+          put(p.id, { snapshot, map, stored, seen: seen(p), reading: false });
+        }, `plan:${p.id}`)
+        .catch((e) => put(p.id, stopped(e) ? { reading: false } : { err: String(e), reading: false }));
     }
     return () => {
       live = false;
@@ -89,11 +103,14 @@ export default function PlansMap() {
 
   const ready = parts.filter((p) => p.map);
   const storedReady = parts.filter((p) => p.stored);
-  const waiting = parts.filter((p) => !p.stored && !p.err);
+  const waiting = parts.filter((p) => p.reading);
+  // Stopped before its first map came: nothing of it to draw.
+  const unread = parts.filter((p) => !p.reading && !p.map && !p.err);
   const failed = parts.filter((p) => p.err);
-  // The top changes as plans come in; below it, a plan's folders are read when zoomed into.
-  const readyKey = ready.map((p) => p.id).join(",");
-  const storedKey = storedReady.map((p) => p.id).join(",");
+  const reading = waiting.length > 0;
+  // The top changes as plans come in or are read again; below it, a plan's folders are read when zoomed into.
+  const readyKey = ready.map((p) => `${p.id}:${p.seen}`).join(",");
+  const storedKey = storedReady.map((p) => `${p.id}:${p.seen}`).join(",");
 
   const split = (path: string) => {
     const i = path.indexOf(SEP);
@@ -104,8 +121,8 @@ export default function PlansMap() {
   const load = useCallback(
     async (path: string): Promise<MapDir> => {
       if (!path) {
-        // Nothing in yet: SizeMap shows it's working until a plan comes in and this is remade.
-        if (!ready.length) return new Promise<MapDir>(() => {});
+        // Nothing in yet: working on it while a plan is being read, else nothing to draw.
+        if (!ready.length) return reading ? new Promise<MapDir>(() => {}) : Promise.reject("Nothing has been read to draw.");
         return topOf(
           ready.map((p) => ({ id: p.id, name: p.name, map: p.map! })),
           parts.length === 1,
@@ -115,16 +132,17 @@ export default function PlansMap() {
       const p = parts.find((x) => x.id === path.slice(0, i));
       if (!p?.snapshot) throw new Error("That plan has no backup any more.");
       const inner = path.slice(i + 1);
-      const d = under(await api.sizeMap(p.id, p.snapshot, inner), p.id, 0);
+      const snapshot = p.snapshot;
+      const d = under(await req.run((t) => api.sizeMap(p.id, snapshot, inner, t), "zoom"), p.id, 0);
       return inner ? d : { ...d, name: p.name };
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [readyKey],
+    [readyKey, reading],
   );
   const loadStored = useCallback(
     async (path: string): Promise<MapDir> => {
       if (!path) {
-        if (!storedReady.length) return new Promise<MapDir>(() => {});
+        if (!storedReady.length) return reading ? new Promise<MapDir>(() => {}) : Promise.reject("Nothing has been read to draw.");
         return topOf(
           storedReady.map((p) => ({ id: p.id, name: p.name, map: p.stored! })),
           parts.length === 1,
@@ -145,7 +163,7 @@ export default function PlansMap() {
       return inner ? d : { ...d, name: p.name };
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [storedKey],
+    [storedKey, reading],
   );
 
   const where = (path: string) => {
@@ -191,12 +209,25 @@ export default function PlansMap() {
           ⌘-click to open in Restore.
         </span>
       </div>
-      {(waiting.length > 0 || failed.length > 0) && (
+      {(waiting.length > 0 || failed.length > 0 || unread.length > 0) && (
         <div className="col small muted" style={{ gap: 4 }}>
           {waiting.length > 0 && (
             <span className="row" style={{ gap: 8 }}>
               <span className="dot spin" style={{ width: 10, height: 10 }} />
               Reading {waiting.map((p) => p.name).join(", ")}…
+              <button
+                className="btn small"
+                title="Stop reading; what's already on the maps stays"
+                onClick={() => waiting.forEach((p) => req.stop(`plan:${p.id}`))}
+              >
+                Stop
+              </button>
+            </span>
+          )}
+          {unread.length > 0 && (
+            <span>
+              Stopped before {unread.map((p) => p.name).join(", ")} could be read, so {unread.length === 1 ? "it isn't" : "they aren't"} on
+              the maps. Open Size Map again to read {unread.length === 1 ? "it" : "them"}.
             </span>
           )}
           {failed.map((p) => (

@@ -252,16 +252,23 @@ export const api = {
   pause: (paused: boolean) => invoke<void>("job_pause", { paused }),
   pauseHour: () => invoke<void>("pause_hour"),
   snapshots: (plan: string) => invoke<SnapInfo[]>("snapshots", { plan }),
-  sizeMap: (plan: string, snapshot: string, path: string) => invoke<MapDir>("size_map", { plan, snapshot, path }),
+  // A `token` (from useRequests in ui.tsx) lets the window stop a request it no longer wants
+  // (src-tauri/src/cancel.rs); a stopped one rejects with "Stopped.".
+  sizeMap: (plan: string, snapshot: string, path: string, token?: string) =>
+    invoke<MapDir>("size_map", { plan, snapshot, path, token: token ?? null }),
   /** Where a plan's stored space came from (src-tauri/src/stored.rs). */
-  storedMap: (plan: string, path: string) => invoke<MapDir>("stored_map", { plan, path }),
+  storedMap: (plan: string, path: string, token?: string) => invoke<MapDir>("stored_map", { plan, path, token: token ?? null }),
   showInFinder: (plan: string, path: string) => invoke<void>("show_in_finder", { plan, path }),
-  listDir: (plan: string, snapshot: string, path: string, showDeleted: boolean) =>
-    invoke<Entry[]>("list_dir", { plan, snapshot, path, showDeleted }),
-  versions: (plan: string, path: string) => invoke<Version[]>("file_versions", { plan, path }),
-  search: (plan: string, snapshot: string, query: string) => invoke<Entry[]>("search_snapshot", { plan, snapshot, query }),
-  searchEverywhere: (query: string) => invoke<{ found: Found[]; missed: string[] }>("search_everywhere", { query }),
-  quickLook: (plan: string, snapshot: string, path: string) => invoke<void>("quick_look", { plan, snapshot, path }),
+  listDir: (plan: string, snapshot: string, path: string, showDeleted: boolean, token?: string) =>
+    invoke<Entry[]>("list_dir", { plan, snapshot, path, showDeleted, token: token ?? null }),
+  versions: (plan: string, path: string, token?: string) => invoke<Version[]>("file_versions", { plan, path, token: token ?? null }),
+  search: (plan: string, snapshot: string, query: string, token?: string) =>
+    invoke<Entry[]>("search_snapshot", { plan, snapshot, query, token: token ?? null }),
+  searchEverywhere: (query: string, token?: string) =>
+    invoke<{ found: Found[]; missed: string[] }>("search_everywhere", { query, token: token ?? null }),
+  quickLook: (plan: string, snapshot: string, path: string, token?: string) =>
+    invoke<void>("quick_look", { plan, snapshot, path, token: token ?? null }),
+  stopRequest: (token: string) => invoke<void>("cancel", { token }),
   compare: (plan: string, snapshot: string, path: string) => invoke<Comparison>("compare", { plan, snapshot, path }),
   /** macOS's folder panel, one kept and reused (a new one takes ~26 s on macOS 27). */
   chooseFolders: (title: string, multiple = false, start?: string) =>
@@ -280,7 +287,7 @@ export const api = {
   assistantStatus: () => invoke<AssistantStatus>("assistant_status"),
   ask: (chatId: string, prompt: string, model: string, session: string | null) => invoke<void>("ask", { chatId, prompt, model, session }),
   askCancel: (chatId: string) => invoke<void>("ask_cancel", { chatId }),
-  askContext: (plan?: string) => invoke<string>("ask_context", { plan: plan ?? null }),
+  askContext: (plan?: string, token?: string) => invoke<string>("ask_context", { plan: plan ?? null, token: token ?? null }),
   askCheck: (change: unknown) => invoke<AskChecked>("ask_check", { change }),
   askApply: (change: unknown) => invoke<string>("ask_apply", { change }),
   askUndoable: () => invoke<string[]>("ask_undoable"),

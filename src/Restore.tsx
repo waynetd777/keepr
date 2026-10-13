@@ -13,7 +13,7 @@ import { VersionsPane } from "./RestoreVersions";
 import { statusDot, useApp } from "./context";
 import { Icon } from "./icons";
 import SizeMap from "./SizeMap";
-import { ClearButton, confirm, Sheet, Switch, tell, useAct, useToast } from "./ui";
+import { ClearButton, confirm, Sheet, stopped, Switch, tell, useAct, useRequests, useSlowToast, useToast } from "./ui";
 import { bytes, count, dayKey, dayLabel, longWhen, tilde } from "./format";
 
 const DAYS_SHOWN = 10;
@@ -156,6 +156,10 @@ export default function Restore() {
   const { ov, cfg, screen, home, go } = useApp();
   const act = useAct();
   const toast = useToast();
+  // Reading folders, versions, a search, a Quick Look copy: stopped when Restore goes, or when a
+  // newer one of the same kind replaces it.
+  const req = useRequests();
+  const slowToast = useSlowToast();
   const plans = ov?.plans ?? [];
   const planId = (screen.name === "restore" && screen.plan) || plans.find((p) => p.snapshots > 0)?.id || plans[0]?.id;
   const plan = plans.find((p) => p.id === planId);
@@ -195,14 +199,20 @@ export default function Restore() {
     if (!planId) return;
     setSnaps(null);
     setErr("");
+    // Another plan picked before the answer comes: that plan's snapshots are shown, not these.
+    let live = true;
     api.snapshots(planId).then(
       (s) => {
+        if (!live) return;
         setSnaps(s);
         const at = focus ? s.findIndex((x) => x.id === focus.snapshot) : -1;
         setSel(at >= 0 ? at : s.length - 1);
       },
-      (e) => setErr(String(e)),
+      (e) => live && setErr(String(e)),
     );
+    return () => {
+      live = false;
+    };
   }, [planId, focus]);
 
   // A job of this plan's has ended: a backup adds a snapshot and Remove from backup rewrites them,
@@ -232,7 +242,7 @@ export default function Restore() {
 
   const snap = snaps?.[sel];
   const snapId = snap?.id ?? "";
-  const mapLoad = useCallback((path: string) => api.sizeMap(planId ?? "", snapId, path), [planId, snapId]);
+  const mapLoad = useCallback((path: string) => req.run((t) => api.sizeMap(planId ?? "", snapId, path, t), "map"), [planId, snapId, req]);
   // Which listing the folders shown belong to. A folder asked for under another snapshot (or
   // before the deleted switch was flipped) that answers late is dropped, not shown under this one.
   const listing = useRef("");
@@ -244,14 +254,19 @@ export default function Restore() {
     async (path: string) => {
       if (!planId || !snap) return;
       const of = `${planId}\n${snap.id}\n${showDeleted}`;
-      const list = await api.listDir(planId, snap.id, path, showDeleted).catch((e) => {
-        if (listing.current === of) setErr(String(e));
-        return [] as Entry[];
-      });
-      if (listing.current !== of) return;
+      let gaveUp = false;
+      const list = await req
+        .run((t) => api.listDir(planId, snap.id, path, showDeleted, t))
+        .catch((e) => {
+          // Stopped (Restore left, or the snapshot changed): nothing to show or say.
+          gaveUp = stopped(e);
+          if (listing.current === of && !gaveUp) setErr(String(e));
+          return [] as Entry[];
+        });
+      if (listing.current !== of || gaveUp) return;
       setKids((k) => ({ ...k, [path]: list }));
     },
-    [planId, snap, showDeleted],
+    [planId, snap, showDeleted, req],
   );
 
   // A new moment or the deleted switch: reload the folders that are open.
@@ -280,31 +295,37 @@ export default function Restore() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kids[""]]);
 
+  // Searching this snapshot, for the list to say so.
+  const [searching, setSearching] = useState(false);
   useEffect(() => {
     if (!planId || !snap || !query.trim()) {
+      req.stop("search");
       setHits(null);
+      setSearching(false);
       return;
     }
-    // Typing on while a search runs: only the newest search's answer is shown.
+    // Typing on while a search runs: the older one is stopped, only the newest's answer shown.
     let live = true;
-    const t = window.setTimeout(
-      () =>
-        api.search(planId, snap.id, query.trim()).then(
+    const t = window.setTimeout(() => {
+      setSearching(true);
+      req
+        .run((tk) => api.search(planId, snap.id, query.trim(), tk), "search")
+        .then(
           (h) => {
             if (!live) return;
             setHits(h);
             const f = focus && h.find((e) => e.path === focus.path);
             if (f) setPicked(f);
           },
-          (e) => live && setErr(String(e)),
-        ),
-      250,
-    );
+          (e) => live && !stopped(e) && setErr(String(e)),
+        )
+        .finally(() => live && setSearching(false));
+    }, 250);
     return () => {
       live = false;
       window.clearTimeout(t);
     };
-  }, [query, planId, snap, focus]);
+  }, [query, planId, snap, focus, req]);
 
   const pickedFile = picked?.kind === "file" ? picked.path : undefined;
   useEffect(() => {
@@ -314,14 +335,16 @@ export default function Restore() {
     // Another file picked before the answer comes: that one's versions are shown, not these. No
     // versions to be found reads as none, rather than Finding versions… for ever.
     let live = true;
-    api.versions(planId, pickedFile).then(
-      (v) => live && setVersions(v),
-      () => live && setVersions([]),
-    );
+    req
+      .run((t) => api.versions(planId, pickedFile, t), "versions")
+      .then(
+        (v) => live && setVersions(v),
+        () => live && setVersions([]),
+      );
     return () => {
       live = false;
     };
-  }, [pickedFile, planId]);
+  }, [pickedFile, planId, req]);
 
   const spaceLook = useRef<(() => void) | null>(null);
   useEffect(() => {
@@ -370,11 +393,22 @@ export default function Restore() {
   // The versions pane's Quick Look, also on Space while a file's version is showing and nothing
   // else is in the way (one of several chosen, it's already opening, or a comparison is open).
   const version = versions?.[ver];
-  const lookAtVersion = async () => {
-    if (!version || !picked || !planId) return;
+  // A Quick Look copies the file out of the backup first, which can take a while for a big one
+  // on a remote destination: the versions pane says so, with Cancel, and leaving stops it.
+  const lookAt = async (snapshot: string, e: Entry) => {
+    if (!planId) return;
+    setPicked(e);
     setLooking(true);
-    await act(() => api.quickLook(planId, version.snapshot, picked.path));
+    await req.run((t) => api.quickLook(planId, snapshot, e.path, t), "look").catch((err) => !stopped(err) && toast(String(err)));
     setLooking(false);
+  };
+  const stopLooking = () => {
+    req.stop("look");
+    setLooking(false);
+  };
+  const lookAtVersion = async () => {
+    if (!version || !picked) return;
+    await lookAt(version.snapshot, picked);
   };
   const canLook =
     view === "files" && picked?.kind === "file" && !!version && !looking && !comparing && !(checked.size > 1 && checked.has(picked.path));
@@ -476,7 +510,8 @@ export default function Restore() {
   // "Not on Mac" until the share is connected, so Show in Finder finds out then.
   const onMac = (e: Entry) => e.path.startsWith("/") && e.disk !== "gone";
   // Connects an SMB share first, so it can take a moment; errors say why it can't be shown.
-  const showInFinder = (e: Entry) => act(() => api.showInFinder(plan.id, e.path));
+  // Connecting its share first can take a moment, with nothing else to show for it.
+  const showInFinder = (e: Entry) => act(() => slowToast(api.showInFinder(plan.id, e.path), `Opening ${e.name} in Finder…`));
   // Whether the restore was started: when it wasn't, act's toast says why, and there's nothing to
   // back up afterwards or announce.
   const start = async (snapshot: string, paths: string[]): Promise<boolean> => {
@@ -604,6 +639,12 @@ export default function Restore() {
           </div>
         )}
         {snaps && snaps.length === 0 && !err && <div className="empty">{plan.name} hasn't finished a backup yet.</div>}
+        {!snaps && !err && (
+          <div className="empty row" style={{ gap: 8, justifyContent: "center" }}>
+            <span className="dot spin" style={{ width: 12, height: 12 }} />
+            Reading {plan.name}'s snapshots…
+          </div>
+        )}
 
         {snap && (
           <section className="card" style={{ padding: "16px 20px 12px", display: "flex", flexDirection: "column", gap: 12, flexShrink: 0 }}>
@@ -671,6 +712,7 @@ export default function Restore() {
               kids={kids}
               open={open}
               hits={hits}
+              searching={searching}
               sort={sort}
               setSort={setSort}
               picked={picked}
@@ -697,7 +739,7 @@ export default function Restore() {
                   isOpen={open.has(e.path)}
                   restoreTo={dest === "folder" ? (folder.split("/").pop() ?? "") : "where it was"}
                   onMac={onMac(e)}
-                  quickLook={() => act(() => api.quickLook(plan.id, snap.id, e.path))}
+                  quickLook={() => void lookAt(snap.id, e)}
                   compare={() => setComparing({ snapshot: snap.id, path: e.path })}
                   restore={() => restoreItems(targets(e))}
                   choose={() => (inMulti(e) ? unchoose(items) : toggleCheck(e))}
@@ -726,6 +768,7 @@ export default function Restore() {
               multi={!!picked && inMulti(picked)}
               onMac={!!picked && onMac(picked)}
               looking={looking}
+              stopLooking={stopLooking}
               quickLook={lookAtVersion}
               compare={(v) => picked && setComparing({ snapshot: v.snapshot, path: picked.path })}
               restore={(v) => picked && start(v.snapshot, [picked.path])}

@@ -142,6 +142,8 @@ export function FileList(p: {
   open: Set<string>;
   /// What a search found, listed flat in place of the tree.
   hits: Entry[] | null;
+  /// A search of the snapshot is under way.
+  searching?: boolean;
   sort: Sort;
   setSort: (s: Sort) => void;
   picked: Entry | null;
@@ -169,7 +171,8 @@ export function FileList(p: {
   // Keyed by place in the tree as well as path: a backup made while one source was inside another
   // holds the same path twice. Built again only when what's listed, opened or sorted changes.
   const rows = useMemo(() => {
-    const rows: { e: Entry; depth: number; key: string }[] = [];
+    // `loading`: a line under an opened folder whose contents haven't come yet.
+    const rows: { e: Entry; depth: number; key: string; loading?: boolean }[] = [];
     const dir = sort.up ? 1 : -1;
     const value = (e: Entry) => (sort.by === "modified" ? e.mtime : sort.by === "size" ? e.size : sort.by === "versions" ? e.versions : 0);
     const sorted = (list: Entry[]) =>
@@ -185,7 +188,10 @@ export function FileList(p: {
         const key = `${under}.${i}`;
         rows.push({ e, depth, key });
         // A deleted folder opens too: it lists what it last held, all deleted.
-        if (e.kind === "dir" && open.has(e.path) && !onlyOnMac(e)) walk(e.path, depth + 1, key);
+        if (e.kind === "dir" && open.has(e.path) && !onlyOnMac(e)) {
+          if (kids[e.path]) walk(e.path, depth + 1, key);
+          else rows.push({ e, depth: depth + 1, key: `${key}.loading`, loading: true });
+        }
       });
     };
     if (hits) sorted(hits).forEach((e, i) => rows.push({ e, depth: 0, key: `${i}` }));
@@ -262,7 +268,14 @@ export function FileList(p: {
         onScroll={(ev) => setFirst(Math.floor(ev.currentTarget.scrollTop / ROW))}
       >
         <div style={{ height: from * ROW }} />
-        {rows.slice(from, to).map(({ e, depth, key }) => {
+        {rows.slice(from, to).map(({ e, depth, key, loading }) => {
+          if (loading)
+            return (
+              <div key={key} className="file-row small muted" style={{ gap: 8, paddingLeft: 52 + depth * 20 }} role="status">
+                <span className="dot spin" style={{ width: 10, height: 10 }} />
+                Opening {e.name}…
+              </div>
+            );
           const name = e.name.startsWith("/") ? tilde(e.name, home) : hits ? tilde(e.path, home) : e.name;
           return (
             <div
@@ -345,7 +358,13 @@ export function FileList(p: {
           );
         })}
         <div style={{ height: (rows.length - to) * ROW }} />
-        {rows.length === 0 && <div className="empty">{hits ? "Nothing by that name in this snapshot." : "Loading…"}</div>}
+        {p.searching && (
+          <div className="empty row" style={{ gap: 8, justifyContent: "center" }} role="status">
+            <span className="dot spin" style={{ width: 10, height: 10 }} />
+            Searching this snapshot…
+          </div>
+        )}
+        {rows.length === 0 && !p.searching && <div className="empty">{hits ? "Nothing by that name in this snapshot." : "Loading…"}</div>}
         {menuFor && <rowMenu.Menu width={240}>{p.menu(menuFor)}</rowMenu.Menu>}
       </div>
     </div>

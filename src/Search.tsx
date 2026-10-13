@@ -10,25 +10,39 @@ import { api, type Found } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
 import { bytes, tilde, when } from "./format";
+import { stopped, useRequests } from "./ui";
 
 export default function Search() {
   const { screen, go, home } = useApp();
   const query = screen.name === "search" ? screen.query : "";
   const [found, setFound] = useState<Found[] | null>(null);
   const [missed, setMissed] = useState<string[]>([]);
+  // Stopped with Stop, by a new search, or by leaving: the backend stops reading too.
+  const [gaveUp, setGaveUp] = useState(false);
+  const req = useRequests();
   useEffect(() => {
     setFound(null);
-    api.searchEverywhere(query).then(
-      (r) => {
-        setFound(r.found);
-        setMissed(r.missed);
-      },
-      (e) => {
-        setFound([]);
-        setMissed([String(e)]);
-      },
-    );
-  }, [query]);
+    setGaveUp(false);
+    // A newer search's answer is the one shown; this one's, if it comes after, is dropped.
+    let live = true;
+    req
+      .run((t) => api.searchEverywhere(query, t), "search")
+      .then(
+        (r) => {
+          if (!live) return;
+          setFound(r.found);
+          setMissed(r.missed);
+        },
+        (e) => {
+          if (!live || stopped(e)) return;
+          setFound([]);
+          setMissed([String(e)]);
+        },
+      );
+    return () => {
+      live = false;
+    };
+  }, [query, req]);
   // Each plan's search stops at 300, so the note names the plans that reached it.
   const perPlan = new Map<string, { name: string; n: number }>();
   for (const f of found ?? []) {
@@ -42,11 +56,28 @@ export default function Search() {
       <div className="col" style={{ gap: 4 }}>
         <h1>“{query}”</h1>
         <span className="muted" style={{ fontSize: 14 }}>
-          {found === null
-            ? "Looking in every backup…"
-            : found.length === 0
-              ? "Nothing by that name in any backup."
-              : `${found.length.toLocaleString()} found in your backups${capped.length ? ` (only the first 300 from ${capped.join(", ")})` : ""}. Pick one to see its versions and restore it.`}
+          {gaveUp ? (
+            "Stopped. Search again from the box above."
+          ) : found === null ? (
+            <span className="row" style={{ gap: 8 }}>
+              <span className="dot spin" style={{ width: 10, height: 10 }} />
+              Looking in every backup…
+              <button
+                className="btn small"
+                title="Stop searching"
+                onClick={() => {
+                  req.stop("search");
+                  setGaveUp(true);
+                }}
+              >
+                Stop
+              </button>
+            </span>
+          ) : found.length === 0 ? (
+            "Nothing by that name in any backup."
+          ) : (
+            `${found.length.toLocaleString()} found in your backups${capped.length ? ` (only the first 300 from ${capped.join(", ")})` : ""}. Pick one to see its versions and restore it.`
+          )}
         </span>
       </div>
       {missed.length > 0 && (
