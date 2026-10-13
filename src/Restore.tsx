@@ -153,7 +153,7 @@ function CompareSheet({ plan, snapshot, path, onClose }: { plan: string; snapsho
 }
 
 export default function Restore() {
-  const { ov, screen, home, go } = useApp();
+  const { ov, cfg, screen, home, go } = useApp();
   const act = useAct();
   const toast = useToast();
   const plans = ov?.plans ?? [];
@@ -518,9 +518,10 @@ export default function Restore() {
   // Deleting a file or folder from every snapshot: asked twice, as it can't be undone.
   const removeFromBackup = async (es: Entry[]) => {
     if (!es.length) return;
-    // A folder the plan backs up is a source, listed at the top by its whole path: it goes by
-    // taking it out of the plan, not from here (Rust refuses it too).
-    const source = es.find((e) => (kids[""] ?? []).some((r) => r.path === e.path));
+    // A folder the plan still backs up goes by taking it out of the plan, not from here (Rust
+    // refuses it too). One already taken out of the plan can go from here.
+    const folders = (cfg?.plans.find((p) => p.id === plan.id)?.sources ?? []).flatMap((s) => (s.kind === "folder" ? [s.path] : []));
+    const source = es.find((e) => folders.includes(e.path));
     if (source) {
       await tell(
         `${tilde(source.path, home)} is a folder this plan backs up`,

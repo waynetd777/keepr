@@ -645,7 +645,7 @@ impl Core {
             Job::Check { plan, all } => self.check(&cur, plan, *all, &mut run),
             Job::Prune { plan } => self.prune(&cur, plan, &mut run),
             Job::RemoveSource { plan, source } => self.remove_source(&cur, plan, source, &mut run),
-            Job::RemovePath { plan, path } => self.remove_key(&cur, plan, path, &mut run),
+            Job::RemovePath { plan, path } => self.remove_path(&cur, plan, path, &mut run),
         };
         run.finished = now();
         match outcome {
@@ -1186,24 +1186,26 @@ impl Core {
         self.remove_key(cur, plan_id, &key, run)
     }
 
-    /// Takes a path (a source, or anything inside one) out of every snapshot.
-    fn remove_key(&self, cur: &Arc<Current>, plan_id: &str, key: &str, run: &mut Run) -> Result<(), String> {
-        let repo = self.repo(plan_id, false)?;
-        // A whole folder the plan backs up goes only by taking it out of the plan, which asks
-        // about its backed-up data there: never by Remove from backup.
-        if repo
-            .snapshots()
-            .map_err(|e| e.0)?
-            .iter()
-            .any(|s| s.sources.iter().any(|src| src.trim_end_matches('/') == key.trim_end_matches('/')))
-        {
+    /// Remove from backup: anything in the snapshots but a folder the plan still backs up, which
+    /// goes by taking it out of the plan (remove_source, after the plan editor asks).
+    fn remove_path(&self, cur: &Arc<Current>, plan_id: &str, path: &str, run: &mut Run) -> Result<(), String> {
+        let sources: Vec<Place> =
+            self.config.lock().unwrap().plans.iter().find(|p| p.id == plan_id).map(|p| p.sources.clone()).unwrap_or_default();
+        let same = |a: &str| a.trim_end_matches('/') == path.trim_end_matches('/');
+        if sources.iter().any(|s| matches!(s, Place::Folder { path: f, .. } if same(f))) {
             return Err(format!(
                 "{} is one of the folders this plan backs up. To stop backing it up and delete what's stored, take it out of the plan.",
-                places::tilde(key)
+                places::tilde(path)
             ));
         }
+        self.remove_key(cur, plan_id, path, run)
+    }
+
+    /// Takes a path (a source, or anything inside one) out of every snapshot.
+    fn remove_key(&self, cur: &Arc<Current>, plan_id: &str, key: &str, run: &mut Run) -> Result<(), String> {
         Self::set_stage(cur, "Removing");
         run.note(format!("Taking {} out of every snapshot", places::tilde(key)));
+        let repo = self.repo(plan_id, false)?;
         let p = keepr_engine::prune::remove_path(&repo, key, &cur.ctl).map_err(|e| e.0)?;
         run.note(format!("{} snapshots rewritten, {} unchanged; {} freed", p.forgotten, p.kept, human_bytes(p.bytes_freed)));
         {
@@ -1458,7 +1460,8 @@ mod tests {
         assert_eq!(inside.iter().map(|e| (e.name.as_str(), e.tag.as_str())).collect::<Vec<_>>(), vec![("b.bin", "deleted")]);
         assert!(!crate::browse::list(&c, "p1", &latest, &source.path, false).unwrap().iter().any(|e| e.name == "gone"));
 
-        // A folder the plan backs up can't be taken out by Remove from backup; what's inside can.
+        // A folder the plan still backs up can't be taken out by Remove from backup; what's
+        // inside can, and so can the whole folder once the plan no longer backs it up.
         let before = c.snapshots("p1").unwrap().len();
         c.enqueue(Job::RemovePath { plan: "p1".into(), path: source.path.clone() });
         wait(&c);
@@ -1470,6 +1473,11 @@ mod tests {
         wait(&c);
         assert_eq!(c.state.lock().unwrap().history.last().unwrap().result, "ok");
         assert!(!crate::browse::list(&c, "p1", &latest_now(&c), &source.path, true).unwrap().iter().any(|e| e.name == "gone"));
+        // Taken out of the plan, with its backed-up data: removed, not refused.
+        let place = c.config.lock().unwrap().plans[0].sources[0].clone();
+        c.enqueue(Job::RemoveSource { plan: "p1".into(), source: place });
+        wait(&c);
+        assert_eq!(c.state.lock().unwrap().history.last().unwrap().result, "ok");
     }
 
     #[test]
