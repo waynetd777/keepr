@@ -249,6 +249,7 @@ export const api = {
   /** Asks first: the main window's Quit dialog (src/Quit.tsx). */
   quit: () => invoke<void>("quit"),
   quitNow: () => invoke<void>("quit_now"),
+  quitCancelled: () => invoke<void>("quit_cancelled"),
   updateDialog: () => invoke<UpdateShown | null>("update_dialog"),
   updateInstall: () => invoke<void>("update_install"),
   updateLater: () => invoke<void>("update_later"),

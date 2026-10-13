@@ -2,7 +2,7 @@
 // See LICENSE for the full text.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The question ⌘Q and Quit Keepr ask first (src-tauri/src/lib.rs sends `quit-requested`): quitting
+// The question ⌘Q and Quit Keepr ask first (ask_to_quit in src-tauri/src/lib.rs sends `quit-requested`): quitting
 // stops the backups, where closing the window doesn't. Esc or a click outside is Cancel.
 
 import { useEffect, useState } from "react";
@@ -16,7 +16,10 @@ export function QuitDialog() {
   const [shown, setShown] = useState(false);
   useEffect(() => on<null>("quit-requested", () => setShown(true)), []);
   if (!shown) return null;
-  const cancel = () => setShown(false);
+  const cancel = () => {
+    setShown(false);
+    void api.quitCancelled();
+  };
   return (
     <Sheet
       title="Quit Keepr?"
