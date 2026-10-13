@@ -113,7 +113,7 @@ export type DestSummary = {
 };
 export type JobStatus = {
   id: string;
-  kind: "backup" | "full" | "restore" | "check" | "prune" | "remove";
+  kind: "backup" | "full" | "restore" | "check" | "prune" | "remove" | "delete";
   plan: string;
   planName: string;
   stage: string;
@@ -145,7 +145,7 @@ export type Overview = {
 export type Run = {
   id: string;
   plan: string;
-  kind: "backup" | "full" | "check" | "prune" | "restore" | "remove" | "change";
+  kind: "backup" | "full" | "check" | "prune" | "restore" | "remove" | "delete" | "change";
   started: string;
   finished: string;
   result: "ok" | "warning" | "failed" | "cancelled" | "waiting";
@@ -219,7 +219,8 @@ export const api = {
   history: (limit = 50, offset = 0, filter: "all" | "problems" | "restores" = "all") => invoke<Run[]>("history", { offset, limit, filter }),
   defaultExcludes: () => invoke<string[]>("default_excludes"),
   savePlan: (plan: Plan, password?: string) => invoke<Plan>("save_plan", { plan, password: password ?? null }),
-  deletePlan: (id: string) => invoke<void>("delete_plan", { id }),
+  /** With `backup`, its backup is deleted first, as a job; the plan goes once that's done. */
+  deletePlan: (id: string, backup = false) => invoke<string | null>("delete_plan", { id, backup }),
   startNewBackup: (id: string) => invoke<void>("start_new_backup", { id }),
   saveDestination: (dest: Destination, password?: string) => invoke<Destination>("save_destination", { dest, password: password ?? null }),
   deleteDestination: (id: string) => invoke<void>("delete_destination", { id }),

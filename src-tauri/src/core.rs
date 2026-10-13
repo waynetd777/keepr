@@ -51,6 +51,10 @@ pub enum Job {
         plan: String,
         path: String,
     },
+    /// Delete the plan's whole backup at its destination, then the plan.
+    DeletePlan {
+        plan: String,
+    },
 }
 
 impl Job {
@@ -61,7 +65,8 @@ impl Job {
             | Job::Check { plan, .. }
             | Job::Prune { plan }
             | Job::RemoveSource { plan, .. }
-            | Job::RemovePath { plan, .. } => plan,
+            | Job::RemovePath { plan, .. }
+            | Job::DeletePlan { plan } => plan,
         }
     }
     fn kind(&self) -> &'static str {
@@ -72,6 +77,7 @@ impl Job {
             Job::Check { .. } => "check",
             Job::Prune { .. } => "prune",
             Job::RemoveSource { .. } | Job::RemovePath { .. } => "remove",
+            Job::DeletePlan { .. } => "delete",
         }
     }
 }
@@ -344,6 +350,7 @@ impl Core {
                 Job::Check { .. } => "A check of a backup",
                 Job::Prune { .. } => "A tidy-up of a backup",
                 Job::RemoveSource { .. } | Job::RemovePath { .. } => "A removal from a backup",
+                Job::DeletePlan { .. } => "A backup being deleted",
             };
             return Err(format!("{what} is {}.", if running { "running" } else { "waiting to run" }));
         }
@@ -514,11 +521,70 @@ impl Core {
         self.open_repo(plan, false, false)
     }
 
-    fn open_repo(&self, plan: &str, create: bool, trust: bool) -> Result<Arc<Repo>, String> {
-        let (p, d) = self.plan_and_dest(plan)?;
+    /// Takes a plan out of Keepr: its settings, its state and its passwords. Its backup, if it
+    /// has one, is left where it is (DeletePlan deletes it first).
+    pub fn forget_plan(&self, id: &str) -> Result<(), String> {
+        let encrypted = {
+            let mut c = self.config.lock().unwrap();
+            let encrypted = c.plans.iter().any(|p| p.id == id && p.encrypted);
+            c.plans.retain(|p| p.id != id);
+            encrypted
+        };
+        self.state.lock().unwrap().plans.remove(id);
+        // Only an encrypted plan has passwords there: reading the Keychain for nothing can ask.
+        if encrypted {
+            keychain::delete(&keychain::plan_account(id));
+            keychain::delete(&keychain::recovery_account(id));
+        }
+        self.forget_repo(id);
+        self.save_config()?;
+        self.save_state();
+        self.changed();
+        Ok(())
+    }
+
+    /// Deletes a plan's backup: every file of it at the destination, the repository's config
+    /// first, so a deletion stopped part-way leaves no backup that looks whole (the plan then
+    /// says its backup has gone, and deleting it again finishes the job). Read straight from the
+    /// destination, not opened as a backup, so that works.
+    fn delete_backup(&self, cur: &Arc<Current>, plan_id: &str, run: &mut Run) -> Result<(), String> {
+        Self::set_stage(cur, "Deleting");
+        let (p, d) = self.plan_and_dest(plan_id)?;
+        let (path, backend) = self.destination_backend(&p, &d)?;
+        run.note(format!("Deleting {}'s backup at {}", p.name, backend.describe()));
+        let mut files = backend.list("").map_err(|e| format!("Couldn't list {}'s backup: {e}", p.name))?;
+        files.sort_by_key(|f| f != CONFIG);
+        let total = files.len() as u64;
+        cur.ctl.progress.bytes_to_read.store(total, Relaxed);
+        for (i, f) in files.iter().enumerate() {
+            cur.ctl.checkpoint().map_err(|e| e.0)?;
+            backend.remove(f).map_err(|e| format!("Couldn't delete {f} from {}'s backup: {e}", p.name))?;
+            cur.ctl.progress.bytes_read.store(i as u64 + 1, Relaxed);
+        }
+        // What's left of a folder backup is its empty folders.
+        if !matches!(d.place, Place::S3(_)) {
+            match std::fs::remove_dir_all(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(format!(
+                        "Deleted its files, but couldn't remove the folder {}: {e}",
+                        places::tilde(&path.to_string_lossy())
+                    ))
+                }
+                _ => {}
+            }
+        }
+        run.files = total;
+        run.message = format!("Deleted {} and its backup ({} files)", p.name, total);
+        run.note(run.message.clone());
+        Ok(())
+    }
+
+    /// The plan's backup at its destination as plain files, connecting the destination if
+    /// needed: where it is, and how to read and write it.
+    fn destination_backend(&self, p: &Plan, d: &config::Destination) -> Result<(PathBuf, Arc<dyn Backend>), String> {
         // A bucket has no folder on this Mac: its "path" is its s3:// address, which matches no
         // file a backup reads.
-        let (path, inner): (PathBuf, Arc<dyn Backend>) = match &d.place {
+        Ok(match &d.place {
             Place::S3(s) => {
                 let b = places::s3_backend(s, None, &p.folder)?;
                 (PathBuf::from(b.describe()), Arc::new(b))
@@ -531,7 +597,12 @@ impl Core {
                 let path = root.join(&p.folder);
                 (path.clone(), Arc::new(Folder::new(&path)))
             }
-        };
+        })
+    }
+
+    fn open_repo(&self, plan: &str, create: bool, trust: bool) -> Result<Arc<Repo>, String> {
+        let (p, d) = self.plan_and_dest(plan)?;
+        let (path, inner) = self.destination_backend(&p, &d)?;
         // Out of the map before asking the backend: exists() may be a network round trip, and
         // other plans' jobs and the window need the map meanwhile.
         let known = self.repos.lock().unwrap().get(plan).filter(|(at, _)| *at == path).map(|(_, r)| r.clone());
@@ -674,6 +745,7 @@ impl Core {
             Job::Prune { plan } => self.prune(&cur, plan, &mut run),
             Job::RemoveSource { plan, source } => self.remove_source(&cur, plan, source, &mut run),
             Job::RemovePath { plan, path } => self.remove_path(&cur, plan, path, &mut run),
+            Job::DeletePlan { plan } => self.delete_backup(&cur, plan, &mut run),
         };
         run.finished = now();
         match outcome {
@@ -725,11 +797,18 @@ impl Core {
             let _ = std::fs::write(logs.join(format!("{}.log", run.id)), run.log.join("\n"));
         }
         run.log.clear();
+        let deleted = matches!(job, Job::DeletePlan { .. }) && run.result == "ok";
         let dropped = {
             let mut s = self.state.lock().unwrap();
             s.plan(job.plan()).last_attempt = Some(run.started.clone());
             s.record(run)
         };
+        // Its backup gone, the plan goes too; the run stays in the history, under its name.
+        if deleted {
+            if let Err(e) = self.forget_plan(job.plan()) {
+                eprintln!("couldn't forget the deleted plan: {e}");
+            }
+        }
         for r in dropped {
             let _ = std::fs::remove_file(logs.join(format!("{}.log", r.id)));
         }
@@ -1671,6 +1750,40 @@ mod tests {
         c.enqueue(Job::RemoveSource { plan: "p1".into(), source: place });
         wait(&c);
         assert_eq!(c.state.lock().unwrap().history.last().unwrap().result, "ok");
+    }
+
+    #[test]
+    fn deleting_a_plan_with_its_backup_deletes_both() {
+        let data = tempfile::tempdir().unwrap();
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("a.txt"), b"hello").unwrap();
+        let c = core(data.path());
+        {
+            let mut cfg = c.config.lock().unwrap();
+            cfg.destinations.push(Destination {
+                id: "d1".into(),
+                name: "Disk".into(),
+                place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None },
+                disconnect_after: true,
+            });
+            cfg.plans.push(plan(src.path()));
+        }
+        // Something else at the destination stays.
+        std::fs::write(dst.path().join("other.txt"), b"keep").unwrap();
+        c.start();
+        c.enqueue(Job::Backup { plan: "p1".into(), full: false });
+        wait(&c);
+        let folder = dst.path().join("Docs p1");
+        assert!(folder.join(CONFIG).exists());
+        c.enqueue(Job::DeletePlan { plan: "p1".into() });
+        wait(&c);
+        let last = c.state.lock().unwrap().history.last().cloned().unwrap();
+        assert_eq!((last.kind.as_str(), last.result.as_str()), ("delete", "ok"), "{}", last.message);
+        assert!(!folder.exists(), "the backup's folder is gone");
+        assert!(dst.path().join("other.txt").exists(), "nothing else at the destination is touched");
+        assert!(c.config.lock().unwrap().plans.is_empty() && !c.state.lock().unwrap().plans.contains_key("p1"));
+        assert!(std::fs::read_to_string(src.path().join("a.txt")).is_ok(), "the source is only read");
     }
 
     #[test]

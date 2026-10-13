@@ -401,6 +401,62 @@ export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; 
 }
 
 /** Removing a source that has been backed up: keep its versions, or delete them (confirmed twice). */
+/** Deleting a plan that has a backup: keep the backup (it can be restored from by making a plan
+ * for it again) or delete it too, which frees its space and can't be undone. */
+function DeletePlanSheet({
+  name,
+  dest,
+  onClose,
+  onKeep,
+  onDelete,
+}: {
+  name: string;
+  dest: string;
+  onClose: () => void;
+  onKeep: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <Sheet
+      title={`Delete ${name}?`}
+      subtitle={`Keepr stops backing it up. Its backup at ${dest} can stay there, or be deleted too to free its space.`}
+      width={560}
+      onClose={onClose}
+      foot={
+        <>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <span className="grow" />
+          <button
+            className="btn danger"
+            onClick={async () => {
+              const sure = await confirm({
+                title: `Delete ${name}'s backup`,
+                text: `Delete ${name} and every backed-up version it kept at ${dest}? This can't be undone: none of it can be restored afterwards.`,
+                ok: "Delete",
+                danger: true,
+              });
+              if (sure) onDelete();
+            }}
+          >
+            <Icon name="trash" size={14} />
+            Delete Plan and Backup…
+          </button>
+          <button className="btn primary" onClick={onKeep}>
+            Delete Plan, Keep Backup
+          </button>
+        </>
+      }
+    >
+      <p className="muted" style={{ margin: 0 }}>
+        <b>Delete Plan, Keep Backup</b> leaves the backup's folder at {dest} as it is. <b>Delete Plan and Backup</b> deletes every version
+        it kept and frees its space; it can't be undone, and Activity shows it going.
+      </p>
+    </Sheet>
+  );
+}
+
 function RemoveSourceSheet({
   name,
   where,
@@ -521,6 +577,7 @@ export default function Plans() {
     return () => window.clearTimeout(t);
   }, [plan?.name, plan?.id]);
   const [removing, setRemoving] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const addMenu = useMenu();
   const moreMenu = useMenu();
   const saveTimer = useRef<number>(undefined);
@@ -617,19 +674,21 @@ export default function Plans() {
     }, 500);
   };
 
+  // A plan with a backup asks whether to delete that too; one that never backed up just goes.
   const deletePlan = async () => {
-    if (
-      await confirm({
-        title: "Delete plan",
-        text: `Delete the plan ${plan.name}? Its backup stays at ${dest?.name} and isn't deleted.`,
-        ok: "Delete Plan",
-        danger: true,
-      })
-    ) {
-      await act(() => api.deletePlan(plan.id));
-      await refresh();
-      go({ name: "overview" });
+    if (created) {
+      setDeleting(true);
+      return;
     }
+    if (await confirm({ title: "Delete plan", text: `Delete the plan ${plan.name}?`, ok: "Delete Plan", danger: true }))
+      await deleteNow(false);
+  };
+  const deleteNow = async (backup: boolean) => {
+    setDeleting(false);
+    if ((await act(() => api.deletePlan(plan.id, backup))) === undefined) return;
+    await refresh();
+    if (backup) toast(`Deleting ${plan.name} and its backup. Activity shows how it's going.`);
+    go({ name: backup ? "activity" : "overview" });
   };
 
   // Taking a folder out, saved straight away rather than after the usual pause: deleting its
@@ -1326,6 +1385,15 @@ export default function Plans() {
         </div>
       </div>
 
+      {deleting && (
+        <DeletePlanSheet
+          name={plan.name}
+          dest={dest?.name ?? "the destination"}
+          onClose={() => setDeleting(false)}
+          onKeep={() => void deleteNow(false)}
+          onDelete={() => void deleteNow(true)}
+        />
+      )}
       {removing !== null && plan.sources[removing] && (
         <RemoveSourceSheet
           name={plan.sources[removing].name?.trim() || defaultNames(plan.sources, home)[removing]}

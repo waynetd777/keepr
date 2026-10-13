@@ -112,5 +112,5 @@ An unencrypted plan's files are compressed, but anyone who can open the destinat
 
 **Plan on** turns a plan off: it won't back up until you turn it on again, and its backups stay as they are. The ⋯ menu has:
 
-- **Delete plan…** — deletes the plan, and its password and recovery key from the Keychain. The backup itself stays at the destination.
+- **Delete plan…** — deletes the plan, and its password and recovery key from the Keychain. For a plan that has backed up, it asks whether to keep the backup at the destination (**Delete Plan, Keep Backup**) or delete it too (**Delete Plan and Backup…**), which frees its space and can't be undone; Activity shows it going, and the plan goes once its backup has.
 - **Start a new backup…** — only for when a plan's backup has gone for good, a drive that died, say. It starts a new, empty backup in its place.

@@ -67,4 +67,4 @@ The first backup makes a **recovery key**, which works in place of the password.
 **Change password…** needs the current password or the recovery key, and rewrites nothing in the backup.
 
 ## Turn a plan off, or delete it
-**Plan on** turns a plan off: it won't back up until you turn it on again, and its backups stay. In the ⋯ menu, **Delete plan…** deletes the plan and its password and recovery key; the backup itself stays at the destination. **Start a new backup…** is only for when a plan's backup has gone for good, a drive that died, say.
+**Plan on** turns a plan off: it won't back up until you turn it on again, and its backups stay. In the ⋯ menu, **Delete plan…** deletes the plan and its password and recovery key, and asks whether to **Keep Backup** at the destination or delete it too (**Delete Plan and Backup…**, which frees its space, can't be undone, and shows in Activity as it goes). **Start a new backup…** is only for when a plan's backup has gone for good, a drive that died, say.

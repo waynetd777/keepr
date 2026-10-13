@@ -36,7 +36,17 @@ function Running() {
   const pct = progressOf(job);
   const step = stepOf(job.stage);
   const verb =
-    job.kind === "restore" ? "Restoring from" : job.kind === "check" ? "Checking" : job.kind === "prune" ? "Tidying up" : "Keeping";
+    job.kind === "restore"
+      ? "Restoring from"
+      : job.kind === "check"
+        ? "Checking"
+        : job.kind === "prune"
+          ? "Tidying up"
+          : job.kind === "remove"
+            ? "Removing from"
+            : job.kind === "delete"
+              ? "Deleting the backup of"
+              : "Keeping";
   const skipped = job.dupBytes;
   return (
     <>
@@ -97,8 +107,11 @@ function Running() {
                 {Math.floor(pct)}%
               </span>
               <span className="mono muted grow">
-                {bytes(job.bytesRead)} of {bytes(job.bytesToRead)}
-                {job.rate > 0 ? ` · ${bytes(job.rate)}/s` : ""}
+                {/* Deleting a backup counts its files, not bytes. */}
+                {job.kind === "delete"
+                  ? `${job.bytesRead.toLocaleString()} of ${job.bytesToRead.toLocaleString()} files`
+                  : `${bytes(job.bytesRead)} of ${bytes(job.bytesToRead)}`}
+                {job.rate > 0 && job.kind !== "delete" ? ` · ${bytes(job.rate)}/s` : ""}
               </span>
               <span className="muted">{job.stopping ? STOPPING : job.paused ? "Paused" : secondsLeft(job.etaSecs)}</span>
               <button className="btn" disabled={job.stopping} onClick={() => api.pause(!job.paused)}>
@@ -272,6 +285,7 @@ export default function Activity() {
     prune: "Tidy up",
     restore: "Restore",
     remove: "Remove a folder",
+    delete: "Delete a plan's backup",
     change: "Plan change",
   };
   // Ask about a run: its message and the end of its log go with the question.

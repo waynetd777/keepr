@@ -430,20 +430,18 @@ fn reorder_plans(core: State<Core_>, ids: Vec<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn delete_plan(core: State<'_, Core_>, id: String) -> Result<(), String> {
+/// Deletes a plan; with `backup`, its backup at the destination first, as a job (it can take a
+/// while and shows in Activity), the plan going once that's done. Answers that job's id.
+async fn delete_plan(core: State<'_, Core_>, id: String, backup: bool) -> Result<Option<String>, String> {
     with_core(core, move |core| {
         if core.busy_with(&id) {
             return Err("Wait for this plan's backup to finish first.".into());
         }
-        core.config.lock().unwrap().plans.retain(|p| p.id != id);
-        core.state.lock().unwrap().plans.remove(&id);
-        keychain::delete(&keychain::plan_account(&id));
-        keychain::delete(&keychain::recovery_account(&id));
-        core.forget_repo(&id);
-        core.save_config()?;
-        core.save_state();
-        core.changed();
-        Ok(())
+        if backup {
+            return Ok(Some(core.enqueue(Job::DeletePlan { plan: id })));
+        }
+        core.forget_plan(&id)?;
+        Ok(None)
     })
     .await?
 }

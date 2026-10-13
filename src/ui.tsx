@@ -309,7 +309,9 @@ export function jobTitle(job: JobStatus): string {
           ? "Tidying up"
           : job.kind === "remove"
             ? "Removing from"
-            : "Backing up";
+            : job.kind === "delete"
+              ? "Deleting the backup of"
+              : "Backing up";
   return `${verb} ${job.planName}`;
 }
 
@@ -339,11 +341,13 @@ export function PlanProgress({ job, queued, compact }: { job?: JobStatus | null;
       ? "Checking"
       : j.kind === "prune"
         ? "Tidying up"
-        : j.kind === "remove"
-          ? "Removing a folder's data"
-          : j.kind === "restore"
-            ? "Restoring"
-            : j.stage || "Starting";
+        : j.kind === "delete"
+          ? "Deleting its backup"
+          : j.kind === "remove"
+            ? "Removing a folder's data"
+            : j.kind === "restore"
+              ? "Restoring"
+              : j.stage || "Starting";
   return (
     <div className="col" style={{ gap: 6 }}>
       <div className="row" style={{ gap: 10 }}>

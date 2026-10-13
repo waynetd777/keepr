@@ -95,9 +95,11 @@ export default function Tray() {
         ? "Checking a backup"
         : job.kind === "prune"
           ? "Tidying up a backup"
-          : job.kind === "remove"
-            ? "Removing from a backup"
-            : "Keeping your files"
+          : job.kind === "delete"
+            ? "Deleting a backup"
+            : job.kind === "remove"
+              ? "Removing from a backup"
+              : "Keeping your files"
     : ov.plans.length === 0
       ? "Nothing set up yet"
       : attention.length
