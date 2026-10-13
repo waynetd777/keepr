@@ -11,7 +11,7 @@ Restore shows your files as they were at any backup, and puts back whichever you
 The tabs along the top are your plans, each with the number of snapshots it has. Pick one, and it opens at its latest snapshot: "Your files as they were on…".
 
 - **Earlier** and **Later**, or the ← and → keys, step through the snapshots; **Latest** goes back to the newest.
-- The strip shows ten days at a time, one bar per snapshot, taller for more new data. Click a bar to go to that snapshot; the button at its left goes back to earlier days.
+- The strip shows as many days as fit, up to ten, one bar per snapshot, taller for more new data. Click a bar to go to that snapshot; the button at its left goes back to earlier days.
 - **Find in** searches this snapshot by name.
 - **Show deleted files** also lists files that were in an earlier snapshot but not this one, however long ago they went, struck through. A deleted folder opens to show what it last held. At the latest snapshot they show as **Not on Mac**, ready to restore or to remove from the backup.
 
@@ -31,7 +31,7 @@ Click a file to see every version the backup keeps of it, newest first, each wit
 
 <a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/versions-dark.png"><img alt="The versions of Budget 2026.numbers, with Quick Look, Compare with current and Restore this version" src="images/versions-light.png"></picture></a>
 
-- **Quick Look** (or `Space`) opens the version in Quick Look, to see what's in it, without restoring it.
+- **Quick Look** (or `Space`) opens the version in Quick Look, to see what's in it, without restoring it. A big file is copied out of the backup first; **Cancel** stops that.
 - **Compare with current** compares the version with the file on the Mac now. For a text file it shows the lines that differ: those only in the backup and those only on the Mac. For other files it says whether they're the same.
 - **Restore this version** puts it back, as below.
 
@@ -62,7 +62,7 @@ To see every plan in one map, beside the space all its versions take, use **Size
 
 ## Finding a file in any backup
 
-Type a name in the toolbar's search box (⌘K) and press Return to search every plan and every snapshot at once. Each result shows its folder, its plan, its newest version and its size, and whether it has been deleted. Click one to open Restore at the newest snapshot that holds it, with the file picked and its versions showing.
+Type a name in the toolbar's search box (⌘K) and press Return to search every plan and every snapshot at once. Each result shows its folder, its plan, its newest version and its size, and whether it has been deleted. Click one to open Restore at the newest snapshot that holds it, with the file picked and its versions showing. **Stop** ends a search that's taking a while.
 
 <a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/search-dark.png"><img alt="Search results for notes across every backup" src="images/search-light.png"></picture></a>
 
@@ -70,4 +70,4 @@ A plan whose destination can't be reached (an unplugged drive, say) isn't search
 
 ## Removing something from a backup
 
-**Remove from backup…**, under a file's or folder's versions (a deleted one's too), takes it out of every snapshot, to free the space or because it should never have been backed up. Keepr asks twice first; it can't be undone. To stop it being backed up again, add a rule for it in the plan's [What to leave out](plans.md#what-to-leave-out).
+**Remove from backup…**, under a file's or folder's versions (a deleted one's too), takes it out of every snapshot, to free the space or because it should never have been backed up. Keepr lists what will go and asks twice first; it can't be undone. A folder the plan backs up can't be removed here: take it out of the plan's folders instead. To stop it being backed up again, add a rule for it in the plan's [What to leave out](plans.md#what-to-leave-out).

@@ -11,7 +11,7 @@ Restore shows your files as they were at any backup, and puts back whichever you
 The tabs along the top are your plans. Pick one, and it opens at its latest snapshot.
 
 - **Earlier** and **Later**, or `←` and `→`, step through the snapshots; **Latest** goes back to the newest.
-- The strip shows ten days at a time, one bar per snapshot, taller for more new data. Click a bar to go to that snapshot.
+- The strip shows as many days as fit, up to ten, one bar per snapshot, taller for more new data. Click a bar to go to that snapshot.
 - **Find in** searches this snapshot by name.
 - **Show deleted files** also lists files that were in an earlier snapshot but not this one, however long ago they went, struck through. A deleted folder opens to show what it last held. At the latest snapshot they show as **Not on Mac**, ready to restore or to remove from the backup.
 
@@ -20,7 +20,7 @@ Each file shows whether it's **New**, **Changed** or **Deleted** in this snapsho
 ## A file's versions
 Click a file to see every version kept of it, newest first. The one in the snapshot you're looking at is marked **In this snapshot**.
 
-- **Quick Look** (or `Space`) shows the version without restoring it.
+- **Quick Look** (or `Space`) shows the version without restoring it. A big file is copied out of the backup first; **Cancel** stops that.
 - **Compare with current** compares it with the file on the Mac now: the lines that differ for a text file, or whether they're the same.
 - **Restore this version** puts it back.
 
@@ -39,3 +39,5 @@ Click **Restore**. A file only takes its real name once it's complete, so a stop
 
 ## Remove something from a backup
 **Remove from backup…**, under a file's or folder's versions, takes it out of every snapshot, to free the space or because it should never have been backed up. Keepr asks twice; it can't be undone. To stop it being backed up again, add a rule to the plan's What to leave out.
+
+Right-click a ticked item to remove all the ticked items at once; Keepr lists what will go before it asks. A folder the plan backs up can't be removed from here: take it out of the plan's folders instead, which asks whether to delete its backed-up data.

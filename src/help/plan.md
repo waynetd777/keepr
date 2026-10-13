@@ -26,6 +26,8 @@ Rules leave files and folders out. Type one in **+ Rule** and press Return; clic
 
 The switches below also skip what a project's `.gitignore` leaves out, files only in the cloud (they aren't downloaded), what apps mark as not needing a backup (as Time Machine does), and files larger than a size you choose.
 
+**Leave this plan out of Ask** keeps the plan's folders and runs out of [Ask](help:ask): it sees only the plan's name, its Ask buttons are greyed out, and Ask can't suggest changes to it.
+
 ## Versions to keep
 Every backup is a snapshot of all the plan's files. Older snapshots are thinned out: **Every backup** for a while, then **One a day**, **One a week** and **One a month**, each for as long as you choose. The newest snapshot is always kept.
 

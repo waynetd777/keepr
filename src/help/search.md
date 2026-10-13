@@ -10,6 +10,8 @@ The toolbar's search box (`⌘K`) searches every plan and every snapshot at once
 ## Search every backup
 Type part of a name and press Return. Each result shows its folder, its plan, its newest version and its size, and whether it has been deleted.
 
+Searching every plan can take a while when a destination is on the network: **Stop** ends it, and a new search replaces the one running.
+
 ## Open a result
 Click one to open [Restore](app:restore) at the newest snapshot that holds it, with the file picked and its versions showing. From there you can Quick Look it, compare it or restore it.
 

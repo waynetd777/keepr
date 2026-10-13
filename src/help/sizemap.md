@@ -17,13 +17,16 @@ The right map shares out the space the backups take, after de-duplication and co
 
 A folder you've deleted still shows here while its old versions are kept. Two blocks aren't folders: **Folder listings** is what every snapshot records about its folders and files, and **Not used by any snapshot** is data from versions that have been removed, which the next tidy-up frees.
 
-Both maps zoom together. A folder that's only on one of them (deleted since, or holding only copies) says so on the other.
+Both maps zoom together. While a map is being read it says so, with **Stop**; after a backup only that plan's map is read again, and the others stay on screen. A folder that's only on one of them (deleted since, or holding only copies) says so on the other.
 
 ## What grew this week
 On the left, each folder is compared with the backup from a week before. On the right, a folder's growth is what this week's backups stored there. Where the growth landed is outlined, with a tag saying how much it grew or shrank: the folder it's concentrated in, rather than every folder above it. The path bar's total says how much the whole map grew, and pointing at a folder shows its own change. Changes under 10 MB aren't tagged. Until a plan has a week of backups, the map compares with its first backup and says since when.
 
 ## Zoom in and out
-Click a plan or a folder to zoom into it, and the path bar above the map to come back out. `⌘`-click one to open it in [Restore](app:restore).
+Click a plan or a folder to zoom into it, and the path bar above either map to come back out. `⌘`-click one to open it in [Restore](app:restore).
+
+## Ask about a folder
+**Ask**, in the path bar above either map, asks an AI what takes the space in the folder on screen, with its folders' sizes and growth. See [Ask](help:ask).
 
 ## One plan's map
 Restore has the same map for one snapshot of one plan: **Size map**, beside **Files** above its list. See [Restore](help:restore).

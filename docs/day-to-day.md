@@ -13,7 +13,7 @@ Keepr's icon in the menu bar shows a dot while it's backing up, and a mark when 
 - Whether everything is kept, and what needs attention if not.
 - The backup that's running, with its progress and the time left.
 - Each plan's last and next backup, or its problem. Click one to open Keepr.
-- **Back up all now** (⌘B), **Pause backups for an hour** (which also stops the backup that's running), **Restore a file…** (⌘R), **Open Keepr** (⌘O), **Settings…** (⌘,) and **Quit Keepr** (⌘Q).
+- **Back up all now** (⌘B), **Pause backups for an hour** (which also stops the backup that's running), **Restore a file…** (⌘R), **Open Keepr** (⌘O), **Settings…** (⌘,) and **Quit Keepr** (⌘Q), which asks first.
 - An **Open at Login** switch, the same one as in [Settings](#settings), in the installed app.
 
 ## Activity
@@ -36,10 +36,11 @@ A check that finds a problem with the stored data always tells you.
 
 ## Settings
 
-<a href="images/index.md#day-to-day"><picture><source media="(prefers-color-scheme: dark)" srcset="images/settings-dark.png"><img alt="Settings: Open at Login, notifications and appearance" src="images/settings-light.png"></picture></a>
+<a href="images/index.md#day-to-day"><picture><source media="(prefers-color-scheme: dark)" srcset="images/settings-dark.png"><img alt="Settings: Open at Login, notifications, Ask and appearance" src="images/settings-light.png"></picture></a>
 
 - **Open at Login** starts Keepr when you log in, in the menu bar with no window. It's the same setting as System Settings › General › Login Items.
 - The [notifications](#notifications) above.
+- **Ask** turns on [Ask](features.md#ask). Off, nothing is sent.
 - **Website** opens [keepr.davies.co.za](https://keepr.davies.co.za/) in your browser. It's also under Help › **Keepr Website**, and in **About Keepr** in the Keepr menu.
 - **Appearance**: **Match the Mac**, **Light** or **Dark**.
 
@@ -57,7 +58,7 @@ Keepr checks for a new version once a day, and Keepr › **Check for Updates…*
 
 ## Help
 
-Press `?`, click **?** at the right of the toolbar, or choose Help › **Keepr Help** (⌘?) to open help for the screen you're on, at the side of the window. It stays open while you use the screen; Esc or × closes it.
+Press `?`, click **?** at the right of the toolbar, or choose Help › **Keepr Help** (⌘?) to open help for the screen you're on, at the side of the window. It stays open while you use the screen; Esc or × closes it. Help and Ask share the side of the window, so opening one closes the other.
 
 <a href="images/index.md#day-to-day"><picture><source media="(prefers-color-scheme: dark)" srcset="images/help-dark.png"><img alt="Help for Restore, at the side of the window, with the getting-started guides below" src="images/help-light.png"></picture></a>
 

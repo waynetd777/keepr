@@ -22,6 +22,7 @@ The shortcuts, by where they work.
 - `⌘B` — Back up every plan now
 - `⌘[` `⌘]` — Back, forward
 - `Esc` — Close the help, Ask or a sheet
+- `⌘Q` — Quit Keepr (asks first)
 
 ## Restore
 - `←` `→` — Earlier, later snapshot

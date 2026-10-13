@@ -29,9 +29,9 @@ To have Keepr start when you log in, turn on **Open at Login** in [Settings](day
 
 ## The window
 
-The sidebar has **Backup Plans** (⌘1), **Size Map** (⌘2), **Restore** (⌘3), **Activity** (⌘4) and **Destinations** (⌘5), with **Settings** (⌘,) at the bottom. The toolbar has **Back** (⌘[) and **Forward** (⌘]), a search box, **Find a file in any backup** (⌘K), and **Back up now** (⌘B), which backs up every plan that's on. While a backup runs, the toolbar shows its progress and a **Stop** button. The **?** at its right end, or `?`, opens [help](day-to-day.md#help) for the screen you're on.
+The sidebar has **Backup Plans** (⌘1), **Size Map** (⌘2), **Restore** (⌘3), **Activity** (⌘4) and **Destinations** (⌘5), with **Settings** (⌘,) at the bottom. The toolbar has **Back** (⌘[) and **Forward** (⌘]), a search box, **Find a file in any backup** (⌘K), **Back up now** (⌘B), which backs up every plan that's on, and **Ask** (⌘J). While a backup runs, the toolbar shows its progress and a **Stop** button. The **?** at its right end, or `?`, opens [help](day-to-day.md#help) for the screen you're on.
 
-Closing the window doesn't quit Keepr: it leaves the Dock and keeps backing up from the [menu bar](day-to-day.md#the-menu-bar). Click Keepr in the Dock or the menu bar to bring the window back, and use **Quit Keepr** in the menu bar to stop it.
+Closing the window doesn't quit Keepr: it leaves the Dock and keeps backing up from the [menu bar](day-to-day.md#the-menu-bar). Click Keepr in the Dock or the menu bar to bring the window back, and use **Quit Keepr** in the menu bar or the Keepr menu (⌘Q) to stop it; it asks first.
 
 ## Backup Plans
 
@@ -55,9 +55,9 @@ On the right are **Space used**, across every plan, each destination with its fr
 
 **Ask** in the toolbar (⌘J) opens a chat at the side of the window, answered by an AI tool already installed and signed in on the Mac: Claude Code, Codex, Antigravity or GitHub Copilot, with no tools of its own and nothing to read but the message. Ask what takes the space, why a backup grew or failed, or how to do something in Keepr; the **Ask** buttons on the Size Map and on a run in Activity start a chat about that folder or run.
 
-The question goes with Keepr's figures: each plan's settings and status, its biggest folders with their size, growth and stored space, their file types by size, when they last changed and whether a project's .gitignore lists them, folder names that repeat (node_modules in 40 places), and the recent runs. Files aren't named and nothing of their contents is sent. The help's Ask page lists exactly what goes. A plan can be left out of Ask, and Ask can be turned off in Settings.
+The question goes with Keepr's figures: each plan's settings and status, its biggest folders with their size, growth and stored space, their file types by size, when they last changed and whether a project's .gitignore lists them, folder names that repeat (node_modules in 40 places), and the recent runs. Files aren't named (run messages go with their paths taken out) and nothing of their contents is sent. The help's Ask page lists exactly what goes. A plan can be left out of Ask, and Ask can be turned off in Settings.
 
-An answer can suggest a change to a plan: rules to leave things out, a size limit, how long to keep versions, or the schedule. Keepr shows the settings before and after, what in the latest backup would be left out, how many snapshots the next tidy-up would remove, and warnings, before **Apply** saves it. Each change is in Activity with **Undo**. Ask can't change a plan's folders, destination or encryption, and can't remove anything.
+An answer can suggest a change to a plan: rules to leave things out, a size limit, how long to keep versions, or the schedule. Keepr shows the settings before and after, what in the latest backup would be left out, how many snapshots the next tidy-up would remove, and warnings, before **Apply** saves it. Each change has **Undo**, on its card and in Activity, which puts back the settings it changed. Ask can't change a plan's folders, destination or encryption, and can't remove anything itself, though keeping fewer versions means the next tidy-up removes snapshots, which Keepr says first.
 
 ## Requirements
 
@@ -72,4 +72,4 @@ Keepr is free software under the GNU General Public License, version 3 or later.
 - It comes with no warranty.
 - The licence is in `LICENSE` in the source, and at [gnu.org](https://www.gnu.org/licenses/gpl-3.0.html).
 
-Keepr is built with Tauri and React, and its backups with FastCDC, zstd, BLAKE3, XChaCha20-Poly1305 and Argon2 (the Rust crates `fastcdc`, `zstd`, `blake3`, `chacha20poly1305` and `argon2`), all under the MIT, Apache 2.0 or BSD licences. Its numbers are set in JetBrains Mono, under the SIL Open Font License. Restore's size map is drawn with the squarified treemap layout (Bruls, Huizing and van Wijk) from Disk Usage Visualiser, under the MIT licence.
+Keepr is built with Tauri and React, and its backups with FastCDC, zstd, BLAKE3, XChaCha20-Poly1305 and Argon2 (the Rust crates `fastcdc`, `zstd`, `blake3`, `chacha20poly1305` and `argon2`), all under the MIT, Apache 2.0 or BSD licences. Its numbers are set in JetBrains Mono, under the SIL Open Font License. The size maps are drawn with the squarified treemap layout (Bruls, Huizing and van Wijk) from Disk Usage Visualiser, under the MIT licence.

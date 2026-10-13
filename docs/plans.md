@@ -1,6 +1,6 @@
 # Backup plans
 
-A plan is a set of folders backed up to one destination, on a schedule, with rules for what to leave out and how long to keep versions. Make one with **Add a plan** (⌘N) on Backup Plans, or the green **+** in the sidebar; open one with **Edit…** on its card.
+A plan is a set of folders backed up to one destination, on a schedule, with rules for what to leave out and how long to keep versions. Make one with **Add a plan** (⌘N) on Backup Plans, or **New plan** in the toolbar; open one with **Edit…** on its card.
 
 A new plan starts on: hourly, every backup kept for a day, then one a day for 30 days, one a week for 12 months and one a month forever, and encrypted. Change what you like, then click **Create and back up**. After that, changes to a plan are saved as you make them.
 
@@ -35,6 +35,7 @@ Rules leave files and folders out of the backup. A new plan leaves out `node_mod
 - **Skip files that are only in the cloud (they aren't downloaded)** leaves out files iCloud Drive, Google Drive, OneDrive, Dropbox and the like have removed from the Mac to save space. Untick it and Keepr downloads them to back them up, and they stay downloaded.
 - **Skip what apps mark as not needing a backup, as Time Machine does** leaves out what apps have marked as not needing a backup, such as their caches and downloaded data they can fetch again. Time Machine skips the same things.
 - **Skip files larger than** leaves out anything bigger than 1, 2, 4, 10 or 50 GB.
+- **Leave this plan out of Ask** keeps the plan's folders and runs out of [Ask](features.md#ask): it sees only the plan's name, and can't suggest changes to it.
 
 ## Versions to keep
 
