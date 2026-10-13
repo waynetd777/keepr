@@ -452,8 +452,14 @@ export default function Restore() {
     if (!checked.has(e.path)) setPicked(e);
     const m = new Map(checked);
     const folder = chosenFolder(e);
-    if (m.has(e.path)) m.delete(e.path);
-    else if (folder) {
+    if (m.has(e.path)) {
+      m.delete(e.path);
+      // Unticking the picked item while others stay ticked: the pane goes to the last of those
+      // ticked, so its Remove from backup is never about what was just unticked.
+      if (picked?.path === e.path && m.size) setPicked([...m.values()][m.size - 1]);
+    } else if (folder) {
+      // The pane isn't left on what was just left out.
+      if (picked?.path === e.path) setPicked(null);
       // Leaving one item out of a chosen folder: choose the rest of each folder on the way down
       // to it instead. They're all listed, since the item is showing.
       let at = folder;
@@ -497,6 +503,7 @@ export default function Restore() {
   const unchoose = (es: Entry[]) => {
     const m = new Map(checked);
     es.forEach((e) => m.delete(e.path));
+    if (picked && es.some((e) => e.path === picked.path)) setPicked(m.size ? [...m.values()][m.size - 1] : null);
     setChecked(m);
   };
   // The header's box: everything at the top of the list (a folder brings all that's in it), or
