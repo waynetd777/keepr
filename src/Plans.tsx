@@ -11,7 +11,7 @@ import { api, type Every, type Often, type Place, type Plan, type Retention } fr
 import { useApp } from "./context";
 import { Icon } from "./icons";
 import { S3SourceSheet } from "./S3Source";
-import { confirm, DestIcon, PlanProgress, Seg, Sheet, Switch, useAct, useMenu, useToast } from "./ui";
+import { confirm, DestIcon, PlanProgress, Seg, Sheet, Switch, useAct, useDismissError, useMenu, useToast } from "./ui";
 import { SmbFields, useSmbForm } from "./SmbFields";
 import { ago, bytes, next, tilde } from "./format";
 
@@ -465,6 +465,22 @@ function RemoveSourceSheet({
 
 // ---- the editor ----
 
+/** Why these folders can't all be in one plan (one inside another), as config.rs
+ * overlapping_sources says it, so a folder is refused before it's added rather than shown
+ * added and then not saved. */
+function overlap(folders: string[], home: string): string | null {
+  const inside = (a: string, b: string) => a.startsWith(b.endsWith("/") ? b : `${b}/`);
+  for (let i = 0; i < folders.length; i++)
+    for (const b of folders.slice(i + 1)) {
+      const a = folders[i];
+      if (a === b) return `${tilde(a, home)} is in the plan twice. Remove one of them.`;
+      const [inner, outer] = inside(a, b) ? [a, b] : inside(b, a) ? [b, a] : [null, null];
+      if (inner && outer)
+        return `${tilde(inner, home)} is inside ${tilde(outer, home)}, which the plan already backs up. Remove one of them first.`;
+    }
+  return null;
+}
+
 // What a save made against an older plan answers (lib.rs PLAN_CHANGED).
 const PLAN_CHANGED = "was changed elsewhere while this change was being made";
 
@@ -483,6 +499,7 @@ export default function Plans() {
   const { cfg, ov, screen, go, home, refresh } = useApp();
   const act = useAct();
   const toast = useToast();
+  const dismissError = useDismissError();
   const wantedId = screen.name === "plans" ? screen.plan : undefined;
   const isNew = screen.name === "plans" && !!screen.isNew;
   const existing = cfg?.plans.find((p) => p.id === (wantedId ?? cfg?.plans[0]?.id));
@@ -571,7 +588,15 @@ export default function Plans() {
     saveTimer.current = window.setTimeout(() => {
       // The editor's plan by now, which has taken in any change saved from elsewhere meanwhile.
       const latest = mine.current?.id === nextPlan.id ? mine.current : nextPlan;
+      // The editor shows the change either way, so a save that fails says it wasn't saved.
       void act(async () => {
+        try {
+          await save();
+        } catch (e) {
+          throw `Not saved: ${String(e).replace(/^Error: /, "")}`;
+        }
+      });
+      async function save() {
         let saved: Plan;
         try {
           saved = await api.savePlan(latest);
@@ -586,8 +611,9 @@ export default function Plans() {
         }
         // What this save was made against is now the plan: the next one goes from its number.
         setPlan((p) => (p && p.id === saved.id ? { ...p, rev: saved.rev } : p));
+        dismissError();
         await refresh();
-      });
+      }
     }, 500);
   };
 
@@ -612,6 +638,17 @@ export default function Plans() {
 
   const addFolders = async (from?: string) => {
     const paths = await api.chooseFolders(from ? "Choose folders in the cloud folder to back up" : "Choose folders to back up", true, from);
+    const why = overlap(
+      [
+        ...plan.sources.flatMap((s) => (s.kind === "folder" ? [s.path] : [])),
+        ...paths.filter((x) => !plan.sources.some((s) => s.kind === "folder" && s.path === x)),
+      ],
+      home,
+    );
+    if (why) {
+      toast(`Not added: ${why}`, "error");
+      return;
+    }
     if (paths.length)
       update((p) => ({
         ...p,

@@ -227,29 +227,55 @@ function MenuPanel({
   );
 }
 
-const ToastContext = createContext<(msg: string) => void>(() => {});
+const ToastContext = createContext<(msg: string, kind?: "error") => void>(() => {});
+const DismissContext = createContext<() => void>(() => {});
 
+/** A note that goes after a few seconds, and an error that stays until it's closed (or the thing
+ * that failed is done after all), so a failure can't pass unseen. */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const timer = useRef<number>(undefined);
-  const show = useCallback((m: string) => {
+  const show = useCallback((m: string, kind?: "error") => {
+    if (kind === "error") {
+      setError(m);
+      return;
+    }
     setMsg(m);
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setMsg(null), 5000);
   }, []);
+  const dismiss = useCallback(() => setError(null), []);
   return (
     <ToastContext.Provider value={show}>
-      {children}
-      {msg && (
-        <div className="toast" role="status" onClick={() => setMsg(null)}>
-          {msg}
-        </div>
-      )}
+      <DismissContext.Provider value={dismiss}>
+        {children}
+        {(msg || error) && (
+          <div className="toasts">
+            {error && (
+              <div className="toast error" role="alert">
+                <Icon name="warning" size={16} />
+                <span className="grow">{error}</span>
+                <button className="toast-close" aria-label="Close" title="Close" onClick={dismiss}>
+                  <Icon name="close" size={12} stroke={2.4} />
+                </button>
+              </div>
+            )}
+            {msg && (
+              <div className="toast" role="status" onClick={() => setMsg(null)}>
+                {msg}
+              </div>
+            )}
+          </div>
+        )}
+      </DismissContext.Provider>
     </ToastContext.Provider>
   );
 }
 
 export const useToast = () => useContext(ToastContext);
+/** Closes the error toast: what failed has since been done. */
+export const useDismissError = () => useContext(DismissContext);
 
 /** Runs an action and shows its error, if any, as a toast. */
 export function useAct() {
@@ -259,7 +285,7 @@ export function useAct() {
       try {
         return await f();
       } catch (e) {
-        toast(String(e));
+        toast(String(e), "error");
         return undefined;
       }
     },
