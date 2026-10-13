@@ -1318,6 +1318,58 @@ mod tests {
     }
 
     #[test]
+    fn the_stored_map_adds_up_to_the_space_used() {
+        let data = tempfile::tempdir().unwrap();
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(src.path().join("keep")).unwrap();
+        std::fs::create_dir_all(src.path().join("gone")).unwrap();
+        let noise =
+            |n: usize, seed: u8| (0..n).map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed) ^ (i / 251) as u8).collect::<Vec<u8>>();
+        std::fs::write(src.path().join("keep/a.bin"), noise(300_000, 1)).unwrap();
+        std::fs::write(src.path().join("gone/b.bin"), noise(200_000, 2)).unwrap();
+        let c = core(data.path());
+        {
+            let mut cfg = c.config.lock().unwrap();
+            cfg.destinations.push(Destination {
+                id: "d1".into(),
+                name: "Disk".into(),
+                place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None },
+                disconnect_after: true,
+            });
+            cfg.plans.push(plan(src.path()));
+        }
+        c.start();
+        c.enqueue(Job::Backup { plan: "p1".into(), full: false });
+        wait(&c);
+        // A copy stores nothing new; a deleted folder's data stays until it's tidied up.
+        std::fs::copy(src.path().join("keep/a.bin"), src.path().join("keep/copy.bin")).unwrap();
+        std::fs::remove_dir_all(src.path().join("gone")).unwrap();
+        c.enqueue(Job::Backup { plan: "p1".into(), full: false });
+        wait(&c);
+        let repo = c.repo("p1", false).unwrap();
+        let total: u64 = repo.index.read().unwrap().blobs.values().map(|l| l.len as u64).sum();
+        let top = crate::stored::stored_map(&c, "p1", "").unwrap();
+        assert_eq!(top.size, total);
+        fn adds_up(d: &crate::browse::MapDir) {
+            if d.special.is_some() {
+                return;
+            }
+            let kids: u64 = d.kids.iter().map(|k| k.size).sum();
+            assert_eq!(d.loose_size + d.more_size + kids, d.size, "{}", d.path);
+            d.kids.iter().for_each(adds_up);
+        }
+        adds_up(&top);
+        let source = &top.kids.iter().find(|k| k.special.is_none()).unwrap();
+        let names: Vec<&str> = source.kids.iter().map(|k| k.name.as_str()).collect();
+        assert!(names.contains(&"gone"), "{names:?}");
+        let keep = source.kids.iter().find(|k| k.name == "keep").unwrap();
+        assert_eq!(keep.loose_files, 1, "the copy stored nothing");
+        let gone = crate::stored::stored_map(&c, "p1", &format!("{}/gone", source.path)).unwrap();
+        assert!(gone.size > 0);
+    }
+
+    #[test]
     fn backs_up_refuses_a_vanished_repo_and_restores() {
         let data = tempfile::tempdir().unwrap();
         let src = tempfile::tempdir().unwrap();

@@ -334,17 +334,21 @@ pub struct MapDir {
     pub since: Option<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub weekly: bool,
+    /// On the stored map (stored.rs), a block that isn't a folder: "listings" (the folder
+    /// listings every snapshot needs) or "unused" (data no snapshot uses, until a tidy-up).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub special: Option<String>,
     pub kids: Vec<MapDir>,
 }
 
 /// How many folders one size map lists, and how many folders of one folder: enough to fill a
 /// screen, few enough to read and draw at once.
-const MAP_BUDGET: usize = 3000;
-const MAP_KIDS: usize = 60;
+pub(crate) const MAP_BUDGET: usize = 3000;
+pub(crate) const MAP_KIDS: usize = 60;
 
 /// The snapshot a size map compares with to show what grew: the latest taken a week or more
 /// before `snap`, else the plan's first one (which then says since when). None for the first.
-fn week_before<'a>(snaps: &'a [Snapshot], snap: &Snapshot) -> Option<&'a Snapshot> {
+pub(crate) fn week_before<'a>(snaps: &'a [Snapshot], snap: &Snapshot) -> Option<&'a Snapshot> {
     let at = |s: &Snapshot| chrono::DateTime::parse_from_rfc3339(&s.time).ok();
     let t = at(snap)?;
     let mut older: Vec<&Snapshot> = snaps.iter().filter(|s| at(s).is_some_and(|x| x < t)).collect();

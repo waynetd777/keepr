@@ -20,6 +20,7 @@ const paths: Record<string, JSX.Element> = {
       <path d="M12 7v5l3 2" />
     </>
   ),
+  map: <path d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2ZM12 4v16M12 12h9M16.5 12v8" />,
   activity: <path d="M3 12h4l3-8 4 16 3-8h4" />,
   globe: (
     <>

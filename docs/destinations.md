@@ -1,6 +1,6 @@
 # Destinations
 
-A destination is where Keepr keeps backups: a folder or drive, a share on a NAS, a cloud folder synced to this Mac, or an S3 bucket. One destination can hold many plans, each in its own folder. Add one with **Add a destination** on the Destinations screen (⌘4), or from a plan's **Where**.
+A destination is where Keepr keeps backups: a folder or drive, a share on a NAS, a cloud folder synced to this Mac, or an S3 bucket. One destination can hold many plans, each in its own folder. Add one with **Add a destination** on the Destinations screen (⌘5), or from a plan's **Where**.
 
 <a href="images/index.md#destinations"><picture><source media="(prefers-color-scheme: dark)" srcset="images/destinations-dark.png"><img alt="Destinations: a backup folder with its space used and the plans it holds, and a drive that isn't connected" src="images/destinations-light.png"></picture></a>
 

@@ -18,7 +18,7 @@ Keepr's icon in the menu bar shows a dot while it's backing up, and a mark when 
 
 ## Activity
 
-Activity (⌘3) shows the backup that's running, step by step: looking for changes, comparing, packing (splitting, skipping what's already kept, compressing and encrypting), sending, and confirming. It has the progress, the speed and the time left, how much was already stored and skipped against how much is new, and **Pause** and **Stop**.
+Activity (⌘4) shows the backup that's running, step by step: looking for changes, comparing, packing (splitting, skipping what's already kept, compressing and encrypting), sending, and confirming. It has the progress, the speed and the time left, how much was already stored and skipped against how much is new, and **Pause** and **Stop**.
 
 If the Mac sleeps or the destination drops off, the next backup picks up the work. Nothing half-sent counts as a snapshot, and **Stop** waits for the file it's on.
 

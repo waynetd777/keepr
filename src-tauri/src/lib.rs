@@ -29,6 +29,7 @@ mod r2_setup;
 mod scheduler;
 mod smb;
 mod still;
+mod stored;
 mod system;
 mod updates;
 mod verify;
@@ -869,6 +870,11 @@ async fn size_map(core: State<'_, Core_>, plan: String, snapshot: String, path: 
 }
 
 #[tauri::command]
+async fn stored_map(core: State<'_, Core_>, plan: String, path: String) -> Result<browse::MapDir, String> {
+    with_core(core, move |c| stored::stored_map(c, &plan, &path)).await?
+}
+
+#[tauri::command]
 async fn list_dir(
     core: State<'_, Core_>,
     plan: String,
@@ -1331,6 +1337,7 @@ pub fn run() {
             snapshots,
             list_dir,
             size_map,
+            stored_map,
             show_in_finder,
             file_versions,
             search_snapshot,

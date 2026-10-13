@@ -25,9 +25,10 @@ import { HelpButton, HelpDrawer, openHelp, type HelpView } from "./help/HelpDraw
 // Backup Plans is the overview of every plan; a plan's settings open from its card.
 const NAV: [Screen["name"], string, string, string][] = [
   ["overview", "Backup Plans", "plans", "⌘1"],
-  ["restore", "Restore", "restore", "⌘2"],
-  ["activity", "Activity", "activity", "⌘3"],
-  ["destinations", "Destinations", "server", "⌘4"],
+  ["sizemap", "Size Map", "map", "⌘2"],
+  ["restore", "Restore", "restore", "⌘3"],
+  ["activity", "Activity", "activity", "⌘4"],
+  ["destinations", "Destinations", "server", "⌘5"],
 ];
 
 function Sidebar() {
@@ -42,7 +43,7 @@ function Sidebar() {
         {NAV.map(([name, label, icon, key]) => (
           <button
             key={name}
-            className={screen.name === name || (name === "overview" && (screen.name === "plans" || screen.name === "sizemap")) ? "on" : ""}
+            className={screen.name === name || (name === "overview" && screen.name === "plans") ? "on" : ""}
             onClick={() => go({ name } as Screen)}
             title={`${label} ${key}`}
           >
@@ -231,7 +232,7 @@ export default function App() {
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       if (!e.metaKey) return;
-      const i = "1234".indexOf(e.key);
+      const i = "12345".indexOf(e.key);
       if (i >= 0) {
         e.preventDefault();
         go({ name: NAV[i][0] } as Screen);

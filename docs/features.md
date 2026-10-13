@@ -29,7 +29,7 @@ To have Keepr start when you log in, turn on **Open at Login** in [Settings](day
 
 ## The window
 
-The sidebar has **Backup Plans** (⌘1), **Restore** (⌘2), **Activity** (⌘3) and **Destinations** (⌘4), with **Settings** (⌘,) at the bottom. The toolbar has **Back** (⌘[) and **Forward** (⌘]), a search box, **Find a file in any backup** (⌘K), and **Back up now** (⌘B), which backs up every plan that's on. While a backup runs, the toolbar shows its progress and a **Stop** button. The **?** at its right end, or `?`, opens [help](day-to-day.md#help) for the screen you're on.
+The sidebar has **Backup Plans** (⌘1), **Size Map** (⌘2), **Restore** (⌘3), **Activity** (⌘4) and **Destinations** (⌘5), with **Settings** (⌘,) at the bottom. The toolbar has **Back** (⌘[) and **Forward** (⌘]), a search box, **Find a file in any backup** (⌘K), and **Back up now** (⌘B), which backs up every plan that's on. While a backup runs, the toolbar shows its progress and a **Stop** button. The **?** at its right end, or `?`, opens [help](day-to-day.md#help) for the screen you're on.
 
 Closing the window doesn't quit Keepr: it leaves the Dock and keeps backing up from the [menu bar](day-to-day.md#the-menu-bar). Click Keepr in the Dock or the menu bar to bring the window back, and use **Quit Keepr** in the menu bar to stop it.
 
@@ -47,9 +47,9 @@ A plan that has failed, is waiting (for its drive, say) or hasn't backed up for 
 
 On the right are **Space used**, across every plan, each destination with its free space, and **Recent**, the last few backups; **All activity** opens [Activity](day-to-day.md#activity).
 
-**Size map**, in the **Space used** card, shows every plan's latest backup as one map, a block per plan, each as big as the files it holds. Inside each plan its folders are blocks too, nested and coloured by how deep they are, so what takes the space shows at a glance. Click a plan or a folder to zoom into it, and the path bar above the map to come back out; ⌘-click one to open it in [Restore](restore.md). With only one plan the map starts at its folders. The sizes are of the files themselves, before de-duplication and compression, so the map's total won't match the space used. It's the same map as Restore's [size map](restore.md#seeing-what-takes-the-space), across all your plans.
+**Size Map** (⌘2, or **Size map** in the **Space used** card) shows two maps side by side, a block per plan in each. On the left is every plan's latest backup, each as big as the files it holds; inside each plan its folders are blocks too, nested and coloured by how deep they are, so what takes the space shows at a glance. Its sizes are of the files themselves, before de-duplication and compression. On the right is the space every version takes in the destination, shared out among the folders it came from, so it adds up to the Space used card's figure: each piece of data counts once, in the folder of the file that first stored it, with the folder listings and any data no snapshot uses (which a tidy-up frees) as blocks of their own. Outlines and tags show where each map grew this week. Click a plan or a folder to zoom both maps into it, and the path bar above them to come back out; ⌘-click one to open it in [Restore](restore.md). With only one plan the maps start at its folders. It's the same map as Restore's [size map](restore.md#seeing-what-takes-the-space), across all your plans.
 
-<a href="images/index.md#features"><picture><source media="(prefers-color-scheme: dark)" srcset="images/plans-map-dark.png"><img alt="The size map of every plan: Photos and Documents & Projects as blocks, with their folders inside" src="images/plans-map-light.png"></picture></a>
+<a href="images/index.md#features"><picture><source media="(prefers-color-scheme: dark)" srcset="images/plans-map-dark.png"><img alt="The Size Map screen: every plan's latest backup on the left and the space its versions take on the right, Photos and Documents & Projects as blocks with their folders inside" src="images/plans-map-light.png"></picture></a>
 
 ## Requirements
 

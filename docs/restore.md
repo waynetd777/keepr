@@ -1,6 +1,6 @@
 # Restore
 
-Restore shows your files as they were at any backup, and puts back whichever you choose: one file, a folder, or everything. Open it from the sidebar (⌘2), **Restore…** on a plan's card, or **Restore a file…** in the menu bar.
+Restore shows your files as they were at any backup, and puts back whichever you choose: one file, a folder, or everything. Open it from the sidebar (⌘3), **Restore…** on a plan's card, or **Restore a file…** in the menu bar.
 
 <a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/restore-dark.png"><img alt="Restore: Documents & Projects as they were at its latest snapshot, with the snapshots along the top and the files below" src="images/restore-light.png"></picture></a>
 
@@ -56,7 +56,7 @@ A restore runs like a backup, one job at a time, and shows in [Activity](day-to-
 
 **Size map**, beside **Files** above the list, shows the snapshot as a map instead of a list. It draws each folder as a block as big as what it holds, nested inside the folder it's in and coloured by how deep it is, so what takes the space shows at a glance. The files directly in a folder are one dashed block, and folders too small to draw are another. Click a folder to zoom into it, and the path bar above the map to come back out. ⌘-click a folder, or click a dashed block, to find it in **Files**, open and picked, ready to see its versions or restore it.
 
-To see every plan in one map, use **Size map** in the **Space used** card on [Backup Plans](features.md#backup-plans).
+To see every plan in one map, beside the space all its versions take, use **Size Map** in the sidebar (⌘2) or **Size map** in the **Space used** card on [Backup Plans](features.md#backup-plans).
 
 <a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/sizemap-dark.png"><img alt="The size map of a snapshot: Documents and Projects as blocks, with Finance and Letters inside Documents" src="images/sizemap-light.png"></picture></a>
 

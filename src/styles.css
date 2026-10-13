@@ -1915,3 +1915,17 @@ html.tray body {
   pointer-events: none;
   z-index: 2;
 }
+
+/* The Size map screen's two maps: each card's heading. */
+.map-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 16px 0;
+  flex-wrap: wrap;
+}
+/* The stored map's blocks that aren't folders: the folder listings, data no snapshot uses. */
+.blk.special {
+  color: var(--loose);
+  border-style: dashed;
+}

@@ -17,6 +17,7 @@ import { Icon } from "./icons";
 /// folder too small to draw, so a folder's area is always its whole size.
 type Block = { kind: "dir" | "files" | "more"; dir: MapDir };
 type Item = { block: Block; size: number };
+type Crumb = { path: string; name: string };
 type Rect = { item: Item; x: number; y: number; w: number; h: number };
 
 const GAP = 3;
@@ -98,6 +99,9 @@ export default function SizeMap({
   top = "Everything",
   where,
   showHint = "show in Files",
+  stored = false,
+  at: atProp,
+  onAt,
 }: {
   /// The map of a folder by its path, "" for the top. A new function redraws from it.
   load: (path: string) => Promise<MapDir>;
@@ -110,9 +114,17 @@ export default function SizeMap({
   where?: (path: string) => string;
   /// What ⌘-click does, for the tooltip.
   showHint?: string;
+  /// The stored map (src-tauri/src/stored.rs): sizes are what's stored, after de-duplication and
+  /// compression, and its counts are of the file versions that stored it.
+  stored?: boolean;
+  /// Where it's zoomed, when another map zooms with it (the Size map screen's two).
+  at?: Crumb[];
+  onAt?: (at: Crumb[]) => void;
 }) {
   // The folder the map is zoomed into, and the way down to it for the path bar.
-  const [at, setAt] = useState<{ path: string; name: string }[]>([{ path: "", name: "" }]);
+  const [ownAt, setOwnAt] = useState<Crumb[]>([{ path: "", name: "" }]);
+  const at = atProp ?? ownAt;
+  const setAt = onAt ?? setOwnAt;
   const [tree, setTree] = useState<MapDir | null>(null);
   const [err, setErr] = useState("");
   const mapRef = useRef<HTMLDivElement>(null);
@@ -129,18 +141,21 @@ export default function SizeMap({
       (t) => live && setTree(t),
       (e) => {
         if (!live) return;
-        if (here) setAt([{ path: "", name: "" }]);
+        // Zoomed with another map, into a folder this one hasn't got: it says so.
+        if (here && !onAt) setAt([{ path: "", name: "" }]);
         else setErr(String(e));
       },
     );
     return () => {
       live = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load, here]);
 
   const label = (name: string) => (name.startsWith("/") ? tilde(name, home) : name);
+  const unit = stored ? "file version" : "file";
   const title = (b: Block) =>
-    b.kind === "files" ? count(b.dir.looseFiles, "file") : b.kind === "more" ? `${count(b.dir.more, "more folder")}` : label(b.dir.name);
+    b.kind === "files" ? count(b.dir.looseFiles, unit) : b.kind === "more" ? `${count(b.dir.more, "more folder")}` : label(b.dir.name);
   const sizeOf = (b: Block) => (b.kind === "files" ? b.dir.looseSize : b.kind === "more" ? b.dir.moreSize : b.dir.size);
 
   useEffect(() => {
@@ -158,8 +173,13 @@ export default function SizeMap({
       blocks.current.set(id, b);
       const d = b.dir;
       const el = document.createElement("div");
-      const zoomable = b.kind === "dir" && (d.kids.length > 0 || d.more > 0 || d.looseFiles > 0 || !d.read);
-      el.className = b.kind === "dir" ? `blk d${((d.depth - 1) % 8) + 1}${zoomable ? " zoom" : ""}` : `blk ${b.kind}`;
+      const zoomable = b.kind === "dir" && !d.special && (d.kids.length > 0 || d.more > 0 || d.looseFiles > 0 || !d.read);
+      el.className =
+        d.special && b.kind === "dir"
+          ? "blk special"
+          : b.kind === "dir"
+            ? `blk d${((d.depth - 1) % 8) + 1}${zoomable ? " zoom" : ""}`
+            : `blk ${b.kind}`;
       el.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
       el.dataset.id = id;
       const grew = b.kind === "dir" ? grewIn.get(d.path) : undefined;
@@ -255,6 +275,7 @@ export default function SizeMap({
     const hit = blockAt(e.target);
     if (!hit) return;
     const { b, el } = hit;
+    if (b.dir.special && b.kind === "dir") return;
     if (e.metaKey || b.kind !== "dir") onShow(b.dir.path);
     else if (el.classList.contains("zoom")) zoom(b.dir);
   };
@@ -271,21 +292,31 @@ export default function SizeMap({
     const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
     const place = esc((where ? where(d.path) : label(d.path)) || "the backup");
     const share = (n: number) => (d.size ? `${Math.round((100 * n) / d.size)}%` : "—");
+    const sizeName = stored ? "Stored" : "Size";
     let html: string;
-    if (b.kind === "files") {
+    if (d.special && b.kind === "dir") {
+      const says =
+        d.special === "listings"
+          ? "What every snapshot records about its folders and files: names, sizes, dates and where their data is."
+          : "Data no snapshot uses any more, from versions that have been removed. The next tidy-up frees it.";
+      html =
+        `<b>${esc(d.name)}</b><div class="r"><span>Stored</span><b>${bytes(d.size)}</b>` +
+        (d.grew && tree ? `<span>${esc(cap(sinceWhen(tree)))}</span><b>${delta(d.grew)}</b>` : "") +
+        `</div><div class="hint">${says}</div>`;
+    } else if (b.kind === "files") {
       html =
         `<b>${title(b)} directly in ${esc(label(d.name) || "the backup")}</b><div class="p">${place}</div>` +
-        `<div class="r"><span>Size</span><b>${bytes(d.looseSize)}</b><span>Share</span><b>${share(d.looseSize)}</b></div>` +
+        `<div class="r"><span>${sizeName}</span><b>${bytes(d.looseSize)}</b><span>Share</span><b>${share(d.looseSize)}</b></div>` +
         `<div class="hint">Click to ${showHint.replace("show", "show them")}</div>`;
     } else if (b.kind === "more") {
       html =
         `<b>${title(b)} in ${esc(label(d.name) || "the backup")}</b><div class="p">${place}</div>` +
-        `<div class="r"><span>Size</span><b>${bytes(d.moreSize)}</b><span>Share</span><b>${share(d.moreSize)}</b></div>` +
+        `<div class="r"><span>${sizeName}</span><b>${bytes(d.moreSize)}</b><span>Share</span><b>${share(d.moreSize)}</b></div>` +
         `<div class="hint">Each is too small to draw here. Click to ${showHint.replace("show", "see them")}.</div>`;
     } else {
       html =
         `<b>${esc(label(d.name))}</b><div class="p">${place}</div>` +
-        `<div class="r"><span>Size</span><b>${bytes(d.size)}</b><span>Files</span><b>${d.files.toLocaleString()}</b>` +
+        `<div class="r"><span>${sizeName}</span><b>${bytes(d.size)}</b><span>${stored ? "File versions" : "Files"}</span><b>${d.files.toLocaleString()}</b>` +
         (d.grew && tree ? `<span>${esc(cap(sinceWhen(tree)))}</span><b>${delta(d.grew)}</b>` : "") +
         `</div>` +
         `<div class="hint">${el.classList.contains("zoom") ? "Click to zoom in · " : ""}⌘-click to ${showHint}</div>`;
@@ -320,7 +351,8 @@ export default function SizeMap({
         <span className="grow" />
         {tree && (
           <span className="small muted nowrap">
-            {bytes(tree.size)} · {count(tree.files, "file")}
+            {bytes(tree.size)}
+            {stored ? " stored" : ""} · {count(tree.files, unit)}
             {tree.grew ? ` · ${delta(tree.grew)} ${sinceWhen(tree)}` : ""}
           </span>
         )}

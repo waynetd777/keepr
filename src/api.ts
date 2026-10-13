@@ -161,6 +161,8 @@ export type MapDir = {
   /** On the map's top folder: when the snapshot it's compared with was taken, and whether that's the week before the latest backup. */
   since?: string;
   weekly?: boolean;
+  /** On the stored map, a block that isn't a folder: the folder listings, or data no snapshot uses. */
+  special?: "listings" | "unused";
   kids: MapDir[];
 };
 export type Version = { snapshot: string; time: string; size: number; mtime: number; keptIn: number };
@@ -233,6 +235,8 @@ export const api = {
   pauseHour: () => invoke<void>("pause_hour"),
   snapshots: (plan: string) => invoke<SnapInfo[]>("snapshots", { plan }),
   sizeMap: (plan: string, snapshot: string, path: string) => invoke<MapDir>("size_map", { plan, snapshot, path }),
+  /** Where a plan's stored space came from (src-tauri/src/stored.rs). */
+  storedMap: (plan: string, path: string) => invoke<MapDir>("stored_map", { plan, path }),
   showInFinder: (plan: string, path: string) => invoke<void>("show_in_finder", { plan, path }),
   listDir: (plan: string, snapshot: string, path: string, showDeleted: boolean) =>
     invoke<Entry[]>("list_dir", { plan, snapshot, path, showDeleted }),

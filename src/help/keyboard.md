@@ -11,9 +11,10 @@ The shortcuts, by where they work.
 - `?` — Help for this screen
 - `⌘?` — Keepr Help
 - `⌘1` — Backup Plans
-- `⌘2` — Restore
-- `⌘3` — Activity
-- `⌘4` — Destinations
+- `⌘2` — Size Map
+- `⌘3` — Restore
+- `⌘4` — Activity
+- `⌘5` — Destinations
 - `⌘,` — Settings
 - `⌘K` — Find a file in any backup
 - `⌘N` — New plan

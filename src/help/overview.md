@@ -26,7 +26,7 @@ A plan that has failed, is waiting (for its drive, say) or hasn't backed up for 
 ## Space used and Recent
 On the right, **Space used** shows the space taken across every plan, and each destination with its free space. **Recent** has the last few backups; **All activity** opens [Activity](app:activity).
 
-**Size map**, in the Space used card, shows every plan's latest backup as one map. See [Size map](help:sizemap).
+**Size map**, in the Space used card (or Size Map in the sidebar), shows every plan's latest backup beside the space all its versions take. See [Size map](help:sizemap).
 
 ## Add a plan
 **New plan** in the toolbar, **Add a plan** at the end of the cards, or `⌘N` makes a [new plan](app:plans/new). Its first backup starts as soon as you create it. See [A backup plan](help:plan).

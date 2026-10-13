@@ -5,7 +5,7 @@ screens: [activity]
 order: 6
 summary: The backup that's running, step by step, and the history of every backup, check and restore.
 ---
-Activity (`⌘3`) shows what Keepr is doing now and what it has done.
+Activity (`⌘4`) shows what Keepr is doing now and what it has done.
 
 ## The backup that's running
 Step by step: looking for changes, comparing, packing (splitting, skipping what's already kept, compressing and encrypting), sending, and confirming. It shows the progress, the speed and the time left, and how much was already stored against how much is new.
