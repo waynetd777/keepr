@@ -57,7 +57,7 @@ Make a key in Backblaze (**Open Application Keys in Backblaze**) and enter its *
 
 ## Cloudflare R2
 
-Make a custom API token in Cloudflare (**Open API Tokens in Cloudflare**) with **Account › Workers R2 Storage › Edit** and **User › API Tokens › Edit**, and enter it as the **Setup token**, with your **Account ID** if you have more than one account. Keepr makes the bucket, or finds it, makes a token for that bucket only, and then deletes the setup token.
+First turn R2 on for your account, if you haven't: open **R2 Object Storage** in the Cloudflare dashboard and follow its steps (it asks for a payment method, but the free tier still applies). Then make a custom API token in Cloudflare (**Open API Tokens in Cloudflare**) with **Account › Workers R2 Storage › Edit** and **User › API Tokens › Edit**, and enter it as the **Setup token**, with your **Account ID** if you have more than one account. Keepr makes the bucket, or finds it, makes a token for that bucket only, and then deletes the setup token.
 
 ## Passwords and keys
 

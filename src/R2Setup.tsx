@@ -18,7 +18,7 @@ export function R2Setup({ mode, onMade }: { mode: "destination" | "source"; onMa
       mode={mode}
       intro={
         <>
-          In Cloudflare, make a custom API token with two permissions: <b>Account › Workers R2 Storage › Edit</b> and{" "}
+          First turn R2 on in Cloudflare's dashboard (R2 Object Storage), if you haven't. Then make a custom API token with two permissions: <b>Account › Workers R2 Storage › Edit</b> and{" "}
           <b>User › API Tokens › Edit</b>. Paste it here. Keepr uses it once to{" "}
           {mode === "source"
             ? "make a token that may only read the bucket you choose"
