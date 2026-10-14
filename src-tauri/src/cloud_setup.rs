@@ -7,6 +7,9 @@
 
 use std::time::Duration;
 
+/// Tells the setup card how far setup has got: step n of a total, and what it's doing now.
+pub type Step<'a> = &'a dyn Fn(u32, u32, &str);
+
 /// An HTTPS client using the system's TLS, so a proxy or a company root certificate that macOS
 /// trusts is trusted here too, with a time limit generous enough for a slow bucket creation.
 pub fn http_agent() -> Result<ureq::Agent, String> {

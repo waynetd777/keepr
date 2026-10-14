@@ -112,10 +112,12 @@ pub fn list(key_id: &str, key: &str) -> Result<Vec<String>, String> {
 
 /// Makes (or, for a source, finds) the bucket and a key for it alone. The master key is
 /// dropped when this returns.
-pub fn setup(key_id: &str, key: &str, bucket: &str, mode: Mode) -> Result<Made, String> {
+pub fn setup(key_id: &str, key: &str, bucket: &str, mode: Mode, step: crate::cloud_setup::Step) -> Result<Made, String> {
     let bucket = bucket.trim();
     check_name(bucket)?;
+    step(1, 4, "Signing in to Backblaze…");
     let a = authorize(key_id, key)?;
+    step(2, 4, "Looking for the bucket…");
     let existing = a.buckets()?.into_iter().find(|b| b["bucketName"].as_str() == Some(bucket));
     let id = |b: &Value| b["bucketId"].as_str().unwrap_or_default().to_string();
     let bucket_id = match (mode, existing) {
@@ -132,6 +134,7 @@ pub fn setup(key_id: &str, key: &str, bucket: &str, mode: Mode) -> Result<Made, 
             return Err(format!("This account already has a bucket called {bucket} that Keepr didn't make. Choose another name."))
         }
         (Mode::Destination, None) => {
+            step(2, 4, &format!("Making the bucket {bucket}…"));
             let v = a.call(
                 "b2_create_bucket",
                 json!({
@@ -146,6 +149,7 @@ pub fn setup(key_id: &str, key: &str, bucket: &str, mode: Mode) -> Result<Made, 
             v["bucketId"].as_str().unwrap_or_default().to_string()
         }
     };
+    step(3, 4, &format!("Making a key for {bucket} alone…"));
     let caps: &[&str] = match mode {
         Mode::Destination => &["listBuckets", "listFiles", "readFiles", "writeFiles", "deleteFiles"],
         Mode::Source => &["listBuckets", "listFiles", "readFiles"],
@@ -160,7 +164,7 @@ pub fn setup(key_id: &str, key: &str, bucket: &str, mode: Mode) -> Result<Made, 
         return Err("Backblaze didn't return the new key.".into());
     }
     let made = Made::new(a.region(), bucket.to_string(), id.to_string(), secret.to_string(), a.s3.clone());
-    crate::aws_setup::finish(made)
+    crate::aws_setup::finish(made, &|t| step(4, 4, t))
 }
 
 #[cfg(test)]

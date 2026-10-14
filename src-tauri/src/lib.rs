@@ -616,8 +616,15 @@ async fn aws_setup_info() -> AwsSetupInfo {
 
 /// Signs in through the browser and makes the bucket and its user.
 #[tauri::command]
-async fn aws_setup_run(region: String, bucket: String, mode: aws_setup::Mode) -> Result<aws_setup::Made, String> {
-    off_main(move || aws_setup::with_cli(region.trim(), bucket.trim(), mode)).await?
+async fn aws_setup_run(app: AppHandle, region: String, bucket: String, mode: aws_setup::Mode) -> Result<aws_setup::Made, String> {
+    off_main(move || aws_setup::with_cli(region.trim(), bucket.trim(), mode, &setup_step(app))).await?
+}
+
+/// Sends setup's progress to the setup card as "setup-step" events.
+fn setup_step(app: AppHandle) -> impl Fn(u32, u32, &str) {
+    move |step, of, text| {
+        let _ = app.emit("setup-step", serde_json::json!({ "step": step, "of": of, "text": text }));
+    }
 }
 
 /// Backblaze B2: the buckets a master key can see.
@@ -629,8 +636,14 @@ async fn b2_buckets(key_id: String, key: String) -> Result<Vec<String>, String> 
 /// Backblaze B2: makes (or finds) the bucket and a key for it alone, from a master key that
 /// isn't kept.
 #[tauri::command]
-async fn b2_setup_run(key_id: String, key: String, bucket: String, mode: aws_setup::Mode) -> Result<aws_setup::Made, String> {
-    off_main(move || b2_setup::setup(&key_id, &key, &bucket, mode)).await?
+async fn b2_setup_run(
+    app: AppHandle,
+    key_id: String,
+    key: String,
+    bucket: String,
+    mode: aws_setup::Mode,
+) -> Result<aws_setup::Made, String> {
+    off_main(move || b2_setup::setup(&key_id, &key, &bucket, mode, &setup_step(app))).await?
 }
 
 /// Cloudflare R2: the buckets a setup token's account has.
@@ -641,8 +654,14 @@ async fn r2_buckets(token: String, account: String) -> Result<Vec<String>, Strin
 
 /// Cloudflare R2: makes (or finds) the bucket and S3 keys for it alone, then deletes the setup token.
 #[tauri::command]
-async fn r2_setup_run(token: String, account: String, bucket: String, mode: aws_setup::Mode) -> Result<aws_setup::Made, String> {
-    off_main(move || r2_setup::setup(&token, &account, &bucket, mode)).await?
+async fn r2_setup_run(
+    app: AppHandle,
+    token: String,
+    account: String,
+    bucket: String,
+    mode: aws_setup::Mode,
+) -> Result<aws_setup::Made, String> {
+    off_main(move || r2_setup::setup(&token, &account, &bucket, mode, &setup_step(app))).await?
 }
 
 /// Signs in to AWS through the browser and lists the buckets there.
@@ -683,8 +702,9 @@ fn aws_setup_script(region: String, bucket: String, mode: aws_setup::Mode) -> Re
 
 /// The line CloudShell printed at the end.
 #[tauri::command]
-async fn aws_setup_paste(text: String) -> Result<aws_setup::Made, String> {
-    off_main(move || aws_setup::parse(&text).and_then(aws_setup::finish)).await?
+async fn aws_setup_paste(app: AppHandle, text: String) -> Result<aws_setup::Made, String> {
+    let step = setup_step(app);
+    off_main(move || aws_setup::parse(&text).and_then(|m| aws_setup::finish(m, &|t| step(1, 1, t)))).await?
 }
 
 /// The cloud services' sync folders on this Mac, for Add a destination.

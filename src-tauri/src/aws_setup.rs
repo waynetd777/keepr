@@ -149,7 +149,7 @@ pub fn parse(text: &str) -> Result<Made, String> {
 }
 
 /// Saves the secret and waits for the new key to work: IAM takes a few seconds to tell S3.
-pub fn finish(m: Made) -> Result<Made, String> {
+pub fn finish(m: Made, say: &dyn Fn(&str)) -> Result<Made, String> {
     keychain::set(&keychain::s3_account(&m.access_key), &m.secret)?;
     let ep = if m.endpoint.is_empty() { endpoint(&m.region) } else { m.endpoint.clone() };
     let place = config::S3 {
@@ -163,6 +163,11 @@ pub fn finish(m: Made) -> Result<Made, String> {
     let b = places::s3_backend(&place, Some(m.secret.clone()), "")?;
     let start = Instant::now();
     loop {
+        // A new key takes a little while to work everywhere; the seconds show it isn't stuck.
+        say(&match start.elapsed().as_secs() {
+            0 => "Checking the new key works…".to_string(),
+            s => format!("Waiting for the new key to start working ({s}s, this can take a minute)…"),
+        });
         match b.check_bucket() {
             Ok(()) => return Ok(m),
             Err(e) if start.elapsed() > Duration::from_secs(90) => {
@@ -283,9 +288,11 @@ pub fn buckets(region: &str) -> Result<Vec<String>, String> {
 
 /// Signs in through the browser (or uses the sign-in from a moment ago) and runs the setup.
 /// Blocks until it's done or has failed.
-pub fn with_cli(region: &str, bucket: &str, mode: Mode) -> Result<Made, String> {
+pub fn with_cli(region: &str, bucket: &str, mode: Mode, step: crate::cloud_setup::Step) -> Result<Made, String> {
     let script = script(region, bucket, mode)?;
+    step(1, 3, "Sign in in your browser, then come back here…");
     let s = session(region)?;
+    step(2, 3, if mode == Mode::Source { "Making a read-only user for the bucket…" } else { "Making the bucket and its user…" });
     let mut sh = s.command("/bin/bash");
     sh.arg("-c").arg(&script);
     let res = match run_for(sh, Duration::from_secs(300)) {
@@ -294,7 +301,7 @@ pub fn with_cli(region: &str, bucket: &str, mode: Mode) -> Result<Made, String> 
         Err(e) => Err(e),
     };
     s.end();
-    finish(res?)
+    finish(res?, &|t| step(3, 3, t))
 }
 
 /// Runs a command with a time limit; returns whether it succeeded and all it printed.

@@ -27,6 +27,10 @@ fn explain(e: ureq::Error) -> String {
             let msg = v["errors"].as_array().and_then(|a| a.first()).and_then(|e| e["message"].as_str()).unwrap_or_default().to_string();
             match code {
                 401 => "Cloudflare didn't accept that token.".into(),
+                // R2 not yet turned on for the account comes back as a 403 too, but no token can fix it.
+                403 if msg.contains("enable R2") => {
+                    "R2 isn't turned on for this Cloudflare account yet. Open R2 Object Storage in the Cloudflare dashboard, turn it on, then try again with the same token.".into()
+                }
                 403 => format!(
                     "That token isn't allowed to do this{}. It needs R2 Storage: Edit and API Tokens: Edit.",
                     if msg.is_empty() { String::new() } else { format!(" ({msg})") }
@@ -147,19 +151,23 @@ pub fn list(token: &str, account: &str) -> Result<Vec<String>, String> {
 }
 
 /// Makes (or, for a source, finds) the bucket and S3 keys for it alone, then deletes the setup token.
-pub fn setup(token: &str, account: &str, bucket: &str, mode: Mode) -> Result<Made, String> {
+pub fn setup(token: &str, account: &str, bucket: &str, mode: Mode, step: crate::cloud_setup::Step) -> Result<Made, String> {
     let bucket = bucket.trim();
     check_name(bucket)?;
+    step(1, 5, "Checking the setup token…");
     let cf = Cf::new(token)?;
     let acc = cf.account(account)?;
+    step(2, 5, "Looking for the bucket…");
     let exists = cf.buckets(&acc)?.iter().any(|b| b == bucket);
     match (mode, exists) {
         (Mode::Source, false) => return Err(format!("There's no bucket called {bucket} in this account.")),
         (Mode::Destination, false) => {
+            step(2, 5, &format!("Making the bucket {bucket}…"));
             cf.call("POST", &format!("/accounts/{acc}/r2/buckets"), Some(json!({ "name": bucket })))?;
         }
         _ => {}
     }
+    step(3, 5, &format!("Making a token for {bucket} alone…"));
     let perms: Vec<String> = match mode {
         Mode::Destination => vec![cf.permission_group("Workers R2 Storage Bucket Item Write")?],
         Mode::Source => vec![cf.permission_group("Workers R2 Storage Bucket Item Read")?],
@@ -180,9 +188,10 @@ pub fn setup(token: &str, account: &str, bucket: &str, mode: Mode) -> Result<Mad
     }
     let made =
         Made::new("auto".into(), bucket.to_string(), id.to_string(), s3_secret(value), format!("https://{acc}.r2.cloudflarestorage.com"));
-    let res = crate::aws_setup::finish(made);
+    let res = crate::aws_setup::finish(made, &|t| step(4, 5, t));
     // The setup token has done its job; it could do far more than Keepr needs, so it goes.
     if res.is_ok() {
+        step(5, 5, "Deleting the setup token…");
         if let Ok(v) = cf.call("GET", "/user/tokens/verify", None) {
             if let Some(me) = v["id"].as_str() {
                 let _ = cf.call("DELETE", &format!("/user/tokens/{me}"), None);

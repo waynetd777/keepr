@@ -9,7 +9,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
 import { api, type Place } from "./api";
 import { B2Setup } from "./B2Setup";
-import { BucketPicker, s3EndpointFor, serviceOf, type Service } from "./KeySetup";
+import { BucketPicker, s3EndpointFor, serviceOf, SetupBusy, type Service } from "./KeySetup";
 import { R2Setup } from "./R2Setup";
 import { Icon } from "./icons";
 import { Seg, Sheet } from "./ui";
@@ -94,7 +94,7 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
       width={640}
       foot={
         <>
-          <span className="grow small muted">{busy}</span>
+          {busy ? <SetupBusy busy={busy} /> : <span className="grow" />}
           <button className="btn" onClick={onClose}>
             Cancel
           </button>

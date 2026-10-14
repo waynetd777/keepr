@@ -16,7 +16,7 @@ import { DestIcon, Seg, Sheet, useAct } from "./ui";
 import { Connection, SpaceMeter } from "./DestStatus";
 import { SmbFields, useSmbForm } from "./SmbFields";
 import { bytes, tilde } from "./format";
-import { s3EndpointFor, serviceOf, type Service } from "./KeySetup";
+import { s3EndpointFor, serviceOf, SetupBusy, type Service } from "./KeySetup";
 
 type Cloud = Awaited<ReturnType<typeof api.cloudFolders>>[number];
 
@@ -89,7 +89,7 @@ function AwsSetup({ region, setRegion, onMade }: { region: string; setRegion: (r
         <button className={`btn${info.cli ? "" : " primary"}`} disabled={!!busy || !bucket || !region} onClick={cloudShell}>
           {info.cli ? "Use CloudShell instead" : "Set up in AWS CloudShell"}
         </button>
-        <span className="small muted grow">{busy}</span>
+        <SetupBusy busy={busy} />
       </div>
       {shell && (
         <div className="col" style={{ gap: 6 }}>
@@ -253,7 +253,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
       onClose={onClose}
       foot={
         <>
-          <span className="grow small muted">{busy}</span>
+          {busy ? <SetupBusy busy={busy} /> : <span className="grow" />}
           <button className="btn" onClick={onClose}>
             Cancel
           </button>

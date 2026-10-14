@@ -6,6 +6,7 @@
 // it is: the card, the bucket name for a new destination, listing the buckets for a source, and
 // the picker to choose one. Also the endpoint each service's form builds.
 
+import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState, type ReactNode } from "react";
 import { api, type AwsMade } from "./api";
@@ -28,6 +29,40 @@ export function s3EndpointFor(service: Service, region: string, r2Account: strin
   if (service === "b2") return `https://s3.${region.trim()}.backblazeb2.com`;
   if (service === "r2") return `https://${r2Account.trim()}.r2.cloudflarestorage.com`;
   return endpoint.trim();
+}
+
+/** What setup is doing while it's busy: a spinner and, once the backend says which step it's
+ *  on ("setup-step" events), that step's words and a bar for the steps done. A setup that sends
+ *  no steps (listing buckets) shows just the spinner and `busy`. */
+export function SetupBusy({ busy }: { busy: string }) {
+  const [step, setStep] = useState<{ step: number; of: number; text: string } | null>(null);
+  useEffect(() => {
+    setStep(null);
+    if (!busy) return;
+    const un = listen<{ step: number; of: number; text: string }>("setup-step", (e) => setStep(e.payload));
+    return () => {
+      un.then((f) => f());
+    };
+  }, [busy]);
+  if (!busy) return null;
+  return (
+    <div className="col grow" style={{ gap: 6, minWidth: 0 }}>
+      <div className="row" style={{ gap: 8, alignItems: "center" }}>
+        <span className="dot spin" style={{ width: 12, height: 12, flexShrink: 0 }} />
+        <span className="small grow">{step?.text ?? busy}</span>
+        {step && step.of > 1 && (
+          <span className="small muted" style={{ flexShrink: 0 }}>
+            Step {step.step} of {step.of}
+          </span>
+        )}
+      </div>
+      {step && step.of > 1 && (
+        <div className="meter">
+          <div style={{ width: `${Math.round(((step.step - 1) / step.of) * 100)}%`, transition: "width 0.3s" }} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** The buckets an account has, one button each, to choose the one to back up. */
@@ -146,7 +181,7 @@ export function KeySetup({
             List my buckets
           </button>
         )}
-        <span className="small muted grow">{busy}</span>
+        <SetupBusy busy={busy} />
       </div>
       {buckets && <BucketPicker buckets={buckets} busy={!!busy} none={none} onPick={made} />}
       {error && (
