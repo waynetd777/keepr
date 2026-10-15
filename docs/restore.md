@@ -4,11 +4,11 @@ Restore shows your files as they were at any backup, and puts back whichever you
 
 <a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/restore-dark.png"><img alt="Restore: Documents & Projects as they were at its latest snapshot, with the snapshots along the top and the files below" src="images/restore-light.png"></picture></a>
 
-[Going back to a moment](#going-back-to-a-moment) · [A file's versions](#a-files-versions) · [Restoring](#restoring) · [Seeing what takes the space](#seeing-what-takes-the-space) · [Finding a file in any backup](#finding-a-file-in-any-backup) · [Removing something from a backup](#removing-something-from-a-backup)
+[Going back to a moment](#going-back-to-a-moment) · [A file's versions](#a-files-versions) · [Restoring](#restoring) · [Seeing what takes the space](#seeing-what-takes-the-space) · [Finding a file in any backup](#finding-a-file-in-any-backup) · [Removing something from a backup](#removing-something-from-a-backup) · [On another Mac](#on-another-mac)
 
 ## Going back to a moment
 
-The tabs along the top are your plans, each with the number of snapshots it has. Pick one, and it opens at its latest snapshot: "Your files as they were on…".
+**Restore plan**, at the top, is the plan you are looking at, with the number of snapshots it has; click it to choose another. Pick one, and it opens at its latest snapshot: "Your files as they were on…".
 
 - **Earlier** and **Later**, or the ← and → keys, step through the snapshots; **Latest** goes back to the newest.
 - The strip shows as many days as fit, up to ten, one bar per snapshot, taller for more new data. Click a bar to go to that snapshot; the button at its left goes back to earlier days.
@@ -73,3 +73,11 @@ A plan whose destination can't be reached (an unplugged drive, say) isn't search
 ## Removing something from a backup
 
 **Remove from backup…**, under a file's or folder's versions (a deleted one's too), takes it out of every snapshot, to free the space or because it should never have been backed up. Keepr lists what will go and asks twice first; it can't be undone. A folder, share or bucket the plan backs up can't be removed here: take it out of the plan's folders instead. To stop it being backed up again, add a rule for it in the plan's [What to leave out](plans.md#what-to-leave-out).
+
+## On another Mac
+
+<a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/open-backup-dark.png"><img alt="Open an existing backup, with Choose a source… to pick the drive, share, cloud folder or bucket the backup is on" src="images/open-backup-light.png"></picture></a>
+
+A backup made on one Mac can be restored on another, or on the same Mac after its plan was deleted. On the new Mac, click **Open backup…** beside the plans in Restore, or in the toolbar on Backup Plans (or **Open a backup…** on the welcome screen). Click **Choose a source…** and choose the drive, share, cloud folder or bucket the other Mac backed up to, and Keepr lists the backups in it. Pick one and, if it's encrypted, enter its password. It opens in Restore as a plan that's turned off. Since the folders it backed up may not exist on this Mac, restore to **Another folder…** rather than the original location.
+
+The plan is turned off so it doesn't back up from this Mac by accident. To carry on backing up into the same backup from here, check its folders in the plan, then turn it on.

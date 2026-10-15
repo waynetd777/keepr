@@ -13,7 +13,8 @@ import { VersionsPane } from "./RestoreVersions";
 import { statusDot, useApp } from "./context";
 import { Icon } from "./icons";
 import SizeMap from "./SizeMap";
-import { ClearButton, confirm, Sheet, stopped, Switch, tell, useAct, useRequests, useSlowToast, useToast } from "./ui";
+import { openBackup } from "./OpenBackup";
+import { ClearButton, confirm, Sheet, stopped, Switch, tell, useAct, useMenu, useRequests, useSlowToast, useToast } from "./ui";
 import { bytes, count, dayKey, dayLabel, longWhen, tilde } from "./format";
 
 const DAYS_SHOWN = 10;
@@ -190,6 +191,7 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
   const slowToast = useSlowToast();
   const plans = ov?.plans ?? [];
   const plan = plans.find((p) => p.id === planId);
+  const planMenu = useMenu();
   const [snaps, setSnaps] = useState<SnapInfo[] | null>(null);
   const [err, setErr] = useState("");
   const [sel, setSel] = useState(0);
@@ -544,9 +546,14 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
         <div className="empty">
           <h1>Nothing to restore yet</h1>
           <span>Once a plan has backed up, its files and their versions are here.</span>
-          <button className="btn primary" onClick={() => go({ name: "plans", isNew: true })}>
-            Make a plan
-          </button>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn" onClick={openBackup}>
+              Open an existing backup…
+            </button>
+            <button className="btn primary" onClick={() => go({ name: "plans", isNew: true })}>
+              Make a plan
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -807,22 +814,53 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
     <>
       <div className="content col" style={{ gap: 16, padding: "20px 32px 18px", overflow: "hidden" }}>
         <div className="row" style={{ gap: 12 }}>
-          <div className="tabs" role="tablist" aria-label="Plan to restore from">
+          <span className="small muted" style={{ whiteSpace: "nowrap" }}>
+            Restore plan
+          </span>
+          <button
+            className="btn plan-pick"
+            aria-label="Plan to restore from"
+            aria-haspopup="menu"
+            aria-expanded={planMenu.isOpen}
+            onClick={planMenu.open}
+            title={`${plan.snapshots.toLocaleString()} snapshots`}
+          >
+            <span className={statusDot(plan.status)} />
+            <span className="ellipsis">{plan.name}</span>
+            <span className="tiny faint">{plan.snapshots.toLocaleString()}</span>
+            <Icon name="down" size={13} stroke={2.2} />
+          </button>
+          <planMenu.Menu width={280}>
             {plans.map((p) => (
               <button
                 key={p.id}
-                role="tab"
-                aria-selected={p.id === plan.id}
-                className={p.id === plan.id ? "on" : ""}
-                onClick={() => go({ name: "restore", plan: p.id })}
-                title={`${p.snapshots.toLocaleString()} snapshots`}
+                role="menuitemradio"
+                aria-checked={p.id === plan.id}
+                onClick={() => {
+                  planMenu.close();
+                  go({ name: "restore", plan: p.id });
+                }}
               >
                 <span className={statusDot(p.status)} />
-                {p.name}
+                <span className="grow ellipsis" style={{ fontWeight: p.id === plan.id ? 600 : undefined }}>
+                  {p.name}
+                </span>
                 <span className="tiny faint">{p.snapshots.toLocaleString()}</span>
+                <span style={{ width: 14, display: "inline-flex", color: "var(--accent)" }}>
+                  {p.id === plan.id && <Icon name="check" size={14} stroke={2.4} />}
+                </span>
               </button>
             ))}
-          </div>
+          </planMenu.Menu>
+          <span className="small muted">or</span>
+          <button
+            className="btn"
+            style={{ flexShrink: 0 }}
+            onClick={openBackup}
+            title="Restore from a Keepr backup made on another Mac, or by a plan you deleted"
+          >
+            Open backup…
+          </button>
           <label className="search" style={{ width: 360 }}>
             <Icon name="search" size={15} stroke={2} />
             <input

@@ -8,7 +8,7 @@ summary: Go back to any backup, see a file's versions, compare them, and put bac
 Restore shows your files as they were at any backup, and puts back whichever you choose: one file, a folder, or everything.
 
 ## Go back to a moment
-The tabs along the top are your plans. Pick one, and it opens at its latest snapshot.
+**Restore plan**, at the top, chooses the plan. Pick one, and it opens at its latest snapshot.
 
 - **Earlier** and **Later**, or `←` and `→`, step through the snapshots; **Latest** goes back to the newest.
 - The strip shows as many days as fit, up to ten, one bar per snapshot, taller for more new data. Click a bar to go to that snapshot.
@@ -41,3 +41,6 @@ Click **Restore**. A file only takes its real name once it's complete, so a stop
 **Remove from backup…**, under a file's or folder's versions, takes it out of every snapshot, to free the space or because it should never have been backed up. Keepr asks twice; it can't be undone. To stop it being backed up again, add a rule to the plan's What to leave out.
 
 Right-click a ticked item to remove all the ticked items at once; Keepr lists what will go before it asks. A folder with only some of what's in it ticked isn't removed whole: tick the folder itself to remove all of it. A folder, share or bucket the plan backs up can't be removed from here: take it out of the plan's folders instead, which asks whether to delete its backed-up data.
+
+## On another Mac
+To restore a backup made on another Mac, click **Open backup…** beside the plans here, then **Choose a source…**: the drive, share, cloud folder or bucket it's on. Pick the backup there, enter its password if it's encrypted, and it opens here as a plan that's turned off. Restore to **Another folder…**, since the original folders may not exist on this Mac. Turn the plan on to carry on backing up into it from here.

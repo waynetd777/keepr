@@ -91,6 +91,37 @@ fn volume_of(p: &Path) -> Option<String> {
     Some(c.next()?.as_os_str().to_string_lossy().to_string())
 }
 
+/// A folder that has simply gone: its parent is still there, and it isn't on a drive that's
+/// unplugged or in a cloud folder that's signed out (either of which may bring it back).
+pub fn gone(place: &Place) -> bool {
+    let Place::Folder { path, .. } = place else { return false };
+    let p = Path::new(path);
+    if let Some(vol) = volume_of(p) {
+        let root = Path::new("/Volumes").join(&vol);
+        if mount_point(&root).is_none_or(|m| m != root) {
+            return false;
+        }
+    }
+    if cloud_root(p).is_some_and(|(root, live)| !root.exists() || !live) {
+        return false;
+    }
+    !p.exists() && p.parent().is_some_and(|d| d.is_dir())
+}
+
+/// The same place, whatever each is called.
+pub fn same_place(a: &Place, b: &Place) -> bool {
+    fn bare(p: &Place) -> Place {
+        let mut p = p.clone();
+        match &mut p {
+            Place::Folder { name, .. } => *name = None,
+            Place::Smb(s) => s.name = None,
+            Place::S3(s) => s.name = None,
+        }
+        p
+    }
+    bare(a) == bare(b)
+}
+
 /// In a cloud service's sync folder (OneDrive, Google Drive, iCloud Drive…).
 pub fn in_cloud(p: &Path) -> bool {
     let home = std::env::var("HOME").unwrap_or_default();

@@ -5,7 +5,7 @@ screens: [plans]
 order: 3
 summary: What a plan backs up and leaves out, where and when, the versions it keeps, and encryption.
 ---
-A plan is a set of folders backed up to one destination, on a schedule, with rules for what to leave out and how long to keep versions. A new plan starts hourly, encrypted, keeping every backup for a day, then one a day for 30 days, one a week for 12 months and one a month forever. Change what you like, then click **Create and back up**. After that, changes are saved as you make them.
+A plan is a set of folders backed up to one destination, on a schedule, with rules for what to leave out and how long to keep versions. A new plan starts hourly, encrypted, keeping every backup for a day, then one a day for 30 days, one a week for 12 months and one a month forever. Change what you like, then click **Create and back up**. Until then the new plan is kept if you leave its page: Backup Plans says so, and **Continue new plan** in the toolbar (or ⌘N) goes back to it. It's kept only while Keepr is open, so quitting Keepr discards it; **Discard** throws it away sooner. After that, changes are saved as you make them.
 
 ## What to keep
 **Add a source** adds what the plan backs up:
@@ -34,7 +34,7 @@ Every backup is a snapshot of all the plan's files. Older snapshots are thinned 
 **Keep deleted files for at least 90 days** keeps the last copy of anything deleted in the last 90 days, whatever the rules say. Thinning out happens in a tidy-up after a backup, at most once a day.
 
 ## Where
-**Where** is the destination the plan backs up to; the backup is a folder in it named after the plan. Once a plan has backed up, its destination is fixed: to keep a backup somewhere else as well, make another plan. **Add another destination** adds one without leaving the plan. See [Destinations](help:destinations).
+**Where** is the destination the plan backs up to; the backup is a folder in it named after the plan. Once a plan has backed up, its destination is fixed: to keep a backup somewhere else as well, make another plan. **Add another destination** adds one without leaving the plan, and picks it if the plan hasn't backed up yet. See [Destinations](help:destinations).
 
 ## When
 **Every 15 min**, **Hourly**, **Daily** or **Weekly** at a time you choose, or **Only when I ask**. Then:
@@ -67,4 +67,4 @@ The first backup makes a **recovery key**, which works in place of the password.
 **Change password…** needs the current password or the recovery key, and rewrites nothing in the backup.
 
 ## Turn a plan off, or delete it
-**Plan on** turns a plan off: it won't back up until you turn it on again, and its backups stay. In the ⋯ menu, **Delete plan…** deletes the plan and its password and recovery key, and asks whether to **Keep Backup** at the destination or delete it too (**Delete Plan and Backup…**, which frees its space, can't be undone, and shows in Activity as it goes). **Start a new backup…** is only for when a plan's backup has gone for good, a drive that died, say.
+**Plan on** turns a plan off: it won't back up until you turn it on again, and its backups stay. In the ⋯ menu, **Delete plan…** deletes the plan and its password and recovery key, and asks whether to **Keep Backup** at the destination or delete it too (**Delete Plan and Backup…**, which frees its space, can't be undone, and shows in Activity as it goes). If no other plan uses the destination, it can remove that too. **Start a new backup…** is only for when a plan's backup has gone for good, a drive that died, say.

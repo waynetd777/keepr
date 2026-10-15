@@ -7,7 +7,7 @@ Keepr is a backup app for macOS. It keeps every version of the files you choose,
 | Page | What's in it |
 |---|---|
 | [Backup plans](plans.md) | What to back up and leave out, when, the versions to keep, encryption |
-| [Restore](restore.md) | Going back to a moment, a file's versions, comparing, finding a file in any backup |
+| [Restore](restore.md) | Going back to a moment, a file's versions, comparing, finding a file in any backup, restoring on another Mac |
 | [Destinations](destinations.md) | Folders and drives, SMB shares, cloud folders (iCloud Drive, Google Drive, OneDrive, Dropbox, Box…), S3, Backblaze B2 and Cloudflare R2 |
 | [Day to day](day-to-day.md) | The menu bar, Activity, notifications, Settings, and how the backups are stored |
 
@@ -43,7 +43,7 @@ Each plan has a card with its sources and destination, and:
 - A chart of the last 30 days, one bar per day, taller for more data sent. A red bar is a backup that didn't finish, a stub a day without one. Hover over a bar for that day's backups.
 - **Edit…** for the plan's settings, **Restore…**, and a button to back it up now, or stop it while it runs.
 
-A plan that has failed, is waiting (for its drive, say) or hasn't backed up for a while shows as a compact red or amber card with the reason and **Try again**. Drag a card by its grip to change the order of your plans; Restore, the menu bar and the rest follow it. **Add a plan** (⌘N) is at the end.
+A plan that's turned off has a yellow **Off** chip. A plan that has failed, is waiting (for its drive, say) or hasn't backed up for a while shows as a compact red or amber card with the reason and **Try again**. A new plan you've started but not created shows as a banner, with **Continue** and **Discard**; it's kept only while Keepr is open. Drag a card by its grip to change the order of your plans; Restore, the menu bar and the rest follow it. **Add a plan** (⌘N) is at the end, and **Open backup…** in the toolbar opens a backup made on another Mac (see [On another Mac](restore.md#on-another-mac)).
 
 On the right are **Space used**, across every plan, each destination with its free space, and **Recent**, the last few backups; **All activity** opens [Activity](day-to-day.md#activity).
 

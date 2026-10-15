@@ -11,6 +11,8 @@ import { useApp } from "./context";
 import { Icon } from "./icons";
 import { ago, bytes, count, longDate, next, when } from "./format";
 import { RecoverySheet } from "./Plans";
+import { openBackup } from "./OpenBackup";
+import { DRAFT_NOTE, draftName, setDraft, useDraft } from "./draft";
 import { DestIcon, jobTitle, PlanProgress, StopButton, useAct } from "./ui";
 import { Connection, SpaceMeter } from "./DestStatus";
 import { resultLabel, resultTone, TONE_COLOR } from "./runResult";
@@ -115,7 +117,7 @@ function PlanCard({ p }: { p: PlanSummary }) {
               </span>
             )}
             <span className="chip">{p.schedule}</span>
-            {!p.enabled && <span className="chip">Off</span>}
+            {!p.enabled && <span className="chip warn">Off</span>}
           </div>
           <span className="small muted ellipsis">
             {p.sources} → {p.destination}
@@ -194,6 +196,27 @@ function PlanCard({ p }: { p: PlanSummary }) {
   );
 }
 
+/** A new plan started but not created yet (see draft.ts), with the way back to it. */
+function DraftBanner() {
+  const { go } = useApp();
+  const draft = useDraft();
+  if (!draft) return null;
+  return (
+    <div className="banner" role="status">
+      <Icon name="pencil" size={18} stroke={1.9} />
+      <span className="text">
+        <b>{draftName(draft)} isn't created yet.</b> {DRAFT_NOTE}
+      </span>
+      <button className="btn small" onClick={() => setDraft(null)}>
+        Discard
+      </button>
+      <button className="btn small" onClick={() => go({ name: "plans", isNew: true })}>
+        Continue
+      </button>
+    </div>
+  );
+}
+
 function Welcome() {
   const { ov, go } = useApp();
   const hasDest = (ov?.destinations.length ?? 0) > 0;
@@ -207,6 +230,7 @@ function Welcome() {
           Two steps, and your files are kept: choose where backups go, then what to back up and how often.
         </p>
         <div className="col" style={{ gap: 12, marginTop: 18 }}>
+          <DraftBanner />
           <div className="card pad row" style={{ gap: 14 }}>
             <div className="tile">{hasDest ? <Icon name="check" size={20} stroke={2.4} /> : <Icon name="server" size={20} />}</div>
             <div className="grow col" style={{ gap: 2 }}>
@@ -229,6 +253,18 @@ function Welcome() {
               Make a plan
             </button>
           </div>
+        </div>
+        <div className="card pad row" style={{ gap: 14, marginTop: 12 }}>
+          <div className="tile">
+            <Icon name="restore" size={20} />
+          </div>
+          <div className="grow col" style={{ gap: 2 }}>
+            <span style={{ fontWeight: 600 }}>Moving from another Mac?</span>
+            <span className="small muted">Open the Keepr backup it made, to restore your files from it here.</span>
+          </div>
+          <button className="btn" onClick={openBackup}>
+            Open a backup…
+          </button>
         </div>
       </div>
     </div>
@@ -382,6 +418,7 @@ export default function Overview() {
               </button>
             </div>
           ))}
+        <DraftBanner />
         {waiting.map((p) => (
           <div key={p.id} className="banner" role="status">
             <Icon name="warning" size={18} stroke={1.9} />

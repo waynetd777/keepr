@@ -10,9 +10,11 @@ import { api, on } from "./api";
 import { useApp } from "./context";
 import { Mark } from "./icons";
 import { jobTitle, Sheet } from "./ui";
+import { draftName, useDraft } from "./draft";
 
 export function QuitDialog() {
   const { job } = useApp();
+  const draft = useDraft();
   const [shown, setShown] = useState(false);
   useEffect(() => on<null>("quit-requested", () => setShown(true)), []);
   if (!shown) return null;
@@ -42,6 +44,12 @@ export function QuitDialog() {
           {job ? `Keepr is ${jobTitle(job).replace(/^./, (c) => c.toLowerCase())}, and quitting stops it. ` : ""}
           Scheduled backups won't run until Keepr is open again. To keep backing up from the menu bar, close the window instead.
         </p>
+        {draft && (
+          <p style={{ margin: "10px 0 0", color: "var(--amber)" }}>
+            {draftName(draft) === "A new plan" ? "The new plan you started" : draftName(draft)} hasn't been created yet, and quitting
+            discards it.
+          </p>
+        )}
       </div>
     </Sheet>
   );

@@ -111,6 +111,8 @@ export type DestSummary = {
   keeprBytes: number;
   plans: string[];
 };
+/** A Keepr backup found at a destination, for Open an existing backup. */
+export type FoundBackup = { folder: string; name: string; encrypted: boolean; created: string; plan: string | null };
 export type JobStatus = {
   id: string;
   kind: "backup" | "full" | "restore" | "check" | "prune" | "remove" | "delete";
@@ -222,6 +224,9 @@ export const api = {
   /** With `backup`, its backup is deleted first, as a job; the plan goes once that's done. */
   deletePlan: (id: string, backup = false) => invoke<string | null>("delete_plan", { id, backup }),
   startNewBackup: (id: string) => invoke<void>("start_new_backup", { id }),
+  findBackups: (destination: string) => invoke<FoundBackup[]>("find_backups", { destination }),
+  openBackup: (destination: string, folder: string, password?: string) =>
+    invoke<string>("open_backup", { destination, folder, password: password ?? null }),
   saveDestination: (dest: Destination, password?: string) => invoke<Destination>("save_destination", { dest, password: password ?? null }),
   deleteDestination: (id: string) => invoke<void>("delete_destination", { id }),
   suggestName: (place: Place, except?: string) => invoke<string>("suggest_name", { place, except: except ?? null }),

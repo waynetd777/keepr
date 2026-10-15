@@ -458,6 +458,29 @@ p {
   padding: 30px 36px;
 }
 
+/* A plan's name and buttons stay in sight as its settings scroll under them. The negative
+   margin takes the band to the content's edges, so nothing shows round it. */
+.plan-head {
+  position: sticky;
+  top: -18px;
+  z-index: 5;
+  margin: -30px -36px 0;
+  padding: 30px 36px 14px;
+  background: var(--ground);
+  border-bottom: 1px solid transparent;
+}
+/* WebKit sticks it inside the content's padding, so the strip above it would show what scrolls
+   by: this fills it. */
+.plan-head::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 40px;
+  background: var(--ground);
+}
+
 /* ---- controls ---- */
 .btn {
   height: 30px;
@@ -648,6 +671,11 @@ input.pick:focus-visible {
   border-radius: 5px;
   padding: 1px 6px;
   white-space: nowrap;
+}
+.chip.warn {
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-color: transparent;
 }
 .tag {
   font-size: 11px;
@@ -1334,36 +1362,11 @@ html.tray body {
 }
 
 /* Tabs, as on the Restore screen: one per plan. */
-.tabs {
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  background: var(--sunk);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  min-width: 0;
-  overflow-x: auto;
-}
-.tabs button {
-  display: flex;
-  align-items: center;
+/* Restore's plan: the one shown, with its status and snapshots, and a menu of the others. */
+.plan-pick {
   gap: 8px;
-  height: 30px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  white-space: nowrap;
-  color: var(--ink2);
-}
-.tabs button:hover {
-  color: var(--ink);
-}
-.tabs button.on {
-  background: var(--surface);
-  box-shadow: var(--seg);
-  color: var(--ink);
-  font-weight: 600;
+  min-width: 0;
+  max-width: 280px;
 }
 
 /* The x in a search box. */

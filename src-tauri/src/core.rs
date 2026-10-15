@@ -550,7 +550,16 @@ impl Core {
     fn delete_backup(&self, cur: &Arc<Current>, plan_id: &str, run: &mut Run) -> Result<(), String> {
         Self::set_stage(cur, "Deleting");
         let (p, d) = self.plan_and_dest(plan_id)?;
-        let (path, backend) = self.destination_backend(&p, &d)?;
+        let (path, backend) = match self.destination_backend(&p.folder, &d) {
+            Ok(b) => b,
+            // Nothing left to delete: the plan can still go.
+            Err(_) if places::gone(&d.place) => {
+                run.message = format!("Deleted {}; its backup had already gone", p.name);
+                run.note(run.message.clone());
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
         run.note(format!("Deleting {}'s backup at {}", p.name, backend.describe()));
         let mut files = backend.list("").map_err(|e| format!("Couldn't list {}'s backup: {e}", p.name))?;
         files.sort_by_key(|f| f != CONFIG);
@@ -581,12 +590,12 @@ impl Core {
 
     /// The plan's backup at its destination as plain files, connecting the destination if
     /// needed: where it is, and how to read and write it.
-    fn destination_backend(&self, p: &Plan, d: &config::Destination) -> Result<(PathBuf, Arc<dyn Backend>), String> {
+    fn destination_backend(&self, folder: &str, d: &config::Destination) -> Result<(PathBuf, Arc<dyn Backend>), String> {
         // A bucket has no folder on this Mac: its "path" is its s3:// address, which matches no
         // file a backup reads.
         Ok(match &d.place {
             Place::S3(s) => {
-                let b = places::s3_backend(s, None, &p.folder)?;
+                let b = places::s3_backend(s, None, folder)?;
                 (PathBuf::from(b.describe()), Arc::new(b))
             }
             place => {
@@ -594,15 +603,126 @@ impl Core {
                 if let Some((free, total)) = places::space(&root) {
                     self.state.lock().unwrap().destinations.insert(d.id.clone(), config::DestState { free, total, checked: now() });
                 }
-                let path = root.join(&p.folder);
+                let path = root.join(folder);
                 (path.clone(), Arc::new(Folder::new(&path)))
             }
         })
     }
 
+    /// The Keepr backups at a destination, for Open an existing backup: each folder in it (or in
+    /// the bucket) that holds a backup's settings. Only those settings are read, so an encrypted
+    /// one shows without its password.
+    pub fn find_backups(&self, dest: &str) -> Result<Vec<Found>, String> {
+        let (d, plans) = {
+            let c = self.config.lock().unwrap();
+            let d = c.destination(dest).cloned().ok_or("That destination no longer exists.")?;
+            // A plan on another destination for the same place uses the same backups.
+            let here = |p: &Plan| c.destination(&p.destination).is_some_and(|x| places::same_place(&x.place, &d.place));
+            (d.clone(), c.plans.iter().filter(|p| here(p)).map(|p| (p.folder.clone(), p.name.clone())).collect::<HashMap<_, _>>())
+        };
+        // A destination chosen as the backup's own folder, rather than the one holding it, is
+        // that one backup: its folder is "".
+        let mut folders: Vec<String> = match &d.place {
+            Place::S3(s) => {
+                let b = places::s3_backend(s, None, "")?;
+                let suffix = format!("/{CONFIG}");
+                let keys = b.list("").map_err(|e| format!("Couldn't look in {}: {e}", b.describe()))?;
+                if keys.iter().any(|k| k == CONFIG) {
+                    vec![String::new()]
+                } else {
+                    keys.into_iter().filter_map(|k| k.strip_suffix(&suffix).filter(|f| !f.contains('/')).map(str::to_string)).collect()
+                }
+            }
+            place => {
+                let root = places::resolve(place, &self.mounts, true, d.disconnect_after)?;
+                if root.join(CONFIG).is_file() {
+                    vec![String::new()]
+                } else {
+                    std::fs::read_dir(&root)
+                        .map_err(|e| format!("Couldn't look in {}: {e}", places::tilde(&root.to_string_lossy())))?
+                        .flatten()
+                        .filter(|e| e.path().join(CONFIG).is_file())
+                        .map(|e| e.file_name().to_string_lossy().to_string())
+                        .collect()
+                }
+            }
+        };
+        folders.sort_by_key(|f| f.to_lowercase());
+        Ok(folders
+            .into_iter()
+            .filter_map(|folder| {
+                let (_, backend) = self.destination_backend(&folder, &d).ok()?;
+                let cfg = Repo::read_config(backend.as_ref()).ok()?;
+                Some(Found {
+                    name: name_from_folder(own_folder(&folder, &d)),
+                    encrypted: cfg.encryption.is_some(),
+                    created: cfg.created,
+                    plan: plans.get(&folder).cloned(),
+                    folder,
+                })
+            })
+            .collect())
+    }
+
+    /// Makes a plan of a backup already at a destination (one made on another Mac, or by a plan
+    /// deleted since), so its snapshots can be restored here. The plan starts turned off, backing
+    /// up the folders of the newest snapshot: those paths may not exist on this Mac, and a backup
+    /// from here would add a snapshot without them. Returns the new plan's id.
+    pub fn open_backup(&self, dest: &str, folder: &str, password: Option<String>) -> Result<String, String> {
+        let d = self.config.lock().unwrap().destination(dest).cloned().ok_or("That destination no longer exists.")?;
+        {
+            let c = self.config.lock().unwrap();
+            let here = |p: &Plan| c.destination(&p.destination).is_some_and(|x| places::same_place(&x.place, &d.place));
+            if let Some(p) = c.plans.iter().find(|p| here(p) && p.folder == folder) {
+                return Err(format!("{} already uses that backup.", p.name));
+            }
+        }
+        let (_, backend) = self.destination_backend(folder, &d)?;
+        let cfg = Repo::read_config(backend.as_ref()).map_err(|e| e.0)?;
+        let password = password.filter(|p| !p.is_empty());
+        let secret = match (&cfg.encryption, &password) {
+            (Some(_), Some(pw)) => Secret::Password(pw),
+            (Some(_), None) => return Err("This backup is encrypted. Enter its password.".into()),
+            (None, _) => Secret::None,
+        };
+        let repo = Repo::open(backend, secret).map_err(|e| {
+            if cfg.encryption.is_some() && e.0.to_lowercase().contains("password") {
+                "That isn't this backup's password.".to_string()
+            } else {
+                e.0
+            }
+        })?;
+        let snaps = repo.snapshots().map_err(|e| e.0)?;
+        let sources: Vec<Place> = snaps
+            .last()
+            .map(|s| s.sources.iter().filter(|p| p.starts_with('/')).map(|p| Place::Folder { path: p.clone(), name: None }).collect())
+            .unwrap_or_default();
+        let id = config::new_id();
+        let plan = Plan {
+            id: id.clone(),
+            name: name_from_folder(own_folder(folder, &d)),
+            enabled: false,
+            sources,
+            destination: dest.to_string(),
+            folder: folder.to_string(),
+            encrypted: cfg.encryption.is_some(),
+            ..Plan::opened()
+        };
+        if let Some(pw) = &password {
+            keychain::set(&keychain::plan_account(&id), pw)?;
+        }
+        self.state.lock().unwrap().plan(&id).created = true;
+        self.refresh_stats(&id, &repo);
+        self.config.lock().unwrap().plans.push(plan);
+        self.save_config()?;
+        self.save_state();
+        self.changed();
+        Ok(id)
+    }
+
     fn open_repo(&self, plan: &str, create: bool, trust: bool) -> Result<Arc<Repo>, String> {
         let (p, d) = self.plan_and_dest(plan)?;
-        let (path, inner) = self.destination_backend(&p, &d)?;
+        let (path, inner) = self.destination_backend(&p.folder, &d)?;
         // Out of the map before asking the backend: exists() may be a network round trip, and
         // other plans' jobs and the window need the map meanwhile.
         let known = self.repos.lock().unwrap().get(plan).filter(|(at, _)| *at == path).map(|(_, r)| r.clone());
@@ -688,6 +808,9 @@ impl Core {
         if matches!(d.place, Place::S3(_)) {
             return Err("A backup in a bucket can't be renamed in place.".into());
         }
+        if p.folder.is_empty() {
+            return Err("This backup is its destination's folder itself, so Keepr doesn't rename it.".into());
+        }
         // Nobody else (another Mac) may be using it. The lock is let go before the move: it's
         // a file inside the folder, and one carried along would look held by this Mac.
         let repo = self.repo_to_change(plan)?;
@@ -768,7 +891,17 @@ impl Core {
                 run.message = e.clone();
                 if !waiting && self.config.lock().unwrap().settings.notify_failures {
                     (self.notify)(
-                        &format!("{plan_name}: {} didn't finish", if job.kind() == "restore" { "restore" } else { "backup" }),
+                        &format!(
+                            "{plan_name}: {} didn't finish",
+                            match job.kind() {
+                                "restore" => "the restore",
+                                "check" => "the check",
+                                "prune" => "the tidy-up",
+                                "remove" => "removing from the backup",
+                                "delete" => "deleting the backup",
+                                _ => "the backup",
+                            }
+                        ),
                         &e,
                     );
                 }
@@ -1388,6 +1521,45 @@ impl Core {
     }
 }
 
+/// A backup found at a destination; see Core::find_backups.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Found {
+    pub folder: String,
+    pub name: String,
+    pub encrypted: bool,
+    pub created: String,
+    /// The plan that already uses it, if one does.
+    pub plan: Option<String>,
+}
+
+/// The folder a backup is in, by name: for one that is its destination's folder itself (""), the
+/// last part of the destination's path.
+fn own_folder<'a>(folder: &'a str, d: &'a config::Destination) -> &'a str {
+    if !folder.is_empty() {
+        return folder;
+    }
+    match &d.place {
+        Place::Folder { path, .. } => path.trim_end_matches('/').rsplit('/').next().unwrap_or(&d.name),
+        Place::Smb(s) => s.folder.trim_matches('/').rsplit('/').next().filter(|f| !f.is_empty()).unwrap_or(&s.share),
+        Place::S3(s) => s.prefix.trim_matches('/').rsplit('/').next().filter(|f| !f.is_empty()).unwrap_or(&s.bucket),
+    }
+}
+
+/// A plan's name from its backup's folder: "Documents-Projects 1c9b7f" → "Documents Projects".
+fn name_from_folder(folder: &str) -> String {
+    let base = match folder.rsplit_once(' ') {
+        Some((b, id)) if id.len() == 6 && id.chars().all(|c| c.is_ascii_hexdigit()) => b,
+        _ => folder,
+    };
+    let name = base.replace('-', " ");
+    if name.trim().is_empty() {
+        folder.to_string()
+    } else {
+        name.trim().to_string()
+    }
+}
+
 pub fn describe_sources(plan: &Plan) -> String {
     plan.sources.iter().map(places::describe).collect::<Vec<_>>().join(", ")
 }
@@ -1627,6 +1799,146 @@ mod tests {
         // Shorter but not none: warned about, whatever the count.
         let shorter = crate::ask::check(&c, &serde_json::json!({"plan": "p1", "retention": {"keepDeletedDays": 30}})).unwrap();
         assert!(serde_json::to_string(&shorter).unwrap().contains("kept for 30 days after they're deleted"));
+    }
+
+    #[test]
+    fn a_backup_already_at_a_destination_opens_as_a_plan_turned_off() {
+        let data = tempfile::tempdir().unwrap();
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("a.txt"), "hello").unwrap();
+        let c = core(data.path());
+        {
+            let mut cfg = c.config.lock().unwrap();
+            cfg.destinations.push(Destination {
+                id: "d1".into(),
+                name: "Disk".into(),
+                place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None },
+                disconnect_after: true,
+            });
+            cfg.plans.push(Plan { folder: "Documents-Projects 1c9b7f".into(), ..plan(src.path()) });
+        }
+        c.start();
+        c.enqueue(Job::Backup { plan: "p1".into(), full: false });
+        wait(&c);
+        // An encrypted one beside it, and a folder that isn't a backup.
+        Repo::init(Arc::new(Folder::new(dst.path().join("Secret ab12cd"))), Some("right")).unwrap();
+        std::fs::create_dir_all(dst.path().join("Not a backup")).unwrap();
+
+        let found = c.find_backups("d1").unwrap();
+        let names: Vec<_> = found.iter().map(|f| (f.name.as_str(), f.encrypted, f.plan.as_deref())).collect();
+        assert_eq!(names, [("Documents Projects", false, Some("Docs")), ("Secret", true, None)]);
+        assert!(c.open_backup("d1", "Documents-Projects 1c9b7f", None).unwrap_err().contains("Docs already uses"));
+        assert!(c.open_backup("d1", "Secret ab12cd", None).unwrap_err().contains("Enter its password"));
+        assert_eq!(c.open_backup("d1", "Secret ab12cd", Some("wrong".into())).unwrap_err(), "That isn't this backup's password.");
+
+        // As on another Mac: the plan has gone, its backup hasn't.
+        c.config.lock().unwrap().plans.clear();
+        let id = c.open_backup("d1", "Documents-Projects 1c9b7f", None).unwrap();
+        let p = c.config.lock().unwrap().plan(&id).cloned().unwrap();
+        assert!(!p.enabled && !p.encrypted);
+        assert_eq!(p.name, "Documents Projects");
+        assert_eq!(p.sources, vec![Place::Folder { path: src.path().to_string_lossy().into(), name: None }]);
+        assert_eq!(c.state.lock().unwrap().plans[&id].snapshots, 1);
+        assert_eq!(c.snapshots(&id).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_plan_whose_backup_folder_has_gone_can_still_be_deleted_with_it() {
+        let data = tempfile::tempdir().unwrap();
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        let at = dst.path().join("Downloads b52800");
+        Repo::init(Arc::new(Folder::new(&at)), None).unwrap();
+        let c = core(data.path());
+        {
+            let mut cfg = c.config.lock().unwrap();
+            cfg.destinations.push(Destination {
+                id: "d1".into(),
+                name: "Downloads b52800".into(),
+                place: Place::Folder { path: at.to_string_lossy().into(), name: None },
+                disconnect_after: true,
+            });
+            cfg.plans.push(Plan { folder: String::new(), ..plan(src.path()) });
+        }
+        std::fs::remove_dir_all(&at).unwrap();
+        c.start();
+        c.enqueue(Job::DeletePlan { plan: "p1".into() });
+        wait(&c);
+        assert!(c.config.lock().unwrap().plans.is_empty());
+        // A drive that's unplugged isn't "gone": its folder's parent isn't there either.
+        assert!(!places::gone(&Place::Folder { path: "/Volumes/No Such Drive/Keepr".into(), name: None }));
+    }
+
+    #[test]
+    fn adding_a_place_that_is_already_a_destination_gives_back_that_one() {
+        let data = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        let c = core(data.path());
+        let at = |name: Option<&str>| Destination {
+            id: String::new(),
+            name: String::new(),
+            place: Place::Folder { path: dst.path().to_string_lossy().into(), name: name.map(str::to_string) },
+            disconnect_after: true,
+        };
+        let first = crate::save_destination_now(&c, at(None), None).unwrap();
+        // Again, even under another name: the same one, not a second.
+        let again = crate::save_destination_now(&c, Destination { name: "Somewhere".into(), ..at(Some("Mine")) }, None).unwrap();
+        assert_eq!(again.id, first.id);
+        assert_eq!(c.config.lock().unwrap().destinations.len(), 1);
+        // A different place is a new one.
+        let other = tempfile::tempdir().unwrap();
+        let place = Place::Folder { path: other.path().to_string_lossy().into(), name: None };
+        let second = crate::save_destination_now(&c, Destination { place, ..at(None) }, None).unwrap();
+        assert_ne!(second.id, first.id);
+        assert_eq!(c.config.lock().unwrap().destinations.len(), 2);
+    }
+
+    #[test]
+    fn a_backup_used_through_another_destination_for_the_same_place_is_in_use() {
+        let data = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        Repo::init(Arc::new(Folder::new(dst.path().join("Docs p1"))), None).unwrap();
+        let c = core(data.path());
+        {
+            let mut cfg = c.config.lock().unwrap();
+            for (id, name) in [("d1", "Disk"), ("d2", "Disk 2")] {
+                cfg.destinations.push(Destination {
+                    id: id.into(),
+                    name: name.into(),
+                    place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None },
+                    disconnect_after: true,
+                });
+            }
+            cfg.plans.push(plan(dst.path()));
+        }
+        assert_eq!(c.find_backups("d2").unwrap()[0].plan.as_deref(), Some("Docs"));
+        assert!(c.open_backup("d2", "Docs p1", None).unwrap_err().contains("already uses"));
+    }
+
+    #[test]
+    fn a_destination_chosen_as_the_backups_own_folder_opens_that_backup() {
+        let data = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        let at = dst.path().join("Downloads ccb21a");
+        Repo::init(Arc::new(Folder::new(&at)), None).unwrap();
+        let c = core(data.path());
+        c.config.lock().unwrap().destinations.push(Destination {
+            id: "d1".into(),
+            name: "Downloads ccb21a".into(),
+            place: Place::Folder { path: at.to_string_lossy().into(), name: None },
+            disconnect_after: true,
+        });
+        let found = c.find_backups("d1").unwrap();
+        assert_eq!(found.iter().map(|f| (f.folder.as_str(), f.name.as_str())).collect::<Vec<_>>(), [("", "Downloads")]);
+        let id = c.open_backup("d1", "", None).unwrap();
+        assert_eq!(c.config.lock().unwrap().plan(&id).unwrap().folder, "");
+        assert!(c.snapshots(&id).unwrap().is_empty());
+        assert!(c.rename_plan_folder(&id).unwrap_err().contains("doesn't rename it"));
+        // Another plan's backup would land inside this one's folder.
+        let mut p = plan(dst.path());
+        p.id = String::new();
+        assert!(crate::save_plan_now(&c, p, None).unwrap_err().contains("can't hold another plan's"));
     }
 
     #[test]

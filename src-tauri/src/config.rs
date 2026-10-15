@@ -198,6 +198,18 @@ pub struct Plan {
     pub ask_exclude: bool,
 }
 
+impl Plan {
+    /// A plan with the settings a new one starts with, for one made from a backup already there.
+    pub fn opened() -> Plan {
+        serde_json::from_value(serde_json::json!({
+            "id": "", "name": "", "sources": [], "destination": "", "folder": "",
+            "schedule": { "every": "hourly" },
+            "excludes": default_excludes(),
+        }))
+        .expect("a plan's defaults")
+    }
+}
+
 fn weekly() -> Often {
     Often::Weekly
 }

@@ -13,7 +13,9 @@ import { Icon } from "./icons";
 import { S3SourceSheet } from "./S3Source";
 import { confirm, DestIcon, PlanProgress, Seg, Sheet, Switch, useAct, useDismissError, useMenu, useToast } from "./ui";
 import { SmbFields, useSmbForm } from "./SmbFields";
+import { AddDestination } from "./Destinations";
 import { ago, bytes, next, tilde } from "./format";
+import { DRAFT_NOTE, getDraft, setDraft } from "./draft";
 
 const DEFAULT_RETENTION: Retention = {
   allHours: 24,
@@ -403,19 +405,38 @@ export function SmbSourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; 
 /** Removing a source that has been backed up: keep its versions, or delete them (confirmed twice). */
 /** Deleting a plan that has a backup: keep the backup (it can be restored from by making a plan
  * for it again) or delete it too, which frees its space and can't be undone. */
+/** Once a plan deleted with its backup has gone, removes its destination too, if nothing else
+ *  has come to use it. Gives up if the deletion stops without the plan going (it failed). */
+async function removeDestinationAfter(plan: string, dest: string) {
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 1500));
+    const c = await api.config();
+    if (!c.plans.some((p) => p.id === plan)) {
+      if (!c.plans.some((p) => p.destination === dest)) await api.deleteDestination(dest).catch(() => {});
+      return;
+    }
+    const o = await api.overview();
+    if (o.job?.plan !== plan && !o.queued.some((q) => q.plan === plan)) return;
+  }
+}
+
 function DeletePlanSheet({
   name,
   dest,
+  alone,
   onClose,
   onKeep,
   onDelete,
 }: {
   name: string;
   dest: string;
+  /** No other plan uses the destination: offer to remove it as well. */
+  alone: boolean;
   onClose: () => void;
-  onKeep: () => void;
-  onDelete: () => void;
+  onKeep: (removeDest: boolean) => void;
+  onDelete: (removeDest: boolean) => void;
 }) {
+  const [removeDest, setRemoveDest] = useState(false);
   return (
     <Sheet
       title={`Delete ${name}?`}
@@ -437,13 +458,13 @@ function DeletePlanSheet({
                 ok: "Delete",
                 danger: true,
               });
-              if (sure) onDelete();
+              if (sure) onDelete(removeDest);
             }}
           >
             <Icon name="trash" size={14} />
             Delete Plan and Backup…
           </button>
-          <button className="btn primary" onClick={onKeep}>
+          <button className="btn primary" onClick={() => onKeep(removeDest)}>
             Delete Plan, Keep Backup
           </button>
         </>
@@ -459,6 +480,13 @@ function DeletePlanSheet({
             shows it going.
           </span>
         </div>
+        {alone && (
+          <label className="check">
+            <input type="checkbox" checked={removeDest} onChange={(e) => setRemoveDest(e.target.checked)} />
+            Also remove the destination {dest} from Keepr's list. No other plan uses it. This only forgets the destination: the files there
+            are left as they are.
+          </label>
+        )}
       </div>
     </Sheet>
   );
@@ -570,7 +598,7 @@ export default function Plans() {
   const [newPassword, setNewPassword] = useState("");
   const [newPassword2, setNewPassword2] = useState("");
   const [ruleText, setRuleText] = useState("");
-  const [sheet, setSheet] = useState<"" | "smb" | "s3" | "password" | "recovery">("");
+  const [sheet, setSheet] = useState<"" | "smb" | "s3" | "password" | "recovery" | "dest">("");
   const [clouds, setClouds] = useState<Awaited<ReturnType<typeof api.cloudFolders>>>([]);
   useEffect(() => {
     api.cloudFolders().then((c) => setClouds(c.filter((x) => x.live)));
@@ -596,9 +624,18 @@ export default function Plans() {
     mine.current = plan;
   }, [plan]);
 
+  // A new plan as it was opened, blank: it's kept as the draft only once it differs from that.
+  const blank = useRef("");
   useEffect(() => {
     if (isNew) {
-      api.defaultExcludes().then((ex) => setPlan(blankPlan(cfg?.destinations[0]?.id ?? "", ex)));
+      const d = getDraft();
+      if (d) setPlan(structuredClone(d));
+      else
+        api.defaultExcludes().then((ex) => {
+          const p = blankPlan(cfg?.destinations[0]?.id ?? "", ex);
+          blank.current = JSON.stringify(p);
+          setPlan(p);
+        });
     } else if (existing) {
       setPlan(structuredClone(existing));
     }
@@ -606,6 +643,9 @@ export default function Plans() {
     // Loaded once per plan; later saves come back through the config without replacing edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNew, existing?.id]);
+  useEffect(() => {
+    if (isNew && plan && !plan.id && JSON.stringify(plan) !== blank.current) setDraft(plan);
+  }, [isNew, plan]);
   // Saved from elsewhere (a change applied in Ask, undone in Activity), or an edit here read back:
   // the editor takes it, keeping what's been edited here since the config last had the plan, so a
   // save on its way (or typing) doesn't put the old settings back and isn't disturbed.
@@ -690,9 +730,12 @@ export default function Plans() {
     if (await confirm({ title: "Delete plan", text: `Delete the plan ${plan.name}?`, ok: "Delete Plan", danger: true }))
       await deleteNow(false);
   };
-  const deleteNow = async (backup: boolean) => {
+  const deleteNow = async (backup: boolean, removeDest = false) => {
     setDeleting(false);
     if ((await act(() => api.deletePlan(plan.id, backup))) === undefined) return;
+    // Kept backup: the plan has gone already. Deleted: it goes when the deletion finishes.
+    if (removeDest && !backup) await act(() => api.deleteDestination(plan.destination));
+    if (removeDest && backup) void removeDestinationAfter(plan.id, plan.destination).then(refresh);
     await refresh();
     if (backup) toast(`Deleting ${plan.name} and its backup. Activity shows how it's going.`);
     go({ name: backup ? "activity" : "overview" });
@@ -747,6 +790,7 @@ export default function Plans() {
       ),
     );
     if (saved) {
+      setDraft(null);
       await refresh();
       go({ name: "plans", plan: saved.id });
       api.backUp(saved.id);
@@ -792,7 +836,7 @@ export default function Plans() {
 
   return (
     <div className="content col" style={{ gap: 18 }}>
-      <div className="row" style={{ gap: 12 }}>
+      <div className="row plan-head" style={{ gap: 12 }}>
         <div className="grow col" style={{ gap: 4 }}>
           <label className="editable-title" title="Rename this plan">
             <input
@@ -805,7 +849,7 @@ export default function Plans() {
           </label>
           <span className="small muted">
             {!plan.id
-              ? "A new plan. It's saved when you create it."
+              ? `A new plan, saved when you create it. ${DRAFT_NOTE}`
               : summary?.lastSuccess
                 ? `Last backup ${ago(summary.lastSuccess)}. ${plan.enabled && summary.nextRun ? `Next ${next(summary.nextRun)}.` : ""} Changes are saved as you make them.`
                 : "Changes are saved as you make them."}
@@ -866,8 +910,14 @@ export default function Plans() {
           </>
         ) : (
           <>
-            <button className="btn" onClick={() => go({ name: "overview" })}>
-              Cancel
+            <button
+              className="btn"
+              onClick={() => {
+                setDraft(null);
+                go({ name: "overview" });
+              }}
+            >
+              Discard
             </button>
             <button className="btn primary" disabled={plan.sources.length === 0 || !plan.destination} onClick={create}>
               Create and back up
@@ -1098,7 +1148,7 @@ export default function Plans() {
           <section className="card section" style={{ gap: 10 }}>
             <h2>Where</h2>
             {cfg.destinations.length === 0 ? (
-              <button className="btn primary" onClick={() => go({ name: "destinations", add: true })}>
+              <button className="btn primary" onClick={() => setSheet("dest")}>
                 Add a destination
               </button>
             ) : (
@@ -1134,7 +1184,7 @@ export default function Plans() {
                           : ""}
                     {plan.folder ? ` / ${plan.folder}` : ""}
                   </span>
-                  {created && plan.name.trim() && folderFor && folderFor !== plan.folder && dest?.place.kind !== "s3" && (
+                  {created && plan.name.trim() && folderFor && plan.folder && folderFor !== plan.folder && dest?.place.kind !== "s3" && (
                     <span className="small muted row" style={{ gap: 8, marginTop: 4, flexWrap: "wrap" }}>
                       Its folder there is still called “{plan.folder}”.
                       <button
@@ -1158,7 +1208,7 @@ export default function Plans() {
                 </div>
               </div>
             )}
-            <a href="#" className="small" onClick={(e) => (e.preventDefault(), go({ name: "destinations", add: true }))}>
+            <a href="#" className="small" onClick={(e) => (e.preventDefault(), setSheet("dest"))}>
               Add another destination
             </a>
           </section>
@@ -1396,9 +1446,10 @@ export default function Plans() {
         <DeletePlanSheet
           name={plan.name}
           dest={dest?.name ?? "the destination"}
+          alone={!!dest && !cfg.plans.some((p) => p.id !== plan.id && p.destination === plan.destination)}
           onClose={() => setDeleting(false)}
-          onKeep={() => void deleteNow(false)}
-          onDelete={() => void deleteNow(true)}
+          onKeep={(r) => void deleteNow(false, r)}
+          onDelete={(r) => void deleteNow(true, r)}
         />
       )}
       {removing !== null && plan.sources[removing] && (
@@ -1420,6 +1471,13 @@ export default function Plans() {
             if ((await act(() => api.removeSourceData(plan.id, src))) === undefined) return;
             toast("Removing its backed-up data. Activity shows how it's going.");
           }}
+        />
+      )}
+      {sheet === "dest" && (
+        <AddDestination
+          onClose={() => setSheet("")}
+          // A plan that has backed up stays where its backup is: the new one is only added.
+          onAdded={(d) => !created && update((p) => ({ ...p, destination: d.id }))}
         />
       )}
       {sheet === "smb" && (

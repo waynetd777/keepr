@@ -12,7 +12,7 @@ import { B2Setup } from "./B2Setup";
 import { R2Setup } from "./R2Setup";
 import { useApp } from "./context";
 import { Icon } from "./icons";
-import { DestIcon, Seg, Sheet, useAct } from "./ui";
+import { confirm, DestIcon, Seg, Sheet, useAct, useToast } from "./ui";
 import { Connection, SpaceMeter } from "./DestStatus";
 import { SmbFields, useSmbForm } from "./SmbFields";
 import { bytes, tilde } from "./format";
@@ -118,8 +118,26 @@ function AwsSetup({ region, setRegion, onMade }: { region: string; setRegion: (r
   );
 }
 
-export function AddDestination({ onClose, editing }: { onClose: () => void; editing?: Destination }) {
-  const { refresh, home } = useApp();
+/** `onAdded` hears of a new destination once it's saved; `subtitle` says what it's for, when
+ *  added for one thing (Open an existing backup). */
+export function AddDestination({
+  onClose,
+  editing,
+  onAdded,
+  title,
+  okLabel,
+  subtitle,
+}: {
+  onClose: () => void;
+  editing?: Destination;
+  onAdded?: (d: Destination) => void;
+  /** For one added for one thing: the sheet's title and its button. */
+  title?: string;
+  okLabel?: string;
+  subtitle?: string;
+}) {
+  const { refresh, home, ov } = useApp();
+  const toast = useToast();
   const act = useAct();
   const [kind, setKind] = useState<"folder" | "smb" | "cloud" | "s3">(editing?.place.kind ?? "folder");
   const [clouds, setClouds] = useState<Cloud[]>([]);
@@ -240,15 +258,18 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
       ),
     );
     if (saved) {
+      // Keepr gives back the one it already has for that place rather than making a second.
+      if (!editing && ov?.destinations.some((x) => x.id === saved.id)) toast(`That's already a destination: ${saved.name}.`);
       await refresh();
+      if (!editing) onAdded?.(saved);
       onClose();
     }
   };
 
   return (
     <Sheet
-      title={editing ? `Change ${editing.name}` : "Add a destination"}
-      subtitle="Where Keepr stores your backups. One destination can hold many plans."
+      title={editing ? `Change ${editing.name}` : (title ?? "Add a destination")}
+      subtitle={subtitle ?? "Where Keepr stores your backups. One destination can hold many plans."}
       width={860}
       onClose={onClose}
       foot={
@@ -261,7 +282,7 @@ export function AddDestination({ onClose, editing }: { onClose: () => void; edit
             Test
           </button>
           <button className="btn primary" disabled={!ready || !!busy} onClick={add}>
-            {editing ? "Save" : "Add destination"}
+            {editing ? "Save" : (okLabel ?? "Add destination")}
           </button>
         </>
       }
@@ -605,9 +626,27 @@ export default function Destinations() {
                 </button>
                 <button
                   className="btn small danger"
-                  disabled={d.plans.length > 0}
-                  title={d.plans.length ? "Plans keep their backups here" : undefined}
+                  // One that's gone can go with the plans that use it; one that's there keeps them.
+                  disabled={d.plans.length > 0 && d.connection !== "missing"}
+                  title={
+                    d.plans.length && d.connection !== "missing"
+                      ? `${d.plans.join(", ")} keep${d.plans.length === 1 ? "s its backup" : " their backups"} here`
+                      : undefined
+                  }
                   onClick={async () => {
+                    const users = cfg?.plans.filter((p) => p.destination === d.id) ?? [];
+                    const names = users.map((p) => p.name).join(", ");
+                    const sure = await confirm({
+                      title: "Remove this destination",
+                      text: users.length
+                        ? `${d.name} can't be found. Remove it, and the plan${users.length === 1 ? "" : "s"} that use${users.length === 1 ? "s" : ""} it (${names})? Nothing is deleted from wherever it was, and you can add it again later.`
+                        : `Remove ${d.name} from Keepr? Nothing at ${d.place} is deleted: anything there stays, and you can add it again later.`,
+                      ok: "Remove",
+                      danger: users.length > 0,
+                    });
+                    if (!sure) return;
+                    for (const p of users)
+                      if ((await act(() => api.deletePlan(p.id, false).then(() => true))) === undefined) return refresh();
                     await act(() => api.deleteDestination(d.id));
                     refresh();
                   }}

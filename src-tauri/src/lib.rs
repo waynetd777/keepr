@@ -364,6 +364,13 @@ pub(crate) fn save_plan_now(core: &Core, mut plan: Plan, password: Option<String
         return Err("Choose where to keep the backup.".into());
     }
     if plan.id.is_empty() {
+        // Its folder would be inside that backup's, and deleting that backup would take it too.
+        if let Some(p) = core.config.lock().unwrap().plans.iter().find(|p| p.destination == plan.destination && p.folder.is_empty()) {
+            return Err(format!(
+                "This destination is {}'s backup folder itself, so it can't hold another plan's. Choose another destination.",
+                p.name
+            ));
+        }
         plan.id = config::new_id();
         plan.folder = config::folder_name(&plan.name, &plan.id);
     }
@@ -446,6 +453,18 @@ async fn delete_plan(core: State<'_, Core_>, id: String, backup: bool) -> Result
     .await?
 }
 
+/// The Keepr backups at a destination, for Open an existing backup.
+#[tauri::command]
+async fn find_backups(core: State<'_, Core_>, destination: String) -> Result<Vec<core::Found>, String> {
+    with_core(core, move |c| c.find_backups(&destination)).await?
+}
+
+/// Makes a plan, turned off, of a backup already at a destination; returns its id.
+#[tauri::command]
+async fn open_backup(core: State<'_, Core_>, destination: String, folder: String, password: Option<String>) -> Result<String, String> {
+    with_core(core, move |c| c.open_backup(&destination, &folder, password)).await?
+}
+
 /// Lets a plan whose repository has gone start a new one.
 #[tauri::command]
 fn start_new_backup(core: State<Core_>, id: String) -> Result<(), String> {
@@ -469,6 +488,12 @@ fn save_destination_now(core: &Core, mut dest: Destination, password: Option<Str
     dest.name = dest.name.trim().to_string();
     if dest.name.is_empty() {
         dest.name = places::default_name(&dest.place);
+    }
+    if dest.id.is_empty() {
+        // Added again: the one already there, rather than a second for the same place.
+        if let Some(d) = core.config.lock().unwrap().destinations.iter().find(|d| places::same_place(&d.place, &dest.place)) {
+            return Ok(d.clone());
+        }
     }
     {
         let c = core.config.lock().unwrap();
@@ -1407,6 +1432,8 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             overview,
+            find_backups,
+            open_backup,
             aws_setup_info,
             reorder_plans,
             suggest_plan_folder,

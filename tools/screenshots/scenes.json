@@ -103,6 +103,14 @@
     }
   },
   {
+    "name": "open-backup",
+    "screen": {
+      "name": "restore",
+      "plan": "docs00000001"
+    },
+    "openBackup": true
+  },
+  {
     "name": "help",
     "screen": {
       "name": "restore",

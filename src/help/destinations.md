@@ -5,7 +5,7 @@ screens: [destinations]
 order: 7
 summary: Where backups are kept: a folder or drive, an SMB share, a cloud folder or an S3 bucket.
 ---
-A destination is where Keepr keeps backups. One destination can hold many plans, each in its own folder. Each card shows whether it's connected, how much Keepr keeps there and how much is free, and which plans it holds. **Change…** edits it; **Remove** works once no plan uses it.
+A destination is where Keepr keeps backups. One destination can hold many plans, each in its own folder. Each card shows whether it's connected, how much Keepr keeps there and how much is free, and which plans it holds. **Change…** edits it. **Remove** asks first and only takes it off Keepr's list; nothing in it is deleted. It works once no plan uses it, or, for a destination that can't be found, removes the plans that use it too.
 
 ## Add a destination
 **Add destination** in the toolbar, or [here](app:destinations/add). Pick the kind of place on the left and fill it in. **Test** writes a small file there, measures the speed and deletes it again. Then click **Add destination**.

@@ -32,6 +32,7 @@ On [Restore](../restore.md).
 - A deleted file, no longer on the Mac: [light](deleted-light.png) · [dark](deleted-dark.png)
 - The size map of a snapshot: [light](sizemap-light.png) · [dark](sizemap-dark.png)
 - Searching every backup for “notes”: [light](search-light.png) · [dark](search-dark.png)
+- Open an existing backup, before a source is chosen: [light](open-backup-light.png) · [dark](open-backup-dark.png)
 
 ## Destinations
 

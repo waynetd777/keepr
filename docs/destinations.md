@@ -4,7 +4,7 @@ A destination is where Keepr keeps backups: a folder or drive, a share on a NAS,
 
 <a href="images/index.md#destinations"><picture><source media="(prefers-color-scheme: dark)" srcset="images/destinations-dark.png"><img alt="Destinations: a backup folder with its space used and the plans it holds, and a drive that isn't connected" src="images/destinations-light.png"></picture></a>
 
-Each destination's card shows whether it's connected, how much Keepr keeps there and how much is free, and which plans it holds. **Change…** edits it; **Remove** is only possible once no plan uses it.
+Each destination's card shows whether it's connected, how much Keepr keeps there and how much is free, and which plans it holds. **Change…** edits it. **Remove** asks first, and takes the destination off Keepr's list without deleting anything in it. It's only possible once no plan uses it, unless the destination can't be found: then the plans that use it are removed with it. Adding a place that's already a destination gives you that one rather than a second. A plan's **Add another destination** adds one without leaving the plan.
 
 [Adding a destination](#adding-a-destination) · [Folder or drive](#folder-or-drive) · [SMB share](#smb-share) · [Cloud folders on this Mac](#cloud-folders-on-this-mac) · [S3 bucket](#s3-bucket) · [Amazon S3](#amazon-s3) · [Backblaze B2](#backblaze-b2) · [Cloudflare R2](#cloudflare-r2) · [Passwords and keys](#passwords-and-keys)
 

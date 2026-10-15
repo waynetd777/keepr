@@ -2,7 +2,7 @@
 
 A plan is a set of folders backed up to one destination, on a schedule, with rules for what to leave out and how long to keep versions. Make one with **Add a plan** (⌘N) on Backup Plans, or **New plan** in the toolbar; open one with **Edit…** on its card.
 
-A new plan starts on: hourly, every backup kept for a day, then one a day for 30 days, one a week for 12 months and one a month forever, and encrypted. Change what you like, then click **Create and back up**. After that, changes to a plan are saved as you make them.
+A new plan starts on: hourly, every backup kept for a day, then one a day for 30 days, one a week for 12 months and one a month forever, and encrypted. Change what you like, then click **Create and back up**. Until then the new plan is kept if you leave its page: Backup Plans says so, and **Continue new plan** in the toolbar (or ⌘N) goes back to it. It's kept only while Keepr is open, so quitting Keepr discards it; **Discard** throws it away sooner. After that, changes to a plan are saved as you make them.
 
 <a href="images/index.md#backup-plans"><picture><source media="(prefers-color-scheme: dark)" srcset="images/plan-dark.png"><img alt="A plan's settings: its sources, what to leave out, the versions to keep, where and when it backs up" src="images/plan-light.png"></picture></a>
 
@@ -54,7 +54,7 @@ Thinning out happens in a **Tidy up** after a backup, at most once a day. The sp
 
 **Where** is the [destination](destinations.md) the plan backs up to, and the folder in it that holds the backup, named after the plan. Once a plan has backed up, its destination is fixed: to keep a backup somewhere else as well, make another plan. If you rename a plan, Keepr offers to rename its folder to match.
 
-**Add another destination** adds a destination without leaving the plan.
+**Add another destination** adds a destination without leaving the plan, and picks it for a plan that hasn't backed up yet.
 
 ## When
 
@@ -112,5 +112,5 @@ An unencrypted plan's files are compressed, but anyone who can open the destinat
 
 **Plan on** turns a plan off: it won't back up until you turn it on again, and its backups stay as they are. The ⋯ menu has:
 
-- **Delete plan…** — deletes the plan, and its password and recovery key from the Keychain. For a plan that has backed up, it asks whether to keep the backup at the destination (**Delete Plan, Keep Backup**) or delete it too (**Delete Plan and Backup…**), which frees its space and can't be undone; Activity shows it going, and the plan goes once its backup has.
+- **Delete plan…** — deletes the plan, and its password and recovery key from the Keychain. For a plan that has backed up, it asks whether to keep the backup at the destination (**Delete Plan, Keep Backup**) or delete it too (**Delete Plan and Backup…**), which frees its space and can't be undone; Activity shows it going, and the plan goes once its backup has. A backup whose folder has already gone is taken as deleted, so the plan still goes. If no other plan uses the destination, **Also remove the destination** takes it off Keepr's list too. That only forgets the destination: the files there are left as they are.
 - **Start a new backup…** — only for when a plan's backup has gone for good, a drive that died, say. It starts a new, empty backup in its place.

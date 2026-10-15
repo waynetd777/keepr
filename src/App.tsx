@@ -17,6 +17,8 @@ import Destinations from "./Destinations";
 import Settings from "./Settings";
 import Search from "./Search";
 import PlansMap from "./PlansMap";
+import { OpenBackupSheet, openBackup } from "./OpenBackup";
+import { DRAFT_NOTE, draftName, useDraft } from "./draft";
 import { QuitDialog } from "./Quit";
 import { UpdateDialog } from "./Update";
 import AskPanel, { AskToolbarButton, openAsk, toggleAsk } from "./Ask";
@@ -71,6 +73,7 @@ function Sidebar() {
 
 function Toolbar({ back, forward, canBack, canForward }: { back: () => void; forward: () => void; canBack: boolean; canForward: boolean }) {
   const { ov, go, screen } = useApp();
+  const draft = useDraft();
   const [q, setQ] = useState("");
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -162,9 +165,22 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
         </button>
       )}
       {(screen.name === "overview" || screen.name === "plans") && (ov?.plans.length ?? 0) > 0 && (
-        <button className="btn" onClick={() => go({ name: "plans", isNew: true })} title="Make a new backup plan ⌘N">
-          <Icon name="plus" size={13} stroke={2.4} />
-          New plan
+        <button
+          className="btn"
+          onClick={openBackup}
+          title="Open a Keepr backup made on another Mac, or by a plan you deleted, to restore from it"
+        >
+          Open backup…
+        </button>
+      )}
+      {(screen.name === "overview" || screen.name === "plans") && (ov?.plans.length ?? 0) > 0 && (
+        <button
+          className="btn"
+          onClick={() => go({ name: "plans", isNew: true })}
+          title={draft ? `Carry on with ${draftName(draft)} ⌘N. ${DRAFT_NOTE}` : "Make a new backup plan ⌘N"}
+        >
+          <Icon name={draft ? "pencil" : "plus"} size={13} stroke={2.4} />
+          {draft ? "Continue new plan" : "New plan"}
         </button>
       )}
       {!running && (ov?.plans.length ?? 0) > 0 && (
@@ -253,6 +269,7 @@ export default function App() {
         help?: HelpView;
         update?: UpdateShown;
         ask?: boolean;
+        openBackup?: boolean;
       };
       if (s.splash) document.documentElement.dataset.keepSplash = "1";
       if (s.theme) document.documentElement.dataset.theme = s.theme;
@@ -262,6 +279,7 @@ export default function App() {
       }
       if (s.help) openHelp(s.help);
       if (s.ask) openAsk();
+      if (s.openBackup) openBackup();
       if (s.update) setUpdateScene(s.update);
     });
     const un1 = on("changed", () => refresh());
@@ -309,6 +327,13 @@ export default function App() {
     return () => window.removeEventListener("keydown", k);
   });
 
+  const [opening, setOpening] = useState(false);
+  useEffect(() => {
+    const open = () => setOpening(true);
+    window.addEventListener("keepr:open-backup", open);
+    return () => window.removeEventListener("keepr:open-backup", open);
+  }, []);
+
   const ctx: AppCtx = { ov: ov && { ...ov, job }, cfg, job, home, screen, go, refresh };
   return (
     <Ctx.Provider value={ctx}>
@@ -338,6 +363,7 @@ export default function App() {
           <HelpDrawer />
           <AskPanel />
         </div>
+        {opening && <OpenBackupSheet onClose={() => setOpening(false)} />}
         <UpdateDialog scene={updateScene} />
         <Confirm />
         <QuitDialog />
