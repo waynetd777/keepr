@@ -105,5 +105,7 @@ screenshots:
 sign-check:
 	@codesign -dv --verbose=2 "/Applications/Keepr.app" 2>&1 | grep -E "^(Identifier|Authority|Signature|TeamIdentifier)"
 
+## Run the app with the frontend hot-reloading. Rust changes wait for the next `make dev`: a
+## rebuild would relaunch the app, and every launch asks for the Keychain password.
 dev:
-	npm run tauri dev
+	npm run tauri dev -- --no-watch

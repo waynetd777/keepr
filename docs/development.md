@@ -6,7 +6,7 @@ Tauri 2, with a React and TypeScript frontend (Vite) and a Rust backend. The bac
 
 | Command | What it does |
 |---|---|
-| `make dev` | Run the app with hot reload |
+| `make dev` | Run the app with the frontend hot-reloading; Rust changes need it run again (`--no-watch`), since each relaunch asks for the Keychain password |
 | `make check` | The engine's and the app's Rust tests, the TypeScript check and tests, then `make lint` |
 | `make lint` | rustfmt, Clippy (warnings are errors), Prettier and ESLint, and a licence header on every source file; checks only |
 | `make fmt` | Reformat the Rust and TypeScript, and add the licence header where it's missing |
