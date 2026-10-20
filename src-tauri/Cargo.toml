@@ -1,6 +1,6 @@
 [package]
 name = "keepr"
-version = "1.0.22"
+version = "1.5.0"
 description = "A backup app for macOS and Windows"
 authors = ["Wayne Davies"]
 license = "GPL-3.0-or-later"
