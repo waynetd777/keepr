@@ -60,7 +60,7 @@ Keepr checks for a new version once a day, and Keepr › **Check for Updates…*
 
 Press `?`, click **?** at the right of the toolbar, or choose Help › **Keepr Help** (⌘?; on Windows Ctrl+? or the notification-area panel's **Keepr Help**) to open help for the screen you're on, at the side of the window. It stays open while you use the screen; Esc or × closes it. Help and Ask share the side of the window, so opening one closes the other.
 
-<a href="images/index.md#day-to-day"><picture><source media="(prefers-color-scheme: dark)" srcset="images/help-dark.png"><img alt="Help for Restore, at the side of the window, with the getting-started guides below" src="images/help-light.png"></picture></a>
+<a href="images/index.md#day-to-day"><picture><source media="(prefers-color-scheme: dark)" srcset="images/help-dark.png"><img alt="Help for Restore, at the side of the window, with Getting started and All topics under the search" src="images/help-light.png"></picture></a>
 
 - **Search the help** searches every topic.
 - **Getting started**, under the search, lists the step-by-step guides: Start here, Get a file back, Keep an eye on it, Ask about your backups, Back up to a NAS or the cloud, Choose what's backed up and kept, Make backups smaller, Move to a new computer, Run something before or after a backup, and Make sure a backup restores. Each step has links that take you to the screen it's about, and a finished guide is marked **Done**.
