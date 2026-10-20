@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Destinations: where backups are kept, and the sheet for adding one (a folder or drive, or an
-// SMB share, a cloud service's folder on this Mac, or an S3 bucket).
+// SMB share, a cloud service's folder on this computer, or an S3 bucket).
 
 import { useEffect, useRef, useState } from "react";
 import { api, type AwsMade, type Destination, type Place, type Tested } from "./api";
@@ -16,6 +16,7 @@ import { confirm, DestIcon, Seg, Sheet, useAct, useToast } from "./ui";
 import { Connection, SpaceMeter } from "./DestStatus";
 import { SmbFields, useSmbForm } from "./SmbFields";
 import { bytes, tilde } from "./format";
+import { KEYCHAIN, MACHINE, shortcut } from "./platform";
 import { s3EndpointFor, serviceOf, SetupBusy, type Service } from "./KeySetup";
 
 type Cloud = Awaited<ReturnType<typeof api.cloudFolders>>[number];
@@ -63,7 +64,7 @@ function AwsSetup({ region, setRegion, onMade }: { region: string; setRegion: (r
     <div className="card col" style={{ padding: 14, gap: 10, background: "var(--sunk)" }}>
       <span style={{ fontWeight: 600 }}>New to this? Let Keepr set it up</span>
       <span className="small muted" style={{ lineHeight: 1.5 }}>
-        Keepr makes a private bucket and a user that can only reach that bucket, and keeps its key in your Keychain. You sign in with your
+        Keepr makes a private bucket and a user that can only reach that bucket, and keeps its key in your {KEYCHAIN}. You sign in with your
         own AWS login; Keepr doesn't keep it.
       </span>
       <div className="row" style={{ gap: 8 }}>
@@ -94,8 +95,8 @@ function AwsSetup({ region, setRegion, onMade }: { region: string; setRegion: (r
       {shell && (
         <div className="col" style={{ gap: 6 }}>
           <span className="small muted" style={{ lineHeight: 1.5 }}>
-            The setup is copied. In CloudShell, paste it (⌘V) and press Return. When it's done, copy the line starting{" "}
-            <span className="mono">keepr-setup</span> and paste it here.
+            The setup is copied. In CloudShell, paste it ({shortcut("⌘V")}) and press {shortcut("Return")}. When it's done, copy the line
+            starting <span className="mono">keepr-setup</span> and paste it here.
           </span>
           <div className="row" style={{ gap: 8 }}>
             <input className="input mono grow" placeholder="keepr-setup {…}" value={pasted} onChange={(e) => setPasted(e.target.value)} />
@@ -302,7 +303,7 @@ export function AddDestination({
         >
           {(
             [
-              ["folder", "Folder or drive", "This Mac, USB, Thunderbolt", "drive"],
+              ["folder", "Folder or drive", MACHINE === "Mac" ? "This Mac, USB, Thunderbolt" : "This PC, USB, another drive", "drive"],
               ["smb", "SMB share", "A NAS or another computer", "server"],
               ["s3", "S3 bucket", "Amazon, Backblaze, R2, MinIO…", "bucket"],
             ] as const
@@ -334,7 +335,7 @@ export function AddDestination({
             </button>
           ))}
           <div className="caps" style={{ margin: "16px 10px 6px" }}>
-            Cloud folders on this Mac
+            Cloud folders on this {MACHINE}
           </div>
           {clouds.map((c) => {
             const on = kind === "cloud" && cloud?.root === c.root;
@@ -434,7 +435,7 @@ export function AddDestination({
                   <Icon name="check" size={18} stroke={2.4} />
                   <span className="text">
                     Made {bucket}, and {service === "aws" ? "a user" : service === "r2" ? "a token" : "a key"} that can only use it. Its key
-                    is in your Keychain. Add the destination to finish.
+                    is in your {KEYCHAIN}. Add the destination to finish.
                   </span>
                 </div>
               )}
@@ -497,34 +498,41 @@ export function AddDestination({
                   <input
                     className="input"
                     type="password"
-                    placeholder={s3 ? "Unchanged" : secretSaved ? "Saved in your Keychain" : ""}
+                    placeholder={s3 ? "Unchanged" : secretSaved ? `Saved in your ${KEYCHAIN}` : ""}
                     value={secret}
                     onChange={(e) => setSecret(e.target.value)}
                   />
                 </label>
               </div>
               <span className="small faint">
-                The secret key is kept in your Keychain. {service === "aws" ? "Test says so if the bucket is in another region." : ""}
+                The secret key is kept in your {KEYCHAIN}. {service === "aws" ? "Test says so if the bucket is in another region." : ""}
               </span>
             </>
           ) : kind === "cloud" && cloud ? (
             <>
               <span className="muted" style={{ lineHeight: 1.5 }}>
-                Keepr writes the backup into {cloud.name}'s folder on this Mac, and{" "}
-                {cloud.provider === "icloud" ? "iCloud" : cloud.name.split(" ")[0]} uploads it. The Mac keeps a copy until the service
-                offloads it (turn on {cloud.provider === "icloud" ? "Optimise Mac Storage" : "Files On-Demand"} for that).
+                Keepr writes the backup into {cloud.name}'s folder on this {MACHINE}, and{" "}
+                {cloud.provider === "icloud" ? "iCloud" : cloud.name.split(" ")[0]} uploads it. The {MACHINE} keeps a copy until the service
+                offloads it (turn on{" "}
+                {cloud.provider === "icloud" ? (MACHINE === "Mac" ? "Optimise Mac Storage" : "Optimise Storage") : "Files On-Demand"} for
+                that).
               </span>
               <label className="field">
                 <span>Folder inside {cloud.name}</span>
                 <input className="input mono" value={inCloud} onChange={(e) => setInCloud(e.target.value)} />
               </label>
               <span className="small faint mono ellipsis">{tilde(cloudPath, home)}</span>
-              {cloud.free != null && <span className="small muted">{bytes(cloud.free)} free on this Mac</span>}
+              {cloud.free != null && (
+                <span className="small muted">
+                  {bytes(cloud.free)} free on this {MACHINE}
+                </span>
+              )}
             </>
           ) : kind === "folder" ? (
             <>
               <span className="muted" style={{ lineHeight: 1.5 }}>
-                A folder on this Mac or on a drive. For an external drive, Keepr waits while it's unplugged and catches up when it's back.
+                A folder on this {MACHINE} or on a drive. For an external drive, Keepr waits while it's unplugged and catches up when it's
+                back.
               </span>
               <div className="row">
                 <div className="input grow mono ellipsis" style={{ display: "flex", alignItems: "center" }}>
@@ -546,7 +554,7 @@ export function AddDestination({
               <SmbFields f={smbForm} busy={!!busy} editing={!!editing} />
               <label className="check">
                 <input type="checkbox" checked={keychain} onChange={(e) => setKeychain(e.target.checked)} />
-                Save the password in my Keychain
+                Save the password in {MACHINE === "Mac" ? "my Keychain" : "Credential Manager"}
               </label>
             </>
           )}

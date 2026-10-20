@@ -41,7 +41,8 @@ fn stills_dir() -> PathBuf {
     PathBuf::from(home).join("Library/Caches/Keepr/still")
 }
 
-pub fn take() -> Result<Still, String> {
+/// Takes the copy. It is always of the Data volume, where `on_data_volume` has found the folders.
+pub fn take(_roots: &[PathBuf]) -> Result<Still, String> {
     let out = Command::new("/usr/bin/tmutil").arg("localsnapshot").output().map_err(|e| e.to_string())?;
     let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
     let date = parse_date(&text).ok_or_else(|| format!("macOS didn't make a snapshot: {}", text.trim()))?;

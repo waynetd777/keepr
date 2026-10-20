@@ -2,10 +2,12 @@
 // See LICENSE for the full text.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The help drawer: `?`, the toolbar's ? button or Help › Keepr Help (⌘?) opens it on the right, on
-// the current screen's topic. Typing filters its sections and searches every topic; below them,
-// the getting-started guides (one step at a time) and the screen's keys. It stays open while you
-// follow a link into the app, so a guide can be walked through; Esc or × closes it.
+// The help drawer: `?`, the toolbar's ? button or Help › Keepr Help (⌘?; on Windows, which has no
+// Help menu, Ctrl+? here and the notification-area panel's Keepr Help) opens it on the right, on
+// the current screen's topic. Under the search box, Getting started (the guides, one step at a
+// time) and a picker of every topic; Keyboard shortcuts is one of them, opened at the screen's
+// keys. One section is open at a time. It stays open while you follow a link into the app, so a
+// guide can be walked through; Esc or × closes it.
 
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from "react";
@@ -15,10 +17,12 @@ import { on } from "../api";
 import { useApp, type Screen } from "../context";
 import { Icon } from "../icons";
 import { ClearButton } from "../ui";
-import { appLink, GUIDES, helpUrl, HelpSection, HelpTopic, KEYS, searchHelp, TOPICS, topicFor } from ".";
+import { isMac } from "../platform";
+import { appLink, GUIDES, helpUrl, HelpSection, HelpTopic, keyRows, searchHelp, TOPICS, topicFor } from ".";
 
-/** What the drawer shows: a topic (the screen's when none is named), or a guide at a step. */
-export type HelpView = { topic?: string; guide?: string; step?: number };
+/** What the drawer shows: a topic (the screen's when none is named), the list of guides (`start`),
+ *  or a guide at a step. */
+export type HelpView = { topic?: string; guide?: string; step?: number; start?: boolean };
 
 let view: HelpView | null = null;
 const subs = new Set<() => void>();
@@ -41,7 +45,7 @@ export const closeHelp = () => view && set(null);
 /** Whether the drawer is open: Ask, which opens where it does, closes when it opens. */
 export const useHelpOpen = () => useView() !== null;
 
-/** The guides finished, kept in this Mac's webview: only a tick in the list rides on it. */
+/** The guides finished, kept in this computer's webview: only a tick in the list rides on it. */
 const DONE_KEY = "keepr.helpGuides";
 function doneGuides(): Record<string, boolean> {
   try {
@@ -58,9 +62,10 @@ function markDone(id: string) {
   }
 }
 
-/** The keyboard section for a screen, besides Anywhere. */
+/** The keyboard topic's section to open on a screen; Anywhere for the rest. */
 const KEY_SECTION: Partial<Record<Screen["name"], string>> = {
   restore: "Restore",
+  sizemap: "Size Map",
 };
 
 function HelpText({ text }: { text: string }) {
@@ -99,31 +104,27 @@ function HelpText({ text }: { text: string }) {
   );
 }
 
-function Section({ s, open }: { s: HelpSection; open?: boolean }) {
+/** With `onToggle`, the drawer decides what is open (one section at a time), and a click on the
+ *  title asks it. */
+function Section({ s, open, onToggle, keys }: { s: HelpSection; open?: boolean; onToggle?: () => void; keys?: boolean }) {
+  // A keyboard section's `- `⌘K` — Find a file` lines, as rows with the keys at the right.
+  const rows = keys ? keyRows(s.body) : [];
   return (
     <details className="help-sec" open={open}>
-      <summary>
+      <summary
+        onClick={
+          onToggle &&
+          ((e) => {
+            e.preventDefault();
+            onToggle();
+          })
+        }
+      >
         <Icon name="forward" size={13} stroke={2} className="help-chev" />
         {s.title}
       </summary>
-      <HelpText text={s.body} />
-    </details>
-  );
-}
-
-function Keys({ screen }: { screen: Screen["name"] }) {
-  const wanted = ["Anywhere", KEY_SECTION[screen]].filter(Boolean);
-  return (
-    <section className="help-block">
-      <div className="help-blockhead">
-        <span className="help-eyebrow">Keyboard</span>
-        <button className="btn small" title="Show every keyboard shortcut" onClick={() => openHelp({ topic: "keyboard" })}>
-          All shortcuts
-        </button>
-      </div>
-      {KEYS.filter(([t]) => wanted.includes(t)).map(([t, rows]) => (
-        <div key={t} className="help-keys">
-          {wanted.length > 1 && <div className="faint small">{t}</div>}
+      {rows.length ? (
+        <div className="help-keys">
           {rows.map(([k, what]) => (
             <div key={k + what} className="help-key">
               <span>{what}</span>
@@ -137,8 +138,10 @@ function Keys({ screen }: { screen: Screen["name"] }) {
             </div>
           ))}
         </div>
-      ))}
-    </section>
+      ) : (
+        <HelpText text={s.body} />
+      )}
+    </details>
   );
 }
 
@@ -146,7 +149,7 @@ function GuideList() {
   const done = doneGuides();
   return (
     <section className="help-block">
-      <span className="help-eyebrow">Getting started</span>
+      <HelpText text="Each guide walks you through part of Keepr a step at a time, with links that take you to the screen it's about while the help stays open." />
       <div className="help-guides">
         {GUIDES.map((g) => (
           <button
@@ -200,7 +203,7 @@ function Guide({ g, step }: { g: HelpTopic; step: number }) {
           onClick={() => {
             if (!last) return openHelp({ guide: g.id, step: at + 1 });
             markDone(g.id);
-            openHelp({});
+            openHelp({ start: true });
           }}
         >
           {last ? "Done" : "Next"}
@@ -239,6 +242,13 @@ export function HelpDrawer() {
         set(null);
         return;
       }
+      // Ctrl+? on Windows, where macOS's ⌘? comes from the Help menu: some layouts report the
+      // key under Ctrl as "/".
+      if (!isMac && e.ctrlKey && !e.altKey && (e.key === "?" || (e.shiftKey && e.key === "/"))) {
+        toggleHelp();
+        e.preventDefault();
+        return;
+      }
       if (e.key !== "?" || e.metaKey || e.ctrlKey || e.altKey) return;
       if ((e.target as HTMLElement)?.closest?.("input, textarea, select, [contenteditable]")) return;
       toggleHelp();
@@ -251,47 +261,42 @@ export function HelpDrawer() {
       un();
     };
   }, []);
-  useEffect(() => setQ(""), [v?.topic, v?.guide]);
-
+  useEffect(() => setQ(""), [v?.topic, v?.guide, v?.start]);
+  const guide = v?.guide ? GUIDES.find((g) => g.id === v.guide) : undefined;
+  const topic = (v?.topic && TOPICS.find((t) => t.id === v.topic)) || topicFor(screen.name);
+  // The one section open in the topic: opening another closes it. It starts as the topic's first,
+  // or for Keyboard shortcuts the screen's keys, and again whenever the topic changes.
+  const first = topic?.id === "keyboard" ? (KEY_SECTION[screen.name] ?? "Anywhere") : topic?.sections[0]?.title;
+  const [opened, setOpened] = useState<{ topic?: string; title: string | null }>({ title: null });
   if (!v) return null;
-  const guide = v.guide ? GUIDES.find((g) => g.id === v.guide) : undefined;
-  const topic = (v.topic && TOPICS.find((t) => t.id === v.topic)) || topicFor(screen.name);
   const query = q.trim();
-  const title = guide ? guide.title : topic ? topic.title : "Help";
+  const title = guide ? guide.title : v.start ? "Getting started" : topic ? topic.title : "Help";
+  const openTitle = opened.topic === topic?.id ? opened.title : first;
 
   let body: ReactNode;
   if (query) body = <Results q={query} />;
   else if (guide) body = <Guide g={guide} step={v.step ?? 0} />;
-  else
+  else if (v.start) body = <GuideList />;
+  else if (topic)
     body = (
-      <>
-        {topic && (
-          <section className="help-block">
-            {topic.intro && <HelpText text={topic.intro} />}
-            {topic.sections.map((s, i) => (
-              <Section key={`${topic.id}:${s.title}`} s={s} open={i === 0} />
-            ))}
-          </section>
-        )}
-        <GuideList />
-        <Keys screen={screen.name} />
-        <section className="help-block">
-          <span className="help-eyebrow">All topics</span>
-          <div className="help-topics">
-            {TOPICS.filter((t) => t.kind === "screen" && t.id !== topic?.id).map((t) => (
-              <button key={t.id} className="chip" title={t.summary} onClick={() => openHelp({ topic: t.id })}>
-                {t.title}
-              </button>
-            ))}
-          </div>
-        </section>
-      </>
+      <section className="help-block">
+        {topic.intro && <HelpText text={topic.intro} />}
+        {topic.sections.map((s) => (
+          <Section
+            key={`${topic.id}:${s.title}`}
+            s={s}
+            open={s.title === openTitle}
+            keys={topic.id === "keyboard"}
+            onToggle={() => setOpened({ topic: topic.id, title: s.title === openTitle ? null : s.title })}
+          />
+        ))}
+      </section>
     );
 
   return (
     <aside className="help-drawer" aria-label="Help">
       <div className="help-head">
-        {(guide || v.topic) && (
+        {(guide || v.topic || v.start) && (
           <button
             className="iconbtn"
             aria-label="Back to this screen's help"
@@ -303,7 +308,7 @@ export function HelpDrawer() {
         )}
         <h2>
           {title}
-          <span className="faint"> — {guide ? "getting started" : "help"}</span>
+          {!v.start && <span className="faint"> — {guide ? "getting started" : "help"}</span>}
         </h2>
         <button className="iconbtn" aria-label="Close help" title="Close help (Esc)" onClick={() => set(null)}>
           <Icon name="close" stroke={2} />
@@ -313,6 +318,32 @@ export function HelpDrawer() {
         <Icon name="search" size={15} stroke={2} />
         <input aria-label="Search the help" placeholder="Search the help" value={q} onChange={(e) => setQ(e.target.value)} />
         {q && <ClearButton onClick={() => setQ("")} />}
+      </div>
+      <div className="help-nav">
+        <button
+          className={`btn${guide || v.start ? " on" : ""}`}
+          title="Step-by-step guides to everything Keepr does"
+          onClick={() => openHelp({ start: true })}
+        >
+          <Icon name="play" size={12} />
+          Getting started
+        </button>
+        <select
+          className="input help-pick"
+          aria-label="Help topic"
+          title="Open the help for another part of Keepr"
+          value={guide || v.start ? "" : (topic?.id ?? "")}
+          onChange={(e) => e.target.value && openHelp({ topic: e.target.value })}
+        >
+          <option value="" disabled>
+            All topics
+          </option>
+          {TOPICS.filter((t) => t.kind === "screen").map((t) => (
+            <option key={t.id} value={t.id} title={t.summary}>
+              {t.title}
+            </option>
+          ))}
+        </select>
       </div>
       <div className="help-body">{body}</div>
     </aside>

@@ -2,15 +2,17 @@
 // See LICENSE for the full text.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Shared controls: the app's own tooltip (never macOS's), switches, segmented controls, sheets,
-// pop-up menus and a toast for passing messages.
+// Shared controls: the app's own tooltip (never the system's), switches, segmented controls,
+// sheets, pop-up menus and a toast for passing messages.
 
 import { api, type JobStatus, type Queued } from "./api";
+import { isMac, shortcut } from "./platform";
 import { Icon } from "./icons";
 import { secondsLeft } from "./format";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-/** Every tooltip in the app. Give an element a `title` (or an icon-only button an aria-label). */
+/** Every tooltip in the app. Give an element a `title` (or an icon-only button an aria-label).
+ *  Shortcuts in it are written as macOS does ("⌘K"), and read as Windows' ("Ctrl+K") there. */
 export function Tooltips() {
   const [tip, setTip] = useState<{ text: string; x: number; y: number; side: "below" | "above" | "right" } | null>(null);
   useEffect(() => {
@@ -31,8 +33,9 @@ export function Tooltips() {
         t.dataset.tip = t.title;
         t.removeAttribute("title");
       }
-      const text = t.dataset.tip || (!t.textContent?.trim() ? t.getAttribute("aria-label") : null);
-      if (!text) return;
+      const raw = t.dataset.tip || (!t.textContent?.trim() ? t.getAttribute("aria-label") : null);
+      if (!raw) return;
+      const text = shortcut(raw);
       el = t;
       timer = window.setTimeout(() => {
         if (el !== t || !t.isConnected || document.documentElement.dataset.scene) return;
@@ -194,6 +197,183 @@ export function useMenu() {
     [at],
   );
   return { open, openAt, close: () => setAt(null), Menu, isOpen: !!at };
+}
+
+type SelectItem = { value: string; label: string; disabled: boolean; group: string | null };
+
+/** Every select in the window opens Keepr's own menu on Windows, where Edge's engine draws the
+ *  system's list (square, in the system font, with a grey highlight). The select itself stays,
+ *  closed, as each screen styles it, and keeps the keyboard's up and down; a click, Space, Enter,
+ *  Alt+Down or F4 opens the menu in its place. The menu lists the select's own options (and
+ *  groups), and picking one sets the select's value and sends the change React listens for, so
+ *  the screens' selects need nothing of their own. macOS keeps its native menus. Mounted once per
+ *  window. */
+export function SelectMenus() {
+  const [open, setOpen] = useState<{ el: HTMLSelectElement; items: SelectItem[]; active: number; rect: DOMRect } | null>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const typed = useRef({ text: "", at: 0 });
+  // The select whose menu is open, for the click handler set up once below.
+  const openFor = useRef<HTMLSelectElement | null>(null);
+  useEffect(() => {
+    openFor.current = open?.el ?? null;
+  }, [open]);
+  useEffect(() => {
+    if (isMac) return;
+    const items = (el: HTMLSelectElement): SelectItem[] =>
+      [...el.options].map((o) => ({
+        value: o.value,
+        label: o.label || o.text,
+        disabled: o.disabled,
+        group: o.parentElement instanceof HTMLOptGroupElement ? o.parentElement.label : null,
+      }));
+    const show = (el: HTMLSelectElement) => {
+      if (el.disabled) return;
+      const list = items(el);
+      el.focus();
+      setOpen({
+        el,
+        items: list,
+        active: Math.max(
+          0,
+          list.findIndex((i) => i.value === el.value),
+        ),
+        rect: el.getBoundingClientRect(),
+      });
+    };
+    const down = (e: MouseEvent) => {
+      const el = (e.target as HTMLElement).closest?.("select");
+      if (!(el instanceof HTMLSelectElement) || e.button !== 0) return;
+      e.preventDefault();
+      // A second click on the same select closes its menu; a click on another opens that one's.
+      if (openFor.current === el) setOpen(null);
+      else show(el);
+    };
+    const key = (e: KeyboardEvent) => {
+      const el = e.target;
+      if (!(el instanceof HTMLSelectElement) || openFor.current) return;
+      if (e.key === " " || e.key === "Enter" || e.key === "F4" || (e.altKey && e.key === "ArrowDown")) {
+        e.preventDefault();
+        show(el);
+      }
+    };
+    window.addEventListener("mousedown", down, true);
+    window.addEventListener("keydown", key, true);
+    return () => {
+      window.removeEventListener("mousedown", down, true);
+      window.removeEventListener("keydown", key, true);
+    };
+  }, []);
+  const pick = useCallback(
+    (i: number) => {
+      const item = open?.items[i];
+      if (!open || !item || item.disabled) return;
+      if (item.value !== open.el.value) {
+        // Through the element's own setter, so React sees a change it didn't make.
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(open.el, item.value);
+        open.el.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      setOpen(null);
+      open.el.focus();
+    },
+    [open],
+  );
+  useEffect(() => {
+    if (!open) return;
+    const step = (from: number, by: number) => {
+      for (let i = from + by; i >= 0 && i < open.items.length; i += by) if (!open.items[i].disabled) return i;
+      return from;
+    };
+    const key = (e: KeyboardEvent) => {
+      const k = e.key;
+      if (k === "Escape" || k === "Tab") {
+        if (k === "Escape") e.preventDefault();
+        setOpen(null);
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      if (k === "ArrowDown") setOpen((o) => o && { ...o, active: step(o.active, 1) });
+      else if (k === "ArrowUp") setOpen((o) => o && { ...o, active: step(o.active, -1) });
+      else if (k === "Home") setOpen((o) => o && { ...o, active: step(-1, 1) });
+      else if (k === "End") setOpen((o) => o && { ...o, active: step(o.items.length, -1) });
+      else if (k === "Enter" || k === " ") pick(open.active);
+      else if (k.length === 1) {
+        // Typing jumps to the first item that starts with what's been typed in the last second.
+        const t = typed.current;
+        t.text = (Date.now() - t.at < 1000 ? t.text : "") + k.toLowerCase();
+        t.at = Date.now();
+        const i = open.items.findIndex((it) => !it.disabled && it.label.toLowerCase().startsWith(t.text));
+        if (i >= 0) setOpen((o) => o && { ...o, active: i });
+      }
+    };
+    const away = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (!panel.current?.contains(t) && !t.closest?.("select")) setOpen(null);
+    };
+    const gone = () => setOpen(null);
+    // Scrolling the page moves the select from under its menu; scrolling the menu doesn't.
+    const scrolled = (e: Event) => !panel.current?.contains(e.target as Node) && setOpen(null);
+    window.addEventListener("keydown", key, true);
+    window.addEventListener("mousedown", away, true);
+    window.addEventListener("resize", gone);
+    window.addEventListener("scroll", scrolled, true);
+    return () => {
+      window.removeEventListener("keydown", key, true);
+      window.removeEventListener("mousedown", away, true);
+      window.removeEventListener("resize", gone);
+      window.removeEventListener("scroll", scrolled, true);
+    };
+  }, [open, pick]);
+  // The chosen item in view, as the list opens and as the keys move.
+  useEffect(() => {
+    panel.current?.querySelector(".active")?.scrollIntoView({ block: "nearest" });
+  }, [open?.active]);
+  if (!open) return null;
+  const { rect, items, active, el } = open;
+  const width = Math.max(rect.width, 180);
+  const below = window.innerHeight - rect.bottom - 12;
+  const above = rect.top - 12;
+  const want = Math.min(items.length * 33 + 14 + new Set(items.map((i) => i.group).filter(Boolean)).size * 30, 360);
+  const up = below < want && above > below;
+  const maxHeight = Math.min(want, up ? above : below);
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+  return (
+    <div
+      ref={panel}
+      className="menu select-menu"
+      role="listbox"
+      aria-label={el.getAttribute("aria-label") ?? undefined}
+      style={{
+        position: "fixed",
+        left,
+        width,
+        maxHeight,
+        overflowY: "auto",
+        ...(up ? { bottom: window.innerHeight - rect.top + 4 } : { top: rect.bottom + 4 }),
+      }}
+    >
+      {items.map((it, i) => {
+        const head = it.group && (i === 0 || items[i - 1].group !== it.group) ? it.group : null;
+        return (
+          <div key={`${it.group}:${it.value}`} style={{ display: "contents" }}>
+            {head && <div className="select-group">{head}</div>}
+            <button
+              type="button"
+              role="option"
+              aria-selected={it.value === el.value}
+              disabled={it.disabled}
+              className={i === active ? "active" : ""}
+              onMouseEnter={() => setOpen((o) => o && { ...o, active: i })}
+              onClick={() => pick(i)}
+            >
+              <span className="grow ellipsis">{it.label}</span>
+              {it.value === el.value && <Icon name="check" size={13} stroke={2.4} />}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 /** useMenu's menu itself, at a point on the window. */
@@ -391,8 +571,7 @@ export function StopButton({
   const title = stopping ? "Finishing the current file, then stopping" : "Stop. Nothing half-done is kept as a snapshot.";
   return (
     <button
-      className={`btn${small ? " small" : ""}`}
-      style={iconOnly ? { width: 30, padding: 0 } : undefined}
+      className={`btn${small ? " small" : ""}${iconOnly ? " square" : ""}`}
       disabled={stopping}
       aria-label={iconOnly ? (stopping ? "Stopping" : label) : undefined}
       title={title}
@@ -430,7 +609,8 @@ export function ClearButton({ onClick }: { onClick: () => void }) {
 /** Stands in for a saved password in a password field: never sent, the saved one is used. */
 export const SAVED_PASSWORD = "••••••••";
 
-/** When a server is chosen, fill in a login already saved for it (Keepr's or Finder's) and list
+/** When a server is chosen, fill in a login already saved for it (Keepr's, or Finder's on macOS and
+ *  Windows' own on Windows) and list
  *  its shares. `password` shows SAVED_PASSWORD until someone types a new one. */
 export function useSavedLogin(
   server: string,
@@ -440,7 +620,7 @@ export function useSavedLogin(
   onShares: (s: string[]) => void,
   onMessage: (m: string) => void,
 ) {
-  const [source, setSource] = useState<"keepr" | "finder" | null>(null);
+  const [source, setSource] = useState<"keepr" | "finder" | "windows" | null>(null);
   useEffect(() => {
     const host = server.trim();
     if (!host) return;

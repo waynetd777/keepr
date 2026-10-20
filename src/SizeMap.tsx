@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { MapDir } from "./api";
 import { bytes, count, tilde } from "./format";
+import { cmdKey, isAbsolute, shortcut } from "./platform";
 import { delta, landed, sinceWhen } from "./growth";
 import { AskButton, AskIcon } from "./AskButton";
 import { Icon } from "./icons";
@@ -159,7 +160,7 @@ export default function SizeMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load, here]);
 
-  const label = (name: string) => (name.startsWith("/") ? tilde(name, home) : name);
+  const label = (name: string) => (isAbsolute(name) ? tilde(name, home) : name);
   const unit = stored ? "file version" : "file";
   const title = (b: Block) =>
     b.kind === "files" ? count(b.dir.looseFiles, unit) : b.kind === "more" ? `${count(b.dir.more, "more folder")}` : label(b.dir.name);
@@ -283,7 +284,7 @@ export default function SizeMap({
     if (!hit) return;
     const { b, el } = hit;
     if (b.dir.special && b.kind === "dir") return;
-    if (e.metaKey || b.kind !== "dir") onShow(b.dir.path);
+    if (cmdKey(e) || b.kind !== "dir") onShow(b.dir.path);
     else if (el.classList.contains("zoom")) zoom(b.dir);
   };
   const onMove = (e: React.MouseEvent) => {
@@ -326,7 +327,7 @@ export default function SizeMap({
         `<div class="r"><span>${sizeName}</span><b>${bytes(d.size)}</b><span>${stored ? "File versions" : "Files"}</span><b>${d.files.toLocaleString()}</b>` +
         (d.grew && tree ? `<span>${esc(cap(sinceWhen(tree)))}</span><b>${delta(d.grew)}</b>` : "") +
         `</div>` +
-        `<div class="hint">${el.classList.contains("zoom") ? "Click to zoom in · " : ""}⌘-click to ${showHint}</div>`;
+        `<div class="hint">${el.classList.contains("zoom") ? "Click to zoom in · " : ""}${shortcut("⌘-click")} to ${showHint}</div>`;
     }
     tip.innerHTML = html;
     tip.hidden = false;

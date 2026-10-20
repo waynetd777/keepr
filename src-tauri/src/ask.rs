@@ -156,8 +156,12 @@ fn survey(repo: &Repo, tree: Id, listed: &HashSet<String>, key: String, read: &d
 /// /Network) can wait minutes on one that has gone away, and the context would wait with it. A
 /// project on another disk is said to be not in one, as if it weren't on this Mac.
 fn gitignored(path: &str) -> Option<bool> {
-    let p = Path::new(path);
-    if !on_startup_disk(p) || !p.is_dir() {
+    if !on_startup_disk(Path::new(path)) {
+        return None;
+    }
+    let native = keepr_engine::paths::native(path);
+    let p = native.as_path();
+    if !p.is_dir() {
         return None;
     }
     let root = p.ancestors().find(|a| a.join(".git").exists())?;
@@ -176,8 +180,13 @@ fn gitignored(path: &str) -> Option<bool> {
 }
 
 /// Whether a path is on the startup disk, judged by its name alone so that nothing is asked of a
-/// disk or share that may not answer.
+/// disk or share that may not answer. On Windows an app path on the system drive starts with one
+/// "/" (keepr_engine::paths); another drive's starts with its letter, a share's with "//".
 fn on_startup_disk(p: &Path) -> bool {
+    if cfg!(windows) {
+        let s = p.to_string_lossy();
+        return s.starts_with('/') && !s.starts_with("//");
+    }
     p.is_absolute() && !p.starts_with("/Volumes") && !p.starts_with("/Network")
 }
 
@@ -842,7 +851,10 @@ pub fn check(core: &Core, raw: &serde_json::Value) -> Result<Checked, String> {
         warnings.push(format!("{} won't back up on its own any more: only when you ask it to.", a.name));
     }
     if !b.skip_cloud_only && a.skip_cloud_only {
-        warnings.push("Cloud-only files will be downloaded to back them up, which takes space on this Mac and time.".into());
+        warnings.push(format!(
+            "Cloud-only files will be downloaded to back them up, which takes space on this {} and time.",
+            if cfg!(windows) { "PC" } else { "Mac" }
+        ));
     }
     let mut snapshots = None;
     if a.retention != b.retention {
@@ -1121,8 +1133,13 @@ mod tests {
 
     #[test]
     fn folders_off_the_startup_disk_arent_looked_at() {
-        assert!(!on_startup_disk(Path::new("/Volumes/Media/Projects/app")));
-        assert!(!on_startup_disk(Path::new("/Network/Servers/nas/app")));
+        if cfg!(windows) {
+            assert!(!on_startup_disk(Path::new("D:/Media/Projects/app")));
+            assert!(!on_startup_disk(Path::new("//nas/Projects/app")));
+        } else {
+            assert!(!on_startup_disk(Path::new("/Volumes/Media/Projects/app")));
+            assert!(!on_startup_disk(Path::new("/Network/Servers/nas/app")));
+        }
         assert!(!on_startup_disk(Path::new("s3://bucket/app")));
         assert!(on_startup_disk(Path::new("/Users/me/Projects/app")));
         assert_eq!(gitignored("/Volumes/keepr-no-such-share/app"), None);

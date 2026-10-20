@@ -13,18 +13,18 @@ Restore shows your files as they were at any backup, and puts back whichever you
 - **Earlier** and **Later**, or `←` and `→`, step through the snapshots; **Latest** goes back to the newest.
 - The strip shows as many days as fit, up to ten, one bar per snapshot, taller for more new data. Click a bar to go to that snapshot.
 - **Find in** searches this snapshot by name.
-- **Show deleted files** also lists files that were in an earlier snapshot but not this one, however long ago they went, struck through. A deleted folder opens to show what it last held. At the latest snapshot they show as **Not on Mac**, ready to restore or to remove from the backup.
+- **Show deleted files** also lists files that were in an earlier snapshot but not this one, however long ago they went, struck through. A deleted folder opens to show what it last held. At the latest snapshot they show as **Not on <!-- mac -->Mac<!-- /mac --><!-- github --> or <!-- /github --><!-- windows -->PC<!-- /windows -->**, ready to restore or to remove from the backup.
 
-Each file shows whether it's **New**, **Changed** or **Deleted** in this snapshot. At the latest snapshot the list is also checked against your Mac now: **Not on Mac** is in the backup but gone from the Mac, **Not backed up** is on the Mac but not in the backup yet.
+Each file shows whether it's **New**, **Changed** or **Deleted** in this snapshot. At the latest snapshot the list is also checked against your computer now: **Not on <!-- mac -->Mac<!-- /mac --><!-- github --> or <!-- /github --><!-- windows -->PC<!-- /windows -->** is in the backup but gone from the computer, **Not backed up** is on it but not in the backup yet.
 
 ## A file's versions
 Click a file to see every version kept of it, newest first. The one in the snapshot you're looking at is marked **In this snapshot**.
 
-- **Quick Look** (or `Space`) shows the version without restoring it. A big file is copied out of the backup first; **Cancel** stops that.
-- **Compare with current** compares it with the file on the Mac now: the lines that differ for a text file, or whether they're the same.
+- <!-- mac -->**Quick Look** (or `Space`) shows the version without restoring it.<!-- /mac --><!-- github --> On Windows: <!-- /github --><!-- windows -->**Open** (or `Space`) opens the version in its own app, without restoring it.<!-- /windows --> A big file is copied out of the backup first; **Cancel** stops that.
+- **Compare with current** compares it with the file on the computer now: the lines that differ for a text file, or whether they're the same.
 - **Restore this version** puts it back.
 
-**Show in Finder** opens the folder it's in on your Mac. Right-click a file or folder for all of these in one place, and for several ticked items at once.
+**Show in <!-- mac -->Finder<!-- /mac --><!-- github --> or <!-- /github --><!-- windows -->File Explorer<!-- /windows -->** opens the folder it's in on your computer. Right-click a file or folder for all of these in one place, and for several ticked items at once.
 
 ## Put files back
 Tick what you want back: files, folders, or a mix. A ticked folder comes back with everything in it. Ticks are for one snapshot: going to another clears them, and so does a removal or tidy-up that rewrites the snapshots. Then choose, in the bar at the bottom:
@@ -32,15 +32,17 @@ Tick what you want back: files, folders, or a mix. A ticked folder comes back wi
 - **Restore to**: **Original location**, or **Another folder…**.
 - **If a file is already there**: **Keep both (add "restored")**, **Replace it** or **Skip it**.
 
-Click **Restore**. A file only takes its real name once it's complete, so a stopped restore never leaves half a file. A deleted file comes from the last snapshot that had it. The restore shows in [Activity](app:activity), and in the top bar with **Pause** and **Stop**, as any running job is. Files backed up from an S3 bucket can only be restored to a folder on the Mac.
+Click **Restore**. A file only takes its real name once it's complete, so a stopped restore never leaves half a file. A deleted file comes from the last snapshot that had it. The restore shows in [Activity](app:activity), and in the top bar with **Pause** and **Stop**, as any running job is. Files backed up from an S3 bucket can only be restored to a folder on the computer.
 
 ## See what takes the space
-**Size map**, beside **Files** above the list, shows the snapshot as a map: each folder a block as big as what it holds. Click a folder to zoom in, the path bar to come back out. `⌘`-click a folder, or click a dashed block, to find it in **Files**. For every plan in one map, see [Size map](help:sizemap).
+**Size map**, beside **Files** above the list, shows the snapshot as a map: each folder a block as big as what it holds. Click a folder to zoom in, the path bar to come back out. ⌘-click a folder, or click a dashed block, to find it in **Files**. For every plan in one map, see [Size map](help:sizemap).
 
 ## Remove something from a backup
 **Remove from backup…**, under a file's or folder's versions, takes it out of every snapshot, to free the space or because it should never have been backed up. Keepr asks twice; it can't be undone. To stop it being backed up again, add a rule to the plan's What to leave out.
 
 Right-click a ticked item to remove all the ticked items at once; Keepr lists what will go before it asks. A folder with only some of what's in it ticked isn't removed whole: tick the folder itself to remove all of it. A folder, share or bucket the plan backs up can't be removed from here: take it out of the plan's folders instead, which asks whether to delete its backed-up data.
 
-## On another Mac
-To restore a backup made on another Mac, click **Open backup…** beside the plans here, then **Choose a source…**: the drive, share, cloud folder or bucket it's on. Pick the backup there, enter its password if it's encrypted, and it opens here as a plan that's turned off. Restore to **Another folder…**, since the original folders may not exist on this Mac. Turn the plan on to carry on backing up into it from here.
+## On another computer
+To restore a backup made on another computer, click **Open backup…** beside the plans here, then **Choose a source…**: the drive, share, cloud folder or bucket it's on. Pick the backup there, enter its password if it's encrypted, and it opens here as a plan that's turned off. Restore to **Another folder…**, since the original folders may not exist on this one. Turn the plan on to carry on backing up into it from here.
+
+A backup made on a Mac opens on a PC and the other way round. Its folders keep their names: a Mac's `/Users/alex/Documents` is `C:\Users\alex\Documents` on a PC, and a PC's folders on other drives (`D:\Photos`) have no place on a Mac, so restore to **Another folder…** there.

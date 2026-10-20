@@ -1,17 +1,19 @@
 # Features
 
-Keepr is a backup app for macOS. It keeps every version of the files you choose, on a drive, a NAS, a cloud folder or an S3 bucket, and lets you go back to any moment and restore any file as it was then. The first backup copies everything; after that, each one stores only what changed, and every snapshot still restores as a complete copy. Backups can be encrypted, so the place that holds them can't read them.
+Keepr is a backup app for macOS and Windows. It keeps every version of the files you choose, on a drive, a NAS, a cloud folder or an S3 bucket, and lets you go back to any moment and restore any file as it was then. The first backup copies everything; after that, each one stores only what changed, and every snapshot still restores as a complete copy. Backups can be encrypted, so the place that holds them can't read them.
 
 <a href="images/index.md#features"><picture><source media="(prefers-color-scheme: dark)" srcset="images/overview-dark.png"><img alt="Backup Plans: three plans with their last and next backups, the space they use, and the destinations" src="images/overview-light.png"></picture></a>
 
 | Page | What's in it |
 |---|---|
 | [Backup plans](plans.md) | What to back up and leave out, when, the versions to keep, encryption |
-| [Restore](restore.md) | Going back to a moment, a file's versions, comparing, finding a file in any backup, restoring on another Mac |
+| [Restore](restore.md) | Going back to a moment, a file's versions, comparing, finding a file in any backup, restoring on another computer |
 | [Destinations](destinations.md) | Folders and drives, SMB shares, cloud folders (iCloud Drive, Google Drive, OneDrive, Dropbox, Box…), S3, Backblaze B2 and Cloudflare R2 |
-| [Day to day](day-to-day.md) | The menu bar, Activity, notifications, Settings, and how the backups are stored |
+| [Day to day](day-to-day.md) | The menu bar, Activity, notifications, Settings, how the backups are stored, and what differs on Windows |
 
 ## First run
+
+### On a Mac
 
 Keepr isn't notarised by Apple, so the first time you open it macOS says it can't check the app for malicious software. Click **Done**, open System Settings › Privacy & Security, scroll down and click **Open Anyway** beside Keepr, then **Open Anyway** again and enter your password. It opens normally after that.
 
@@ -27,11 +29,19 @@ macOS asks for some permissions along the way:
 
 To have Keepr start when you log in, turn on **Open at Login** in [Settings](day-to-day.md#settings) or the [menu bar](day-to-day.md#the-menu-bar).
 
+### On Windows
+
+Keepr's installer isn't signed by a publisher Windows knows, so SmartScreen may say it protected your PC: click **More info**, then **Run anyway**. It installs for you alone, with no administrator needed, and opens Keepr.
+
+Windows asks for nothing more. Keepr keeps its passwords and keys in Credential Manager, which needs no permission, and reads every folder you can; one only an administrator can open is logged as not read. Keepr's icon is in the notification area, at the right of the taskbar (under the ^ when Windows tucks icons away): drag it out to keep it in sight.
+
+To have Keepr start when you sign in, turn on **Open at Login** in [Settings](day-to-day.md#settings) or the [notification-area panel](day-to-day.md#the-menu-bar). What else differs from a Mac is in [On Windows](day-to-day.md#on-windows).
+
 ## The window
 
-The sidebar has **Backup Plans** (⌘1), **Size Map** (⌘2), **Restore** (⌘3), **Activity** (⌘4) and **Destinations** (⌘5), with **Settings** (⌘,) at the bottom. The toolbar has **Back** (⌘[) and **Forward** (⌘]), a search box, **Find a file in any backup** (⌘K), **Back up now** (⌘B), which backs up every plan that's on, and **Ask** (⌘J). While a backup runs, the toolbar shows its progress with **Pause** and **Stop**. The **?** at its right end, or `?`, opens [help](day-to-day.md#help) for the screen you're on.
+The sidebar has **Backup Plans** (⌘1), **Size Map** (⌘2), **Restore** (⌘3), **Activity** (⌘4) and **Destinations** (⌘5), with **Settings** (⌘,) at the bottom. On Windows Ctrl takes the place of ⌘ in every shortcut. The toolbar has **Back** (⌘[) and **Forward** (⌘]), a search box, **Find a file in any backup** (⌘K), **Back up now** (⌘B), which backs up every plan that's on, and **Ask** (⌘J). While a backup runs, the toolbar shows its progress with **Pause** and **Stop**. The **?** at its right end, or `?`, opens [help](day-to-day.md#help) for the screen you're on.
 
-Closing the window doesn't quit Keepr: it leaves the Dock and keeps backing up from the [menu bar](day-to-day.md#the-menu-bar). Click Keepr in the Dock or the menu bar to bring the window back, and use **Quit Keepr** in the menu bar or the Keepr menu (⌘Q) to stop it; it asks first.
+Closing the window doesn't quit Keepr: it leaves the Dock and keeps backing up from the [menu bar](day-to-day.md#the-menu-bar). Click Keepr in the Dock or the menu bar to bring the window back, and use **Quit Keepr** in the menu bar or the Keepr menu (⌘Q) to stop it; it asks first. On Windows it keeps backing up from the notification area: opening Keepr again (from the Start menu, say) brings its window back, and **Quit Keepr** in the notification-area panel stops it.
 
 ## Backup Plans
 
@@ -43,7 +53,7 @@ Each plan has a card with its sources and destination, and:
 - A chart of the last 30 days, one bar per day, taller for more data sent. A red bar is a backup that didn't finish, a stub a day without one. Hover over a bar for that day's backups.
 - **Edit…** for the plan's settings, **Restore…**, and a button to back it up now, or stop it while it runs.
 
-A plan that's turned off has a yellow **Off** chip. A plan that has failed, is waiting (for its drive, say) or hasn't backed up for a while shows as a compact red or amber card with the reason and **Try again**. A new plan you've started but not created shows as a banner, with **Continue** and **Discard**; it's kept only while Keepr is open. Drag a card by its grip to change the order of your plans; Restore, the menu bar and the rest follow it. **Add a plan** (⌘N) is at the end, and **Open backup…** in the toolbar opens a backup made on another Mac (see [On another Mac](restore.md#on-another-mac)).
+A plan that's turned off has a yellow **Off** chip. A plan that has failed, is waiting (for its drive, say) or hasn't backed up for a while shows as a compact red or amber card with the reason and **Try again**. A new plan you've started but not created shows as a banner, with **Continue** and **Discard**; it's kept only while Keepr is open. Drag a card by its grip to change the order of your plans; Restore, the menu bar and the rest follow it. **Add a plan** (⌘N) is at the end, and **Open backup…** in the toolbar opens a backup made on another computer (see [On another computer](restore.md#on-another-computer)).
 
 On the right are **Space used**, across every plan, each destination with its free space, and **Recent**, the last few backups; **All activity** opens [Activity](day-to-day.md#activity).
 
@@ -55,7 +65,7 @@ On the right are **Space used**, across every plan, each destination with its fr
 
 <a href="images/index.md#features"><picture><source media="(prefers-color-scheme: dark)" srcset="images/ask-dark.png"><img alt="Ask beside the Size Map, with suggested questions about what takes the space" src="images/ask-light.png"></picture></a>
 
-**Ask** in the toolbar (⌘J) opens a chat at the side of the window, answered by an AI tool already installed and signed in on the Mac: Claude Code, Codex, Antigravity or GitHub Copilot, with no tools of its own and nothing to read but the message. Ask what takes the space, why a backup grew or failed, or how to do something in Keepr; the **Ask** buttons on the Size Map and on a run in Activity start a chat about that folder or run.
+**Ask** in the toolbar (⌘J) opens a chat at the side of the window, answered by an AI tool already installed and signed in on the computer: Claude Code, Codex, Antigravity or GitHub Copilot, with no tools of its own and nothing to read but the message. Ask what takes the space, why a backup grew or failed, or how to do something in Keepr; the **Ask** buttons on the Size Map and on a run in Activity start a chat about that folder or run.
 
 The question goes with Keepr's figures: each plan's settings and status, its biggest folders with their size, growth and stored space, their file types by size, when they last changed and whether a project's .gitignore lists them, folder names that repeat (node_modules in 40 places), and the recent runs. Files aren't named, except in your own rules and when you click Ask on a run in Activity, which sends its message and the end of its log; the recent runs go with their paths taken out. Nothing of the files' contents is sent. The help's Ask page lists exactly what goes. A plan can be left out of Ask, and Ask can be turned off in Settings.
 
@@ -63,7 +73,7 @@ An answer can suggest a change to a plan: rules to leave things out, a size limi
 
 ## Requirements
 
-A Mac with Apple silicon (M1 or later) and macOS 13 or later.
+A Mac with Apple silicon (M1 or later) and macOS 13 or later, or a PC with Windows 10 or 11 (64-bit).
 
 ## Licence and credits
 

@@ -23,7 +23,6 @@ use crate::{cancelled, Error, Id, Result};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
@@ -131,6 +130,9 @@ pub struct Changes {
 impl Changes {
     pub fn from_events(paths: impl IntoIterator<Item = PathBuf>, rescan: Vec<PathBuf>) -> Changes {
         let mut touched = HashSet::new();
+        // In the app's form (paths.rs), as the walk asks about folders.
+        let paths = paths.into_iter().map(|p| PathBuf::from(crate::paths::app(&p)));
+        let rescan: Vec<PathBuf> = rescan.iter().map(|p| PathBuf::from(crate::paths::app(p))).collect();
         for p in paths {
             let mut cur = Some(p.as_path());
             while let Some(c) = cur {
@@ -193,18 +195,40 @@ impl Control {
 }
 
 /// macOS's flag for a file whose contents are in the cloud only.
+#[cfg(target_os = "macos")]
 const SF_DATALESS: u32 = 0x4000_0000;
+
+/// Whether a file's contents are only in the cloud: macOS's dataless flag, or on Windows the
+/// attributes cloud files carry until they're downloaded (recall on open or on reading, offline).
+fn dataless(m: &fs::Metadata) -> bool {
+    #[cfg(target_os = "macos")]
+    return std::os::macos::fs::MetadataExt::st_flags(m) & SF_DATALESS != 0;
+    #[cfg(windows)]
+    return std::os::windows::fs::MetadataExt::file_attributes(m) & (0x0040_0000 | 0x0004_0000 | 0x0000_1000) != 0;
+    #[allow(unreachable_code)]
+    {
+        let _ = m;
+        false
+    }
+}
 
 /// The attribute an app sets (through `CSBackupSetItemExcluded` or `tmutil addexclusion`) on an
 /// item backups should skip.
+#[cfg(target_os = "macos")]
 const EXCLUDE_ITEM: &[u8] = b"com.apple.metadata:com_apple_backup_excludeItem\0";
 
 /// Whether an app has marked this item for backups to skip. Only the attribute's presence
-/// matters, so this asks for its size and reads nothing.
+/// matters, so this asks for its size and reads nothing. Windows has no such mark.
+#[cfg(target_os = "macos")]
 fn marked(p: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt;
     let Ok(c) = std::ffi::CString::new(p.as_os_str().as_bytes()) else { return false };
     unsafe { libc::getxattr(c.as_ptr(), EXCLUDE_ITEM.as_ptr().cast(), std::ptr::null_mut(), 0, 0, libc::XATTR_NOFOLLOW) >= 0 }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn marked(_p: &Path) -> bool {
+    false
 }
 
 /// A plan's "leave out" rules: a name ("*.tmp"), a folder name ("node_modules/") or a path
@@ -217,15 +241,20 @@ pub struct Excluder {
 
 impl Excluder {
     pub fn new(patterns: &[String]) -> Result<Excluder> {
-        let home = std::env::var("HOME").unwrap_or_default();
+        let home = crate::paths::home();
         let (mut names, mut dirs, mut paths) =
             (globset::GlobSetBuilder::new(), globset::GlobSetBuilder::new(), globset::GlobSetBuilder::new());
         let glob = |p: &str| {
-            globset::GlobBuilder::new(p).literal_separator(true).build().map_err(|e| Error::new(format!("The rule {p:?} isn't valid: {e}")))
+            // Windows' names are the same in any case.
+            globset::GlobBuilder::new(p)
+                .literal_separator(true)
+                .case_insensitive(cfg!(windows))
+                .build()
+                .map_err(|e| Error::new(format!("The rule {p:?} isn't valid: {e}")))
         };
         for p in patterns.iter().map(|p| p.trim()).filter(|p| !p.is_empty()) {
             let p = if let Some(rest) = p.strip_prefix("~/") { format!("{home}/{rest}") } else { p.to_string() };
-            if p.starts_with('/') {
+            if crate::paths::is_absolute(&p) {
                 let base = p.trim_end_matches('/');
                 paths.add(glob(base)?);
                 paths.add(glob(&format!("{base}/**"))?);
@@ -257,8 +286,7 @@ fn gitignored(ignores: &[ignore::gitignore::Gitignore], path: &Path, is_dir: boo
 
 /// A file left out for being only in the cloud or too big.
 fn skips_file(opts: &Options, m: &fs::Metadata) -> bool {
-    (opts.skip_dataless && std::os::macos::fs::MetadataExt::st_flags(m) & SF_DATALESS != 0)
-        || opts.max_file_size.is_some_and(|max| m.size() > max)
+    (opts.skip_dataless && dataless(m)) || opts.max_file_size.is_some_and(|max| m.len() > max)
 }
 
 /// The rules a backup leaves things out by, for one folder: so a file there that isn't in the
@@ -274,7 +302,8 @@ impl<'a> Rules<'a> {
     pub fn for_dir(opts: &'a Options, dir: &Path) -> Result<Rules<'a>> {
         let mut ignores = vec![];
         if let Some(src) = opts.sources.iter().find(|s| dir.starts_with(s)).filter(|_| opts.gitignore) {
-            let mut d = src.clone();
+            // Read where the files are: in the app's form on macOS, the native one on Windows.
+            let mut d = crate::paths::native(&src.to_string_lossy());
             let rest: Vec<_> = dir.strip_prefix(src).unwrap_or(Path::new("")).components().collect();
             for c in std::iter::once(None).chain(rest.into_iter().map(Some)) {
                 if let Some(c) = c {
@@ -294,7 +323,7 @@ impl<'a> Rules<'a> {
 
     /// Whether a backup leaves out the item at `path`, whose metadata is `m`.
     pub fn skips(&self, path: &Path, m: &fs::Metadata) -> bool {
-        self.skips_at(path, path, m)
+        self.skips_at(path, &crate::paths::native(&path.to_string_lossy()), m)
     }
 
     /// As `skips`, for an item the backup knows as `logical` but reads at `physical` (they differ
@@ -352,16 +381,52 @@ struct Walk<'a> {
     map: Option<(PathBuf, PathBuf)>,
 }
 
+/// A Windows file time (100 ns steps since 1601) as nanoseconds since 1970.
+#[cfg(windows)]
+fn unix_ns(t: u64) -> i64 {
+    (t as i64 - 116_444_736_000_000_000) * 100
+}
+
+/// (modified, status-changed, inode, mode) as a snapshot keeps them. Windows has no status-change
+/// time or inode in a file's listing: the creation time stands in for the one, and nothing for the
+/// other, so there a file counts as unchanged by its size and its modified and creation times. Its
+/// mode is read-only or not, as a Unix mode.
+fn stamps(m: &fs::Metadata) -> (i64, i64, u64, u32) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        (m.mtime() * 1_000_000_000 + m.mtime_nsec(), m.ctime() * 1_000_000_000 + m.ctime_nsec(), m.ino(), m.mode() & 0o7777)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        let mode = if m.is_dir() {
+            0o755
+        } else if m.permissions().readonly() {
+            0o444
+        } else {
+            0o644
+        };
+        (unix_ns(m.last_write_time()), unix_ns(m.creation_time()), 0, mode)
+    }
+}
+
+/// A file's modified time as a snapshot keeps it, in nanoseconds since 1970.
+pub fn modified_ns(m: &fs::Metadata) -> i64 {
+    stamps(m).0
+}
+
 fn node_from(name: String, kind: NodeKind, m: &fs::Metadata) -> Node {
+    let (mtime, ctime, inode, mode) = stamps(m);
     Node {
         name,
         kind,
-        size: if kind == NodeKind::File { m.size() } else { 0 },
-        mtime: m.mtime() * 1_000_000_000 + m.mtime_nsec(),
-        ctime: m.ctime() * 1_000_000_000 + m.ctime_nsec(),
-        inode: m.ino(),
+        size: if kind == NodeKind::File { m.len() } else { 0 },
+        mtime,
+        ctime,
+        inode,
         files: 0,
-        mode: m.mode() & 0o7777,
+        mode,
         content: vec![],
         subtree: None,
         target: None,
@@ -369,9 +434,20 @@ fn node_from(name: String, kind: NodeKind, m: &fs::Metadata) -> Node {
 }
 
 impl Walk<'_> {
+    /// The path a snapshot knows an item by, in the app's form (paths.rs), for one read at `p`.
     fn logical(&self, p: &Path) -> PathBuf {
         match &self.map {
-            Some((from, to)) => p.strip_prefix(from).map(|rest| to.join(rest)).unwrap_or_else(|_| p.to_path_buf()),
+            Some((from, to)) => match p.strip_prefix(from) {
+                #[cfg(windows)]
+                Ok(rest) => {
+                    let rest = rest.to_string_lossy().replace('\\', "/");
+                    let to = to.to_string_lossy();
+                    PathBuf::from(if rest.is_empty() { to.into_owned() } else { crate::paths::join(&to, &rest) })
+                }
+                #[cfg(not(windows))]
+                Ok(rest) => to.join(rest),
+                Err(_) => p.to_path_buf(),
+            },
             None => p.to_path_buf(),
         }
     }
@@ -419,7 +495,7 @@ impl Walk<'_> {
         }
         let node = node_from(name, NodeKind::File, m);
         let shown = self.logical(path);
-        Some(self.consider(node, prev, Job { path: path.to_path_buf(), shown, size: m.size(), previous: prev.cloned(), remote: None }))
+        Some(self.consider(node, prev, Job { path: path.to_path_buf(), shown, size: m.len(), previous: prev.cloned(), remote: None }))
     }
 
     /// A file found: kept as it was when it looks unchanged, else queued to be read.
@@ -607,6 +683,11 @@ impl Walk<'_> {
             } else if ft.is_symlink() {
                 let mut n = node_from(name, NodeKind::Symlink, &m);
                 n.target = fs::read_link(&p).ok().map(|t| t.to_string_lossy().to_string());
+                // A Windows link says whether it leads to a folder; restore makes it the same way.
+                #[cfg(windows)]
+                if std::os::windows::fs::MetadataExt::file_attributes(&m) & 0x10 != 0 {
+                    n.mode = 0o755;
+                }
                 entries.push(Entry::Link(n));
             }
         }
@@ -656,7 +737,14 @@ pub fn run(repo: &Arc<Repo>, opts: &Options, parent: Option<&Snapshot>, ctl: &Co
     let rules = Rules { opts, ex: Excluder::new(&opts.excludes)?, ignores: vec![] };
     let mut w = Walk { repo, opts, ctl, rules, jobs: vec![], stats: Stats::default(), map: None };
     let mut roots = Vec::new();
-    for (i, src) in opts.sources.iter().enumerate() {
+    // Each source by its app path (paths.rs), which names it in the snapshot.
+    let sources: Vec<PathBuf> = opts
+        .sources
+        .iter()
+        .enumerate()
+        .map(|(i, s)| if opts.remote.get(i).is_some_and(Option::is_some) { s.clone() } else { PathBuf::from(crate::paths::app(s)) })
+        .collect();
+    for (i, src) in sources.iter().enumerate() {
         let key = src.to_string_lossy().to_string();
         let prev = prev_root.as_ref().and_then(|t| t.get(&key)).cloned();
         if let Some(r) = opts.remote.get(i).cloned().flatten() {
@@ -669,7 +757,7 @@ pub fn run(repo: &Arc<Repo>, opts: &Options, parent: Option<&Snapshot>, ctl: &Co
             roots.push(Entry::Dir(w.remote_dir(key, src, RDir::from(objects), prev_tree, i)?));
             continue;
         }
-        let read = opts.read_from.get(i).cloned().flatten().unwrap_or_else(|| src.clone());
+        let read = opts.read_from.get(i).cloned().flatten().unwrap_or_else(|| crate::paths::native(&key));
         w.map = (read != *src).then(|| (read.clone(), src.clone()));
         // A source that isn't there fails the backup: a snapshot without it would look like
         // everything in it had been deleted.
@@ -787,7 +875,7 @@ pub fn run(repo: &Arc<Repo>, opts: &Options, parent: Option<&Snapshot>, ctl: &Co
         time: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         plan: opts.plan.clone(),
         host: crate::repo::hostname(),
-        sources: opts.sources.iter().map(|s| s.to_string_lossy().to_string()).collect(),
+        sources: sources.iter().map(|s| s.to_string_lossy().to_string()).collect(),
         tree,
         parent: parent.map(|p| p.id),
         kind: if opts.full || parent.is_none() { "full".into() } else { "incremental".into() },
@@ -847,6 +935,12 @@ pub(crate) mod tests {
         assert_eq!(d.dirs["a"].files.keys().collect::<Vec<_>>(), ["b"]);
     }
 
+    /// A source's name in a snapshot: its app path (paths.rs).
+    pub fn key(p: &Path) -> String {
+        crate::paths::app(p)
+    }
+
+    #[cfg(unix)]
     #[test]
     fn an_unreadable_folder_keeps_its_previous_version() {
         let (src, _dst, repo) = setup(None);
@@ -965,7 +1059,7 @@ pub(crate) mod tests {
         write(&src.path().join("proj/run.log"), b"l");
         write(&src.path().join("proj/main.rs"), b"fn main(){}");
         let mut o = opts(src.path());
-        o.excludes = vec!["*.tmp".into(), "node_modules/".into(), format!("{}/proj/main.rs", src.path().display())];
+        o.excludes = vec!["*.tmp".into(), "node_modules/".into(), format!("{}/proj/main.rs", key(src.path()))];
         o.gitignore = true;
         let s = run(&repo, &o, None, &Control::default()).unwrap();
         let root = repo.load_tree(&s.tree).unwrap();
@@ -981,6 +1075,7 @@ pub(crate) mod tests {
         assert!(e.0.contains("connected"), "{e}");
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn skips_what_apps_mark() {
         let (src, _dst, repo) = setup(None);
@@ -1031,11 +1126,11 @@ pub(crate) mod tests {
         write(&mnt.path().join("x.txt"), b"as it was");
         let mut o = opts(src.path());
         o.read_from = vec![Some(mnt.path().to_path_buf())];
-        o.excludes = vec![format!("{}/skip", src.path().display())];
+        o.excludes = vec![format!("{}/skip", key(src.path()))];
         write(&mnt.path().join("skip/y"), b"y");
         let s = run(&repo, &o, None, &Control::default()).unwrap();
         let root = repo.load_tree(&s.tree).unwrap();
-        assert_eq!(root.nodes[0].name, src.path().to_string_lossy());
+        assert_eq!(root.nodes[0].name, key(src.path()));
         let top = repo.load_tree(&root.nodes[0].subtree.unwrap()).unwrap();
         let names: Vec<_> = top.nodes.iter().map(|n| n.name.as_str()).collect();
         assert_eq!(names, vec!["x.txt"]);

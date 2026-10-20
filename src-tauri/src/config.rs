@@ -4,7 +4,8 @@
 
 //! What Keepr is set up to do (destinations and plans, in config.json) and what it has done
 //! (state.json: each plan's last runs, and the history). Both live in
-//! ~/Library/Application Support/Keepr/ and are written whole, atomically.
+//! ~/Library/Application Support/Keepr/ (on Windows %APPDATA%\Keepr\) and are written whole,
+//! atomically.
 
 use keepr_engine::retention::Retention;
 use serde::{Deserialize, Serialize};
@@ -14,8 +15,18 @@ pub fn data_dir() -> PathBuf {
     if let Ok(d) = std::env::var("KEEPR_DATA") {
         return PathBuf::from(d);
     }
-    let home = std::env::var("HOME").unwrap_or_default();
-    PathBuf::from(home).join("Library/Application Support/Keepr")
+    #[cfg(windows)]
+    {
+        let appdata = std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| keepr_engine::paths::native(&keepr_engine::paths::home()).join("AppData/Roaming"));
+        appdata.join("Keepr")
+    }
+    #[cfg(not(windows))]
+    {
+        let home = std::env::var("HOME").unwrap_or_default();
+        PathBuf::from(home).join("Library/Application Support/Keepr")
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -183,7 +194,8 @@ pub struct Plan {
     #[serde(default)]
     pub conditions: Conditions,
     /// A command run before each backup (for example, one that downloads a device's own backups
-    /// into a folder this plan backs up). Run with /bin/zsh -lc, so ~ and the usual PATH work.
+    /// into a folder this plan backs up). Run with /bin/zsh -lc, so ~ and the usual PATH work; on
+    /// Windows with PowerShell.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub before: String,
     /// If the command fails: carry on and mark the backup with a warning (false), or don't back up (true).
@@ -215,7 +227,20 @@ fn weekly() -> Often {
 }
 
 pub fn default_excludes() -> Vec<String> {
-    [
+    #[cfg(windows)]
+    let rules = [
+        "node_modules/",
+        "target/",
+        "*.tmp",
+        "Thumbs.db",
+        "~/AppData/Local/Temp",
+        "~/AppData/Local/Microsoft/Windows/INetCache",
+        "$RECYCLE.BIN/",
+        "System Volume Information/",
+    ]
+    .as_slice();
+    #[cfg(not(windows))]
+    let rules = [
         "node_modules/",
         "target/",
         ".DS_Store",
@@ -228,9 +253,8 @@ pub fn default_excludes() -> Vec<String> {
         ".DocumentRevisions-V100/",
         ".TemporaryItems/",
     ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
+    .as_slice();
+    rules.iter().map(|s| s.to_string()).collect()
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -246,6 +270,9 @@ pub struct Settings {
     /// Ask, the AI assistant (src-tauri/src/ask.rs): off, nothing is ever sent.
     #[serde(default = "yes")]
     pub ask: bool,
+    /// Offer the help's Getting started when the app opens (src/help/GuideOffer.tsx).
+    #[serde(default = "yes")]
+    pub offer_guide: bool,
 }
 
 fn three() -> u32 {
@@ -254,7 +281,7 @@ fn three() -> u32 {
 
 impl Default for Settings {
     fn default() -> Settings {
-        Settings { notify_failures: true, notify_success: false, stale_days: 3, ask: true }
+        Settings { notify_failures: true, notify_success: false, stale_days: 3, ask: true, offer_guide: true }
     }
 }
 
@@ -373,6 +400,10 @@ pub struct PlanState {
     /// snapshot: the next backup asks what changed since.
     #[serde(default)]
     pub fs_event: Option<(u64, String)>,
+    /// On Windows, the change journal that `fs_event`'s position is in (fsevents_win.rs): a
+    /// journal made afresh starts its positions again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fs_journal: Option<u64>,
     /// Set when the recovery key hasn't been saved yet.
     #[serde(default)]
     pub recovery_unsaved: bool,
@@ -437,7 +468,7 @@ pub fn read<T: serde::de::DeserializeOwned + Default>(dir: &Path, name: &str) ->
                 bad = dir.join(format!("{name}.{}.bad", chrono::Local::now().format("%Y%m%d-%H%M%S")));
             }
             eprintln!("{name}: {e}; starting afresh, the old file kept as {}", bad.display());
-            std::fs::rename(&path, &bad).map_err(|e| format!("Keepr couldn't set aside the damaged {name}: {e}"))?;
+            keepr_engine::backend::rename(&path, &bad).map_err(|e| format!("Keepr couldn't set aside the damaged {name}: {e}"))?;
             Ok(T::default())
         }
     }
@@ -454,7 +485,7 @@ pub fn write<T: Serialize>(dir: &Path, name: &str, v: &T) -> Result<(), String> 
     let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
     f.write_all(&data).and_then(|_| keepr_engine::backend::sync(&f)).map_err(|e| e.to_string())?;
     drop(f);
-    std::fs::rename(&tmp, dir.join(name)).map_err(|e| e.to_string())
+    keepr_engine::backend::rename(&tmp, &dir.join(name)).map_err(|e| e.to_string())
 }
 
 /// Held (shared) by the app for as long as it runs, so the command-line jobs, which rewrite
@@ -462,13 +493,24 @@ pub fn write<T: Serialize>(dir: &Path, name: &str, v: &T) -> Result<(), String> 
 /// Shared, so a dev build beside the installed app doesn't shut either out. The lock goes with
 /// the process, however it ends.
 pub fn lock_data_dir(dir: &Path, exclusive: bool) -> Result<std::fs::File, String> {
-    use std::os::fd::AsRawFd;
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let f =
         std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join(".keepr.lock")).map_err(|e| e.to_string())?;
-    let how = if exclusive { libc::LOCK_EX } else { libc::LOCK_SH };
-    if unsafe { libc::flock(f.as_raw_fd(), how | libc::LOCK_NB) } != 0 {
-        return Err("Keepr is running. Quit it first (in the menu bar: Quit Keepr).".into());
+    #[cfg(unix)]
+    let held = {
+        use std::os::fd::AsRawFd;
+        let how = if exclusive { libc::LOCK_EX } else { libc::LOCK_SH };
+        unsafe { libc::flock(f.as_raw_fd(), how | libc::LOCK_NB) == 0 }
+    };
+    // LockFileEx, as std has it.
+    #[cfg(not(unix))]
+    let held = if exclusive { f.try_lock().is_ok() } else { f.try_lock_shared().is_ok() };
+    if !held {
+        return Err(if cfg!(windows) {
+            "Keepr is running. Quit it first (in the notification area: Quit Keepr).".into()
+        } else {
+            "Keepr is running. Quit it first (in the menu bar: Quit Keepr).".into()
+        });
     }
     Ok(f)
 }

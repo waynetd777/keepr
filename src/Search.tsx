@@ -10,6 +10,7 @@ import { api, type Found } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
 import { bytes, tilde, when } from "./format";
+import { parentPath } from "./platform";
 import { stopped, useRequests } from "./ui";
 
 export default function Search() {
@@ -99,7 +100,7 @@ export default function Search() {
             <span style={{ width: 76 }} />
           </div>
           {found.map((f) => {
-            const parent = f.entry.path.split("/").slice(0, -1).join("/");
+            const parent = parentPath(f.entry.path);
             return (
               <div key={f.plan + f.entry.path} className={`file-row${f.gone ? " gone" : ""}`} style={{ height: 44 }}>
                 <button

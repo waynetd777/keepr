@@ -822,7 +822,7 @@ impl Core {
         if to.exists() {
             return Err(format!("There's already a folder called {new} there."));
         }
-        std::fs::rename(&from, &to).map_err(|e| format!("Couldn't rename {} to {new}: {e}", p.folder))?;
+        keepr_engine::backend::rename(&from, &to).map_err(|e| format!("Couldn't rename {} to {new}: {e}", p.folder))?;
         if let Some(pl) = self.config.lock().unwrap().plans.iter_mut().find(|x| x.id == plan) {
             pl.folder = new.clone();
         }
@@ -980,7 +980,7 @@ impl Core {
             sources.push(p);
             remote.push(None);
         }
-        // The folders on this Mac: what macOS's change record and the still copy are about.
+        // The folders on this computer: what macOS's change record and the still copy are about.
         let on_disk: Vec<PathBuf> = sources.iter().zip(&remote).filter(|(_, r)| r.is_none()).map(|(s, _)| s.clone()).collect();
         let repo_path = self.repo_path(plan_id);
         *cur.base.lock().unwrap() = (repo.counters.stored_bytes.load(Relaxed), repo.counters.dup_bytes.load(Relaxed));
@@ -1000,27 +1000,49 @@ impl Core {
         let parent = snaps.last();
         let st = self.state.lock().unwrap().plans.get(plan_id).cloned().unwrap_or_default();
         let local = !on_disk.is_empty() && on_disk.iter().all(|s| crate::still::on_data_volume(s));
+        // On Windows a still copy and a change journal are one drive's (still_win.rs).
+        #[cfg(windows)]
+        let local = local && crate::still::one_volume(&on_disk);
         // What macOS recorded as changed since the last backup, when that backup is the parent.
+        #[cfg(not(windows))]
         let changes = match (&st.fs_event, parent) {
             (Some((id, snap)), Some(p)) if !full && local && *snap == p.id.hex() => crate::fsevents::since(&on_disk, *id),
             _ => None,
         };
+        // On Windows, what the drive's change journal recorded (fsevents_win.rs).
+        #[cfg(windows)]
+        let changes = match (&st.fs_event, st.fs_journal, parent) {
+            (Some((id, snap)), Some(j), Some(p)) if !full && local && *snap == p.id.hex() => {
+                crate::fsevents::since(&on_disk, j, *id as i64)
+            }
+            _ => None,
+        };
+        let record = if cfg!(windows) { "Windows' change journal" } else { "macOS's change record" };
         match (&changes, full) {
             (_, true) => run.note("Reading every file (a full backup)"),
-            (Some(c), _) => run.note(format!(
-                "macOS's change record: {} folders changed since the last backup; the rest are taken as they were",
-                c.touched.len()
-            )),
+            (Some(c), _) => {
+                run.note(format!("{record}: {} folders changed since the last backup; the rest are taken as they were", c.touched.len()))
+            }
             (None, _) if parent.is_some() => run.note("Comparing every file with the last snapshot"),
             (None, _) => run.note("First backup: reading everything"),
         }
         // Noted before the still copy is taken: anything after it is for the next backup to see.
-        let event_id = if local { crate::fsevents::now_id() } else { 0 };
+        #[cfg(not(windows))]
+        let (event_id, journal) = (if local { crate::fsevents::now_id() } else { 0 }, None::<u64>);
+        #[cfg(windows)]
+        let (event_id, journal) = match local.then(|| crate::fsevents::now(&on_disk)).flatten() {
+            Some((j, at)) => (at.max(0) as u64, Some(j)),
+            None => (0, None),
+        };
         let still = if local && self.still_copies.load(Relaxed) {
             Self::set_stage(cur, "Taking a still copy");
-            match crate::still::take() {
+            match crate::still::take(&on_disk) {
                 Ok(s) => {
-                    run.note(format!("Still copy of the startup disk taken ({})", s.date));
+                    run.note(if cfg!(windows) {
+                        format!("Still copy of the drive taken (a shadow copy of {})", s.date)
+                    } else {
+                        format!("Still copy of the startup disk taken ({})", s.date)
+                    });
                     Some(s)
                 }
                 Err(e) => {
@@ -1048,7 +1070,8 @@ impl Core {
             skip_marked: plan.skip_marked,
             max_file_size: (plan.max_file_size > 0).then_some(plan.max_file_size),
             full,
-            skip_paths: repo_path.into_iter().collect(),
+            // In the app's form, as the backup knows its sources (keepr_engine::paths).
+            skip_paths: repo_path.map(|p| PathBuf::from(keepr_engine::paths::app(&p))).into_iter().collect(),
             read_from,
             changes,
             remote,
@@ -1116,6 +1139,7 @@ impl Core {
             let ps = s.plan(plan_id);
             ps.last_success = Some(snap.time.clone());
             ps.fs_event = (event_id > 0).then(|| (event_id, snap.id.hex()));
+            ps.fs_journal = journal.filter(|_| event_id > 0);
             ps.waiting = None;
             ps.stale_warned = None;
             if full || parent.is_none() {
@@ -1204,8 +1228,9 @@ impl Core {
         }
     }
 
-    /// Runs a plan's command with /bin/zsh -lc, its output into the run's log. Ok(None) when it
-    /// succeeded, Ok(Some(why)) when it failed or ran past `limit`; a Stop ends it when `stoppable`.
+    /// Runs a plan's command with /bin/zsh -lc (PowerShell on Windows, process::shell), its output
+    /// into the run's log. Ok(None) when it succeeded, Ok(Some(why)) when it failed or ran past
+    /// `limit`; a Stop ends it when `stoppable`.
     fn run_command(
         cur: &Arc<Current>,
         cmd: &str,
@@ -1216,8 +1241,7 @@ impl Core {
     ) -> Result<Option<String>, String> {
         use std::io::{BufRead, BufReader};
         run.note(format!("Running: {}", cmd.trim()));
-        let mut child = std::process::Command::new("/bin/zsh")
-            .args(["-lc", &format!("{} 2>&1", cmd.trim())])
+        let mut child = crate::process::shell(cmd.trim())
             .envs(env.iter().map(|(k, v)| (k, v)))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
@@ -1493,7 +1517,7 @@ impl Core {
             Every::Daily | Every::Weekly => {
                 let t = NaiveTime::parse_from_str(&plan.schedule.at, "%H:%M").unwrap_or(NaiveTime::from_hms_opt(2, 0, 0).unwrap());
                 let slot = |date: chrono::NaiveDate| Local.from_local_datetime(&date.and_time(t)).earliest();
-                let mut date = last.map_or(now, |l| l).date_naive();
+                let mut date = last.unwrap_or(now).date_naive();
                 for _ in 0..16 {
                     if let Some(s) = slot(date) {
                         let weekday_ok =
@@ -1605,7 +1629,7 @@ mod tests {
             name: "Docs".into(),
             rev: 0,
             enabled: true,
-            sources: vec![Place::Folder { path: src.to_string_lossy().into(), name: None }],
+            sources: vec![Place::Folder { path: keepr_engine::paths::app(src), name: None }],
             destination: "d1".into(),
             folder: "Docs p1".into(),
             schedule: Schedule { every: Every::Hourly, at: "02:00".into(), weekday: 0 },
@@ -1659,7 +1683,7 @@ mod tests {
             cfg.destinations.push(Destination {
                 id: "d1".into(),
                 name: "Disk".into(),
-                place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None },
+                place: Place::Folder { path: keepr_engine::paths::app(dst.path()), name: None },
                 disconnect_after: true,
             });
             cfg.plans.push(plan(src.path()));
@@ -1703,7 +1727,7 @@ mod tests {
         let id = crate::ask::apply(&c, &change).unwrap();
         let more = tempfile::tempdir().unwrap();
         let mut p = c.config.lock().unwrap().plans[0].clone();
-        p.sources.push(Place::Folder { path: more.path().to_string_lossy().into(), name: None });
+        p.sources.push(Place::Folder { path: keepr_engine::paths::app(more.path()), name: None });
         p.ask_exclude = true;
         crate::save_plan_now(&c, p, None).unwrap();
         crate::ask::undo(&c, &id).unwrap();
@@ -1813,7 +1837,7 @@ mod tests {
             cfg.destinations.push(Destination {
                 id: "d1".into(),
                 name: "Disk".into(),
-                place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None },
+                place: Place::Folder { path: keepr_engine::paths::app(dst.path()), name: None },
                 disconnect_after: true,
             });
             cfg.plans.push(Plan { folder: "Documents-Projects 1c9b7f".into(), ..plan(src.path()) });
@@ -1838,7 +1862,7 @@ mod tests {
         let p = c.config.lock().unwrap().plan(&id).cloned().unwrap();
         assert!(!p.enabled && !p.encrypted);
         assert_eq!(p.name, "Documents Projects");
-        assert_eq!(p.sources, vec![Place::Folder { path: src.path().to_string_lossy().into(), name: None }]);
+        assert_eq!(p.sources, vec![Place::Folder { path: keepr_engine::paths::app(src.path()), name: None }]);
         assert_eq!(c.state.lock().unwrap().plans[&id].snapshots, 1);
         assert_eq!(c.snapshots(&id).unwrap().len(), 1);
     }
@@ -1856,7 +1880,7 @@ mod tests {
             cfg.destinations.push(Destination {
                 id: "d1".into(),
                 name: "Downloads b52800".into(),
-                place: Place::Folder { path: at.to_string_lossy().into(), name: None },
+                place: Place::Folder { path: keepr_engine::paths::app(&at), name: None },
                 disconnect_after: true,
             });
             cfg.plans.push(Plan { folder: String::new(), ..plan(src.path()) });
@@ -1878,7 +1902,7 @@ mod tests {
         let at = |name: Option<&str>| Destination {
             id: String::new(),
             name: String::new(),
-            place: Place::Folder { path: dst.path().to_string_lossy().into(), name: name.map(str::to_string) },
+            place: Place::Folder { path: keepr_engine::paths::app(dst.path()), name: name.map(str::to_string) },
             disconnect_after: true,
         };
         let first = crate::save_destination_now(&c, at(None), None).unwrap();
@@ -1888,7 +1912,7 @@ mod tests {
         assert_eq!(c.config.lock().unwrap().destinations.len(), 1);
         // A different place is a new one.
         let other = tempfile::tempdir().unwrap();
-        let place = Place::Folder { path: other.path().to_string_lossy().into(), name: None };
+        let place = Place::Folder { path: keepr_engine::paths::app(other.path()), name: None };
         let second = crate::save_destination_now(&c, Destination { place, ..at(None) }, None).unwrap();
         assert_ne!(second.id, first.id);
         assert_eq!(c.config.lock().unwrap().destinations.len(), 2);
@@ -1906,7 +1930,7 @@ mod tests {
                 cfg.destinations.push(Destination {
                     id: id.into(),
                     name: name.into(),
-                    place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None },
+                    place: Place::Folder { path: keepr_engine::paths::app(dst.path()), name: None },
                     disconnect_after: true,
                 });
             }
@@ -1926,7 +1950,7 @@ mod tests {
         c.config.lock().unwrap().destinations.push(Destination {
             id: "d1".into(),
             name: "Downloads ccb21a".into(),
-            place: Place::Folder { path: at.to_string_lossy().into(), name: None },
+            place: Place::Folder { path: keepr_engine::paths::app(&at), name: None },
             disconnect_after: true,
         });
         let found = c.find_backups("d1").unwrap();
@@ -1958,7 +1982,7 @@ mod tests {
             cfg.destinations.push(Destination {
                 id: "d1".into(),
                 name: "Disk".into(),
-                place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None },
+                place: Place::Folder { path: keepr_engine::paths::app(dst.path()), name: None },
                 disconnect_after: true,
             });
             cfg.plans.push(plan(src.path()));
@@ -2076,7 +2100,7 @@ mod tests {
             cfg.destinations.push(Destination {
                 id: "d1".into(),
                 name: "Disk".into(),
-                place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None },
+                place: Place::Folder { path: keepr_engine::paths::app(dst.path()), name: None },
                 disconnect_after: true,
             });
             cfg.plans.push(plan(src.path()));
@@ -2110,7 +2134,7 @@ mod tests {
             cfg.destinations.push(Destination {
                 id: "d1".into(),
                 name: "Disk".into(),
-                place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None },
+                place: Place::Folder { path: keepr_engine::paths::app(dst.path()), name: None },
                 disconnect_after: true,
             });
             cfg.plans.push(plan(src.path()));
@@ -2129,7 +2153,7 @@ mod tests {
         c.enqueue(Job::Restore {
             plan: "p1".into(),
             snapshot: snap,
-            items: vec![src.path().join("a.txt").to_string_lossy().into()],
+            items: vec![keepr_engine::paths::app(&src.path().join("a.txt"))],
             target: Target::Folder(out.path().into()),
             conflict: Conflict::KeepBoth,
         });
@@ -2147,6 +2171,59 @@ mod tests {
         assert!(last.message.contains("won't start a new one"), "{}", last.message);
     }
 
+    /// With Keepr Helper installed (Windows): a backup reads a still copy, and the next one asks the
+    /// change journal. cargo test --lib backs_up_through_the_helper -- --ignored
+    #[cfg(windows)]
+    #[test]
+    #[ignore]
+    fn backs_up_through_the_helper() {
+        let data = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        let src = std::path::PathBuf::from(r"C:\src\kp-helper-core");
+        let _ = std::fs::remove_dir_all(&src);
+        std::fs::create_dir_all(src.join("docs")).unwrap();
+        std::fs::write(src.join("docs/a.txt"), "one").unwrap();
+        std::fs::write(src.join("b.txt"), "b").unwrap();
+        let c = Core::new(data.path().to_path_buf(), Box::new(|_, _| {}), Box::new(|_, _| {}), false).unwrap();
+        {
+            let mut cfg = c.config.lock().unwrap();
+            cfg.destinations.push(Destination {
+                id: "d1".into(),
+                name: "Disk".into(),
+                place: Place::Folder { path: keepr_engine::paths::app(dst.path()), name: None },
+                disconnect_after: true,
+            });
+            cfg.plans.push(plan(&src));
+        }
+        c.start();
+        // A shadow copy takes some seconds.
+        let wait = |c: &Core| {
+            for _ in 0..2400 {
+                std::thread::sleep(Duration::from_millis(25));
+                if c.idle() {
+                    return;
+                }
+            }
+            panic!("job didn't finish");
+        };
+        let log = |c: &Core| {
+            let run = c.state.lock().unwrap().history.iter().rev().find(|r| r.kind == "backup").cloned().unwrap();
+            std::fs::read_to_string(c.dir.join("logs").join(format!("{}.log", run.id))).unwrap()
+        };
+        c.enqueue(Job::Backup { plan: "p1".into(), full: false });
+        wait(&c);
+        let first = log(&c);
+        assert!(first.contains("Still copy of the drive taken"), "{first}");
+        std::thread::sleep(Duration::from_millis(500));
+        std::fs::write(src.join("docs/a.txt"), "two").unwrap();
+        c.enqueue(Job::Backup { plan: "p1".into(), full: false });
+        wait(&c);
+        let second = log(&c);
+        assert!(second.contains("Windows' change journal"), "{second}");
+        assert!(second.contains("0 new, 1 changed"), "{second}");
+        let _ = std::fs::remove_dir_all(&src);
+    }
+
     #[test]
     fn runs_the_command_before_and_logs_it() {
         let data = tempfile::tempdir().unwrap();
@@ -2155,16 +2232,25 @@ mod tests {
         let c = core(data.path());
         let mut p = plan(src.path());
         // The command writes the file the backup then picks up, and fails.
-        p.before = format!("echo fetched > '{}/fetched.txt'; echo hello from before; exit 3", src.path().display());
-        // The command after is told how it went, whatever that was.
         let told = data.path().join("told.txt");
-        p.after = format!("echo \"$KEEPR_RESULT $KEEPR_PLAN_ID $KEEPR_FILES\" >> '{}'", told.display());
+        if cfg!(windows) {
+            p.before = format!(
+                "Set-Content -Path '{}' -Value fetched; Write-Output 'hello from before'; exit 3",
+                src.path().join("fetched.txt").display()
+            );
+            p.after = format!("Add-Content -Path '{}' -Value \"$env:KEEPR_RESULT $env:KEEPR_PLAN_ID $env:KEEPR_FILES\"", told.display());
+        } else {
+            p.before = format!("echo fetched > '{}/fetched.txt'; echo hello from before; exit 3", src.path().display());
+            // The command after is told how it went, whatever that was.
+            p.after = format!("echo \"$KEEPR_RESULT $KEEPR_PLAN_ID $KEEPR_FILES\" >> '{}'", told.display());
+        }
+        let told_text = || std::fs::read_to_string(&told).unwrap().replace("\r\n", "\n");
         {
             let mut cfg = c.config.lock().unwrap();
             cfg.destinations.push(Destination {
                 id: "d1".into(),
                 name: "Disk".into(),
-                place: Place::Folder { path: dst.path().to_string_lossy().into(), name: None },
+                place: Place::Folder { path: keepr_engine::paths::app(dst.path()), name: None },
                 disconnect_after: true,
             });
             cfg.plans.push(p.clone());
@@ -2178,7 +2264,7 @@ mod tests {
         assert_eq!(run.files, 1, "the file the command wrote was backed up");
         let log = std::fs::read_to_string(data.path().join("logs").join(format!("{}.log", run.id))).unwrap();
         assert!(log.contains("hello from before"), "{log}");
-        assert_eq!(std::fs::read_to_string(&told).unwrap(), "warning p1 1\n");
+        assert_eq!(told_text(), "warning p1 1\n");
 
         // When it must succeed, a failure stops the backup.
         c.config.lock().unwrap().plans[0].before_must_succeed = true;
@@ -2186,7 +2272,7 @@ mod tests {
         wait(&c);
         let run = c.state.lock().unwrap().history.last().cloned().unwrap();
         assert_eq!(run.result, "failed");
-        assert_eq!(std::fs::read_to_string(&told).unwrap(), "warning p1 1\nfailed p1 0\n");
+        assert_eq!(told_text(), "warning p1 1\nfailed p1 0\n");
     }
 
     #[test]

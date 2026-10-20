@@ -1,6 +1,6 @@
 # Screenshots
 
-Every screenshot in the docs at full size, by the page it appears on, in light and dark mode. They're taken from demo data by `make screenshots` (tools/screenshots.py).
+Every screenshot in the docs at full size, by the page it appears on, in light and dark mode. They're taken from demo data by `make screenshots` (tools/screenshots.py), on a Mac: on Windows the window has Windows' own title bar, and the menu bar's panel opens from the notification area.
 
 ## The README
 

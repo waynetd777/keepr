@@ -1,10 +1,10 @@
 # Restore
 
-Restore shows your files as they were at any backup, and puts back whichever you choose: one file, a folder, or everything. Open it from the sidebar (⌘3), **Restore…** on a plan's card, or **Restore a file…** in the menu bar.
+Restore shows your files as they were at any backup, and puts back whichever you choose: one file, a folder, or everything. Open it from the sidebar (⌘3), **Restore…** on a plan's card, or **Restore a file…** in the menu bar (the notification area on Windows).
 
 <a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/restore-dark.png"><img alt="Restore: Documents & Projects as they were at its latest snapshot, with the snapshots along the top and the files below" src="images/restore-light.png"></picture></a>
 
-[Going back to a moment](#going-back-to-a-moment) · [A file's versions](#a-files-versions) · [Restoring](#restoring) · [Seeing what takes the space](#seeing-what-takes-the-space) · [Finding a file in any backup](#finding-a-file-in-any-backup) · [Removing something from a backup](#removing-something-from-a-backup) · [On another Mac](#on-another-mac)
+[Going back to a moment](#going-back-to-a-moment) · [A file's versions](#a-files-versions) · [Restoring](#restoring) · [Seeing what takes the space](#seeing-what-takes-the-space) · [Finding a file in any backup](#finding-a-file-in-any-backup) · [Removing something from a backup](#removing-something-from-a-backup) · [On another computer](#on-another-computer)
 
 ## Going back to a moment
 
@@ -13,16 +13,16 @@ Restore shows your files as they were at any backup, and puts back whichever you
 - **Earlier** and **Later**, or the ← and → keys, step through the snapshots; **Latest** goes back to the newest.
 - The strip shows as many days as fit, up to ten, one bar per snapshot, taller for more new data. Click a bar to go to that snapshot; the button at its left goes back to earlier days.
 - **Find in** searches this snapshot by name.
-- **Show deleted files** also lists files that were in an earlier snapshot but not this one, however long ago they went, struck through. A deleted folder opens to show what it last held. At the latest snapshot they show as **Not on Mac**, ready to restore or to remove from the backup.
+- **Show deleted files** also lists files that were in an earlier snapshot but not this one, however long ago they went, struck through. A deleted folder opens to show what it last held. At the latest snapshot they show as **Not on Mac** (**Not on PC** on Windows), ready to restore or to remove from the backup.
 
 <a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/deleted-dark.png"><img alt="Bond statement August.pdf, deleted from the Mac, struck through and marked Not on Mac, with Remove from backup under its versions" src="images/deleted-light.png"></picture></a>
 
 The list shows each file's modified time and size, how many versions of it are kept, and whether it's **New**, **Changed** or **Deleted** in this snapshot. Click the arrow beside a folder, or double-click it, to open it.
 
-At the latest snapshot, the list is also checked against your Mac as it is now, so you don't have to wait for the next backup to see what has changed since:
+At the latest snapshot, the list is also checked against your computer as it is now, so you don't have to wait for the next backup to see what has changed since:
 
-- **Not on Mac** — in the backup, but no longer on your Mac.
-- **Not backed up** — on your Mac, but not in the backup yet. Files the plan leaves out on purpose (its [What to leave out](plans.md#what-to-leave-out) rules, and the like) never show this. One that's in no snapshot can't be chosen, as there's nothing to restore.
+- **Not on Mac** (**Not on PC**) — in the backup, but no longer on your computer.
+- **Not backed up** — on your computer, but not in the backup yet. Files the plan leaves out on purpose (its [What to leave out](plans.md#what-to-leave-out) rules, and the like) never show this. One that's in no snapshot can't be chosen, as there's nothing to restore.
 
 The list updates by itself when a backup, restore or removal of the plan finishes.
 
@@ -33,13 +33,13 @@ Click a file to see every version the backup keeps of it, newest first, each wit
 
 <a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/versions-dark.png"><img alt="The versions of Budget 2026.numbers, with Quick Look, Compare with current and Restore this version" src="images/versions-light.png"></picture></a>
 
-- **Quick Look** (or `Space`) opens the version in Quick Look, to see what's in it, without restoring it. A big file is copied out of the backup first; **Cancel** stops that.
-- **Compare with current** compares the version with the file on the Mac now. For a text file it shows the lines that differ: those only in the backup and those only on the Mac. For other files it says whether they're the same.
+- **Quick Look** (or `Space`) opens the version in Quick Look, to see what's in it, without restoring it. On Windows, which has no Quick Look, **Open** opens it in its own app instead. A big file is copied out of the backup first; **Cancel** stops that.
+- **Compare with current** compares the version with the file on the computer now. For a text file it shows the lines that differ: those only in the backup and those only on the computer. For other files it says whether they're the same.
 - **Restore this version** puts it back, as below.
 
 Click a folder to see its size and how many items it held at that snapshot.
 
-Under a file's versions, or a folder's size, **Show in Finder** opens the folder it's in on your Mac, with it selected; it's greyed out for something no longer on your Mac. **Remove from backup…** is beside it (see [Removing something from a backup](#removing-something-from-a-backup)).
+Under a file's versions, or a folder's size, **Show in Finder** (**Show in File Explorer** on Windows) opens the folder it's in on your computer, with it selected; it's greyed out for something no longer there. **Remove from backup…** is beside it (see [Removing something from a backup](#removing-something-from-a-backup)).
 
 Right-click a file or folder in the list for the same things in one place: **Quick Look** and **Compare with current** for a file in this snapshot, **Expand** or **Collapse** for a folder, **Restore** it on its own (to where the bar at the bottom says), **Select** or **Unselect** it, **Show in Finder**, **Copy path** and **Remove from backup…**. Right-click one of several ticked items to restore, unselect, copy the paths of or remove them all at once; what works on one item at a time (Quick Look, Compare with current, Expand, Show in Finder, and the buttons beside the versions) is greyed out for it.
 
@@ -52,7 +52,7 @@ Tick what you want back: files, folders, or a mix. A ticked folder comes back wi
 
 Then click **Restore**. Each file is written under a temporary name and only takes its real name once it's complete, so a restore that's stopped never leaves half a file. Files get back their modified times and permissions. A deleted file comes from the last snapshot that had it. After a restore to the original location, Keepr backs the plan up, so what you restored is in the latest snapshot and stops showing as deleted.
 
-A restore runs like a backup, one job at a time, and shows in [Activity](day-to-day.md#activity), and in the toolbar with **Pause** and **Stop**. Files backed up from an S3 bucket can only be restored to a folder on the Mac, never back into the bucket.
+A restore runs like a backup, one job at a time, and shows in [Activity](day-to-day.md#activity), and in the toolbar with **Pause** and **Stop**. Files backed up from an S3 bucket can only be restored to a folder on the computer, never back into the bucket.
 
 ## Seeing what takes the space
 
@@ -74,10 +74,10 @@ A plan whose destination can't be reached (an unplugged drive, say) isn't search
 
 **Remove from backup…**, under a file's or folder's versions (a deleted one's too), takes it out of every snapshot, to free the space or because it should never have been backed up. Keepr lists what will go and asks twice first; it can't be undone. A folder, share or bucket the plan backs up can't be removed here: take it out of the plan's folders instead. To stop it being backed up again, add a rule for it in the plan's [What to leave out](plans.md#what-to-leave-out).
 
-## On another Mac
+## On another computer
 
 <a href="images/index.md#restore"><picture><source media="(prefers-color-scheme: dark)" srcset="images/open-backup-dark.png"><img alt="Open an existing backup, with Choose a source… to pick the drive, share, cloud folder or bucket the backup is on" src="images/open-backup-light.png"></picture></a>
 
-A backup made on one Mac can be restored on another, or on the same Mac after its plan was deleted. On the new Mac, click **Open backup…** beside the plans in Restore, or in the toolbar on Backup Plans (or **Open a backup…** on the welcome screen). Click **Choose a source…** and choose the drive, share, cloud folder or bucket the other Mac backed up to, and Keepr lists the backups in it. Pick one and, if it's encrypted, enter its password. It opens in Restore as a plan that's turned off. Since the folders it backed up may not exist on this Mac, restore to **Another folder…** rather than the original location.
+A backup made on one computer can be restored on another, or on the same one after its plan was deleted, and a Mac's backup on a PC or the other way round. On the new computer, click **Open backup…** beside the plans in Restore, or in the toolbar on Backup Plans (or **Open a backup…** on the welcome screen). Click **Choose a source…** and choose the drive, share, cloud folder or bucket the other computer backed up to, and Keepr lists the backups in it. Pick one and, if it's encrypted, enter its password. It opens in Restore as a plan that's turned off. Since the folders it backed up may not exist on this computer, restore to **Another folder…** rather than the original location. Folders keep their names across systems: a Mac's `/Users/alex/Documents` is `C:\Users\alex\Documents` on a PC, while a PC's other drives (`D:\Photos`) have no place on a Mac.
 
-The plan is turned off so it doesn't back up from this Mac by accident. To carry on backing up into the same backup from here, check its folders in the plan, then turn it on.
+The plan is turned off so it doesn't back up from this computer by accident. To carry on backing up into the same backup from here, check its folders in the plan, then turn it on.

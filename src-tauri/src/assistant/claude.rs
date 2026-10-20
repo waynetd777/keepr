@@ -5,7 +5,7 @@
 //! Claude Code in print mode, streaming JSON: text arrives as deltas while it is written. Run
 //! with no tools at all and no MCP servers.
 
-use super::{finish, silent, spawn, status, system, Chunk, Done, Model, Running};
+use super::{finish, silent, spawn, status, system, with_instructions, Chunk, Done, Model, Running, PROMPT_ON_STDIN};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::Command;
@@ -39,7 +39,13 @@ pub fn ask(
 ) -> Result<(), String> {
     let bin = find().ok_or("Claude Code isn't installed, or couldn't be found. Install it and sign in, then try again.")?;
     let mut cmd = Command::new(bin);
-    cmd.current_dir(&cwd).arg("-p").arg(&prompt).args([
+    cmd.current_dir(&cwd).arg("-p");
+    // On Windows the instructions are too long for the command line: they open the first message,
+    // which goes in on stdin (mod.rs PROMPT_ON_STDIN).
+    if !PROMPT_ON_STDIN {
+        cmd.arg(&prompt);
+    }
+    cmd.args([
         "--model",
         model.strip_prefix(PREFIX).unwrap_or(&model),
         "--output-format",
@@ -49,13 +55,15 @@ pub fn ask(
         "--strict-mcp-config",
         "--tools",
         "",
-        "--append-system-prompt",
-        system(),
     ]);
+    if !PROMPT_ON_STDIN {
+        cmd.args(["--append-system-prompt", system()]);
+    }
     if let Some(s) = &session {
         cmd.args(["--resume", s]);
     }
-    let (child, stdout, stderr) = spawn(&mut cmd, &running, &chat_id, "Claude Code")?;
+    let input = PROMPT_ON_STDIN.then(|| with_instructions(&prompt, &session));
+    let (child, stdout, stderr) = spawn(&mut cmd, &running, &chat_id, "Claude Code", input)?;
     std::thread::spawn(move || {
         let mut text = String::new();
         let mut session_id = None;

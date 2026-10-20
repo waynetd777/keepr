@@ -2,13 +2,18 @@
 // See LICENSE for the full text.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Turning a source or destination into a folder on this Mac: checking a drive is really
+//! Turning a source or destination into a folder on this computer: checking a drive is really
 //! connected, and connecting a share when it isn't.
+//!
+//! A place's path is in the app's form (keepr_engine::paths: on Windows "/Users/w" for C:\Users\w,
+//! "D:/Backups" on another drive); `resolve` gives the folder as the file system names it.
 
 use crate::config::{Place, Smb};
+#[cfg(windows)]
+use crate::places_win as win;
 use crate::{keychain, smb};
+use keepr_engine::paths;
 use std::collections::HashMap;
-use std::ffi::CStr;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -43,13 +48,14 @@ impl Mounts {
 }
 
 /// The mount point a path is on ("/" for the startup disk).
+#[cfg(unix)]
 pub fn mount_point(p: &Path) -> Option<PathBuf> {
     let c = std::ffi::CString::new(p.to_string_lossy().as_bytes()).ok()?;
     let mut s: libc::statfs = unsafe { std::mem::zeroed() };
     if unsafe { libc::statfs(c.as_ptr(), &mut s) } != 0 {
         return None;
     }
-    Some(PathBuf::from(unsafe { CStr::from_ptr(s.f_mntonname.as_ptr()) }.to_string_lossy().to_string()))
+    Some(PathBuf::from(unsafe { std::ffi::CStr::from_ptr(s.f_mntonname.as_ptr()) }.to_string_lossy().to_string()))
 }
 
 /// Free and total bytes on the volume holding `p`.
@@ -73,6 +79,12 @@ pub fn space(p: &Path) -> Option<(u64, u64)> {
     rx.recv_timeout(std::time::Duration::from_secs(2)).ok().flatten()
 }
 
+#[cfg(windows)]
+fn statfs(p: &Path) -> Option<(u64, u64)> {
+    win::space(p)
+}
+
+#[cfg(unix)]
 fn statfs(p: &Path) -> Option<(u64, u64)> {
     let c = std::ffi::CString::new(p.to_string_lossy().as_bytes()).ok()?;
     let mut s: libc::statfs = unsafe { std::mem::zeroed() };
@@ -82,7 +94,30 @@ fn statfs(p: &Path) -> Option<(u64, u64)> {
     Some((s.f_bavail * s.f_bsize as u64, s.f_blocks * s.f_bsize as u64))
 }
 
-/// "/Volumes/Archive SSD/Keepr" → Some("Archive SSD").
+/// "/Volumes/Archive SSD/Keepr" → Some("Archive SSD"); on Windows "D:/Keepr" → its drive's label
+/// ("Archive SSD"), or "D:" without one.
+#[cfg(windows)]
+fn volume_of(p: &Path) -> Option<String> {
+    win::drive_of(&paths::app(p)).map(|d| win::drive_name(&d))
+}
+
+/// Whether the drive a path is on isn't connected: an external drive unplugged. On macOS its
+/// /Volumes/<name> is then missing, or (worse) an empty folder of that name on the startup disk.
+fn drive_missing(p: &Path) -> Option<String> {
+    #[cfg(windows)]
+    {
+        let d = win::drive_of(&paths::app(p))?;
+        (!win::drive_connected(&d)).then(|| win::drive_name(&d))
+    }
+    #[cfg(not(windows))]
+    {
+        let vol = volume_of(p)?;
+        let root = Path::new("/Volumes").join(&vol);
+        mount_point(&root).is_none_or(|m| m != root).then_some(vol)
+    }
+}
+
+#[cfg(not(windows))]
 fn volume_of(p: &Path) -> Option<String> {
     let mut c = p.components();
     if c.next()? != std::path::Component::RootDir || c.next()?.as_os_str() != "Volumes" {
@@ -95,14 +130,11 @@ fn volume_of(p: &Path) -> Option<String> {
 /// unplugged or in a cloud folder that's signed out (either of which may bring it back).
 pub fn gone(place: &Place) -> bool {
     let Place::Folder { path, .. } = place else { return false };
-    let p = Path::new(path);
-    if let Some(vol) = volume_of(p) {
-        let root = Path::new("/Volumes").join(&vol);
-        if mount_point(&root).is_none_or(|m| m != root) {
-            return false;
-        }
+    let p = paths::native(path);
+    if drive_missing(&p).is_some() {
+        return false;
     }
-    if cloud_root(p).is_some_and(|(root, live)| !root.exists() || !live) {
+    if cloud_root(Path::new(path)).is_some_and(|(root, live)| !paths::native(&root.to_string_lossy()).exists() || !live) {
         return false;
     }
     !p.exists() && p.parent().is_some_and(|d| d.is_dir())
@@ -124,8 +156,8 @@ pub fn same_place(a: &Place, b: &Place) -> bool {
 
 /// In a cloud service's sync folder (OneDrive, Google Drive, iCloud Drive…).
 pub fn in_cloud(p: &Path) -> bool {
-    let home = std::env::var("HOME").unwrap_or_default();
-    cloud_root(p).is_some() || p.starts_with(Path::new(&home).join("Library/Mobile Documents"))
+    let home = paths::home();
+    cloud_root(p).is_some() || (cfg!(target_os = "macos") && p.starts_with(Path::new(&home).join("Library/Mobile Documents")))
 }
 
 /// For a folder in a cloud service's sync folder (~/Library/CloudStorage/OneDrive-Personal/…):
@@ -133,6 +165,15 @@ pub fn in_cloud(p: &Path) -> bool {
 /// signed out or its sync root breaks, macOS renames the root and leaves its contents looking
 /// intact; only the file-provider domain attribute tells a live root from an orphan. Backing up
 /// into an orphan would quietly go to local disk and never reach the cloud.
+///
+/// On Windows: the sync folder Windows has registered for it (places_win.rs), in the app's form;
+/// one that's registered is live.
+#[cfg(windows)]
+pub fn cloud_root(p: &Path) -> Option<(PathBuf, bool)> {
+    win::sync_root_of(&paths::app(p)).map(|r| (PathBuf::from(r.root), true))
+}
+
+#[cfg(not(windows))]
 pub fn cloud_root(p: &Path) -> Option<(PathBuf, bool)> {
     let home = std::env::var("HOME").ok()?;
     let cs = Path::new(&home).join("Library/CloudStorage");
@@ -185,11 +226,10 @@ pub fn default_name(p: &Place) -> String {
             let pb = Path::new(path);
             let leaf = pb.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Folder".into());
             if let Some((root, _)) = cloud_root(pb) {
-                let r = root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                let cloud = cloud_name(&r);
+                let cloud = cloud_label(&root);
                 return if root == pb { cloud } else { format!("{cloud}: {leaf}") };
             }
-            let home = std::env::var("HOME").unwrap_or_default();
+            let home = paths::home();
             let icloud = Path::new(&home).join("Library/Mobile Documents/com~apple~CloudDocs");
             if pb.starts_with(&icloud) {
                 return if pb == icloud { "iCloud Drive".into() } else { format!("iCloud Drive: {leaf}") };
@@ -203,6 +243,15 @@ pub fn default_name(p: &Place) -> String {
         Place::Smb(s) => format!("{}: {}", s.server.trim_end_matches(".local"), s.share.trim_matches('/')),
         Place::S3(s) => format!("{}: {}", s3_service(&s.endpoint), s.bucket.trim()),
     }
+}
+
+/// A sync folder's name as people know it, from its folder (cloud_root's first part).
+fn cloud_label(root: &Path) -> String {
+    #[cfg(windows)]
+    if let Some(r) = win::sync_root_of(&root.to_string_lossy()) {
+        return r.name;
+    }
+    cloud_name(&root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())
 }
 
 /// "Amazon S3", "Cloudflare R2", "Wasabi", or the endpoint's host.
@@ -228,14 +277,16 @@ pub fn kind_of(p: &Place) -> (&'static str, String) {
         Place::Folder { path, .. } => {
             let pb = Path::new(path);
             if let Some((root, _)) = cloud_root(pb) {
-                return ("cloud", cloud_name(&root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()));
+                return ("cloud", cloud_label(&root));
             }
-            let home = std::env::var("HOME").unwrap_or_default();
+            let home = paths::home();
             if pb.starts_with(Path::new(&home).join("Library/Mobile Documents/com~apple~CloudDocs")) {
                 return ("cloud", "iCloud Drive".into());
             }
             match volume_of(pb) {
+                Some(_) if cfg!(windows) => ("drive", "Another drive".into()),
                 Some(_) => ("drive", "External drive".into()),
+                None if cfg!(windows) => ("folder", "Folder on this PC".into()),
                 None => ("folder", "Folder on this Mac".into()),
             }
         }
@@ -297,6 +348,7 @@ pub struct CloudFolder {
     pub free: Option<u64>,
 }
 
+#[cfg(not(windows))]
 fn provider_of(root: &str) -> &'static str {
     let r = root.to_lowercase();
     if r.starts_with("onedrive") {
@@ -312,9 +364,26 @@ fn provider_of(root: &str) -> &'static str {
     }
 }
 
+/// The cloud services' sync folders on this PC: those Windows has registered (places_win.rs).
+#[cfg(windows)]
+pub fn cloud_folders() -> Vec<CloudFolder> {
+    win::sync_roots()
+        .into_iter()
+        .map(|r| CloudFolder {
+            free: space(&paths::native(&r.root)).map(|s| s.0),
+            name: r.name,
+            provider: r.provider.into(),
+            root: r.root,
+            live: true,
+            why: String::new(),
+        })
+        .collect()
+}
+
 /// The cloud services' sync folders on this Mac: everything in ~/Library/CloudStorage that macOS
 /// treats as a live sync root, and iCloud Drive (~/Library/Mobile Documents/com~apple~CloudDocs,
 /// which only exists while iCloud Drive is on).
+#[cfg(not(windows))]
 pub fn cloud_folders() -> Vec<CloudFolder> {
     let home = std::env::var("HOME").unwrap_or_default();
     let mut out = Vec::new();
@@ -367,6 +436,19 @@ pub fn smb_password(s: &Smb) -> Option<String> {
 pub fn describe(p: &Place) -> String {
     match p {
         Place::Folder { path, .. } => tilde(path),
+        // As each system writes a share: smb://server/share/folder, or \\server\share\folder.
+        #[cfg(windows)]
+        Place::Smb(s) => format!(
+            r"\\{}\{}{}",
+            s.server,
+            s.share.trim_matches('/'),
+            if s.folder.trim_matches('/').is_empty() {
+                String::new()
+            } else {
+                format!(r"\{}", s.folder.trim_matches('/').replace('/', r"\"))
+            }
+        ),
+        #[cfg(not(windows))]
         Place::Smb(s) => format!(
             "smb://{}/{}{}",
             s.server,
@@ -381,8 +463,14 @@ pub fn describe(p: &Place) -> String {
     }
 }
 
+/// A path as people read it: inside the home folder from ~ on macOS; on Windows as Windows writes
+/// it (C:\Users\w\Documents), since Windows has no ~.
 pub fn tilde(p: &str) -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
+    #[cfg(windows)]
+    if paths::is_absolute(p) {
+        return paths::native(p).to_string_lossy().into_owned();
+    }
+    let home = paths::home();
     match p.strip_prefix(&home) {
         Some(rest) if !home.is_empty() => format!("~{rest}"),
         _ => p.to_string(),
@@ -406,26 +494,23 @@ pub fn resolve_with(
 ) -> Result<PathBuf, String> {
     match place {
         Place::Folder { path, .. } => {
-            let p = PathBuf::from(path);
+            let p = paths::native(path);
             // A drive that isn't connected leaves /Volumes/<name> missing, or (worse) an empty
             // folder of that name on the startup disk. Writing there would fill the Mac's own
             // disk and look like a working backup.
-            if let Some(vol) = volume_of(&p) {
-                let root = Path::new("/Volumes").join(&vol);
-                if mount_point(&root).is_none_or(|m| m != root) {
-                    return Err(format!("{vol} isn't connected."));
-                }
+            if let Some(vol) = drive_missing(&p) {
+                return Err(format!("{vol} isn't connected."));
             }
-            if let Some((root, live)) = cloud_root(&p) {
-                let name = root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                if !root.exists() || !live {
+            if let Some((root, live)) = cloud_root(Path::new(path)) {
+                let name = cloud_label(&root);
+                if !paths::native(&root.to_string_lossy()).exists() || !live {
                     return Err(format!("{name} isn't a working sync folder right now (is the cloud account signed in?), so nothing written there would reach the cloud."));
                 }
             }
             // The folder must be where it was: a vanished symlink or a folder made in its place
             // would put backups somewhere else.
             let real = std::fs::canonicalize(&p).map_err(|_| format!("{} isn't there.", tilde(path)))?;
-            if let (Some(_), None) = (cloud_root(&p), cloud_root(&real)) {
+            if let (Some(_), None) = (cloud_root(Path::new(path)), cloud_root(&real)) {
                 return Err(format!("{} no longer leads into its cloud sync folder.", tilde(path)));
             }
             Ok(p)
@@ -443,13 +528,15 @@ pub fn resolve_with(
             };
             mounts.touch(&base);
             let folder = s.folder.trim_matches('/');
+            #[cfg(windows)]
+            let folder = folder.replace('/', "\\");
             Ok(if folder.is_empty() { base } else { base.join(folder) })
         }
         Place::S3(s) => Err(format!("{} is a bucket, not a folder.", describe(&Place::S3(s.clone())))),
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
 

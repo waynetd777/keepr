@@ -1,6 +1,6 @@
 # Development
 
-Tauri 2, with a React and TypeScript frontend (Vite) and a Rust backend. The backup engine, `src-tauri/engine/` (the `keepr-engine` crate), does the chunking, packs, encryption, snapshots, restore, checks and pruning, with no knowledge of the app. The app, `src-tauri/src/`, holds the plans and destinations, the job queue and scheduler, places (folders, SMB shares, cloud folders, S3), the Keychain and the menu bar. The frontend is everything you see.
+Tauri 2, with a React and TypeScript frontend (Vite) and a Rust backend. The backup engine, `src-tauri/engine/` (the `keepr-engine` crate), does the chunking, packs, encryption, snapshots, restore, checks and pruning, with no knowledge of the app. The app, `src-tauri/src/`, holds the plans and destinations, the job queue and scheduler, places (folders, SMB shares, cloud folders, S3), the Keychain and the menu bar, and their Windows versions (see [Windows](#windows)). The frontend is everything you see.
 
 ## Commands
 
@@ -34,16 +34,58 @@ The package is signed with the private key in `~/.tauri/waynetd777-updater.key` 
 
 Installing waits while a job is running or queued, then holds the job queue until the restart, so a restart never cuts a backup short. The restart skips the normal quit, so the install does what Quit does (`quitting` in `lib.rs`) first; anything added to quitting goes there.
 
+## Windows
+
+Keepr builds and runs on Windows 10 and 11 (64-bit) too. The Makefile's targets are macOS's; on Windows use npm, Cargo and the Tauri CLI directly.
+
+You need Rust with the MSVC toolchain (rustup), Node, Python 3, and Visual Studio Build Tools with the "Desktop development with C++" workload. WebView2 ships with Windows 10 and 11.
+
+```powershell
+git clone https://github.com/waynetd777/keepr
+cd keepr
+npm ci
+npx tauri dev                        # hot reload
+npx tauri build --debug --no-bundle  # a debug build, src-tauri\target\debug\Keepr.exe
+npx tauri build                      # the installer, in src-tauri\target\release\bundle\nsis
+cd src-tauri; cargo test --workspace # the engine's and the app's tests
+```
+
+- The installer is NSIS, installed per user with no administrator (`src-tauri/tauri.windows.conf.json`, with `src-tauri/windows/hooks.nsh`, which takes Open at Login's Run entry away on uninstall and, with Delete the application data ticked, `%APPDATA%\Keepr` and the updater's leftovers in Temp). Updates install in passive mode, with a progress window; Windows' installer closes the app as it starts, so the install does what quitting does first (`updates.rs`).
+- CI runs Clippy and the tests on `windows-latest` for every push to main that touches the code (`.github/workflows/windows-tests.yml`), so code that only builds on macOS is caught on the push that adds it. Every macOS-only call needs a `cfg` and a Windows version or stand-in, or the Windows build breaks.
+- Text is checked out with LF on Windows too (`.gitattributes`): the help is built into the app, and a CRLF checkout would put a carriage return in every line of it.
+- A release made on the Mac (`make release`) starts `.github/workflows/windows-release.yml`, which builds the tag on `windows-latest` and runs `tools/update_windows.py`: the installer is uploaded as `Keepr_x64-setup.exe` (the README and website link to `releases/latest/download/` of that name), signed with the updater key from the repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and `windows-x86_64` is added to the release's `latest.json`. `windows-cache.yml` builds main after each push so a release starts with its crates compiled. A Windows update reaches a release some minutes after the Mac's; until then Check for Updates… on Windows says there's no update for this system yet.
+- Windows' code lives in `*_win.rs` modules beside the macOS ones, under the same module names (`lib.rs`): `keychain_win.rs` (Credential Manager, one generic credential per secret, `Keepr/<account>`), `smb_win.rs` (WNetAddConnection2 with no drive letter, NetShareEnum, DNS-SD browsing), `places_win.rs` (drives, free space, the sync roots Windows registers), `system_win.rs` (battery, metered connection), `login_win.rs` (the Run key, and Settings › Apps › Startup's switch). `still_win.rs` and `fsevents_win.rs` are the still copy and the change record, asked of Keepr Helper (`helper_win.rs` talks to it and installs it, `helper_service_win.rs` is the service: a copy of Keepr.exe in Program Files run by SYSTEM as `--helper-service`, answering on `\\.\pipe\keepr-helper` the users it was installed for; shadow copies through WMI's Win32_ShadowCopy, deleted when the connection asking closes; the change journal through FSCTL_READ_USN_JOURNAL). Its tests against the installed helper are ignored by default: `cargo test --lib through_the_helper -- --ignored`, as an administrator. `process.rs` runs other programs without a console window, and the plan's commands in PowerShell.
+- Paths keep macOS's form inside the app, in snapshots and in plans, with `/` the system drive's root (`/Users/alex` is `C:\Users\alex`, another drive is `D:/…`, a share `//server/share`), converted at the file system only (`src-tauri/engine/src/paths.rs`), and shown in Windows' form by `shown` in `src/platform.ts`. So a Mac's backup reads the same on a PC. The words and keys that differ (Finder or File Explorer, Keychain or Credential Manager, ⌘ or Ctrl) are in `src/platform.ts` too.
+- There's no menu bar on Windows: Help and Check for Updates… are in the notification-area panel, Check for Updates… and About in Settings too, and the window takes the keys a menu would have given it.
+- On Windows a second launch brings the running copy forward (tauri-plugin-single-instance), in release builds only and not with `KEEPR_DATA` set, so a debug build runs beside the installed copy.
+- The command line attaches to the terminal it was started from, as the app has no console of its own (`cli.rs`).
+- Ask's prompts go to the CLIs on stdin on Windows, with the instructions in the first message, as the instructions and the guide pass Windows' 32,767-character command line (`assistant/mod.rs`); npm's `.cmd` shims are passed over for the program inside the package.
+
+### Writing for both platforms
+
+The in-app help (`src/help/*.md`, also Ask's guide) and these docs are written once for both. Mark what only one platform has:
+
+- `<!-- mac -->…<!-- /mac -->` for macOS only, `<!-- windows -->…<!-- /windows -->` for Windows only, and `<!-- github -->…<!-- /github -->` for the words that join the two on GitHub, which shows both; the help never shows them. For example `<!-- mac -->Finder<!-- /mac --><!-- github --> (Mac) or <!-- /github --><!-- windows -->File Explorer<!-- /windows --><!-- github --> (Windows)<!-- /github -->`.
+- Markers are written exactly so, don't nest, and each opener has its closer. `forPlatform` in `src/help/index.ts` (and `src-tauri/src/assistant/mod.rs` for Ask's copy) drops the github parts, then the other platform's, then the markers, and squeezes blank lines. To keep a list or a table whole, put the opener at the end of the line before a platform's bullet or row and the closer at the end of that bullet or row; a whole `##` section of one platform's can go between markers on lines of their own. `src/help/help.test.ts` checks every page's markers are closed and that each page reads whole on both.
+- Write shortcuts as macOS does (⌘1, ⌘⇧R, ⌘-click, not `⌘`-click): the help shows Ctrl on Windows (`shortcut` in `src/platform.ts`), and Return as Enter. Prefer neutral words ("your computer", "the disk") to markers where they read naturally.
+- A `##` heading the drawer looks up by title (the keyboard list's **Anywhere** and **Restore**, `KEY_SECTION` in `HelpDrawer.tsx`) must be the same on both.
+- The docs here are read on GitHub: say what's different on Windows in words ("on Windows, …") rather than markers, and keep [On Windows](day-to-day.md#on-windows) up to date.
+
 ## Where things live
 
 | What | Where |
 |---|---|
-| Plans, destinations and settings | `~/Library/Application Support/Keepr/config.json` (`KEEPR_DATA` overrides the folder) |
+| Plans, destinations and settings | `~/Library/Application Support/Keepr/config.json`, on Windows `%APPDATA%\Keepr\config.json` (`KEEPR_DATA` overrides the folder) |
 | Run state and history | `~/Library/Application Support/Keepr/state.json` |
 | When updates were last checked, and a skipped version | `~/Library/Application Support/Keepr/updates.json` |
 | Each run's log | `~/Library/Application Support/Keepr/logs/` |
-| Passwords, keys and recovery keys | One login-keychain item, service `Keepr`, account `secrets` |
-| Still copies while a backup reads them | `~/Library/Caches/Keepr/still/` |
+| Passwords, keys and recovery keys | One login-keychain item, service `Keepr`, account `secrets`; on Windows a Credential Manager generic credential per secret, `Keepr/<account>` |
+| Still copies while a backup reads them | `~/Library/Caches/Keepr/still/` (macOS only) |
+| Paths in the app's form, and the native ones | `src-tauri/engine/src/paths.rs`; shown on the page by `src/platform.ts` |
+| Platform words, keys and paths shown on the page | `src/platform.ts` |
+| Windows' versions of the macOS modules | `src-tauri/src/*_win.rs`, `other.rs`, `process.rs` |
+| The Windows installer | `src-tauri/tauri.windows.conf.json`, `src-tauri/windows/hooks.nsh` |
+| Windows CI and releases | `.github/workflows/windows-tests.yml`, `windows-release.yml`, `windows-cache.yml`, `tools/update_windows.py` |
 | A plan's backup | `<destination>/<Plan-Name id>/`: `keepr-repo.json`, `packs/`, `index/`, `snapshots/`, `locks/` |
 
 ## Command line
@@ -53,6 +95,8 @@ The app's binary also runs without a window, as `keepr <command>`. `make install
 ```sh
 ln -s /Applications/Keepr.app/Contents/MacOS/Keepr ~/.local/bin/keepr
 ```
+
+On Windows the program is `%LOCALAPPDATA%\Keepr\Keepr.exe`; it writes to the terminal it was started from. Command Prompt doesn't wait for a windowed program, so its prompt can come back before the output ends: `start /wait Keepr.exe status`, or pipe it (`| more`). PowerShell waits when the output is piped.
 
 | Command | What it does |
 |---|---|
@@ -68,7 +112,7 @@ ln -s /Applications/Keepr.app/Contents/MacOS/Keepr ~/.local/bin/keepr
 | `keepr remove-path <plan> <path> --yes` | Take a file or folder, by its original full path, out of every snapshot and free the space only it used; a source's own path removes that whole source. Asks for `--yes`, since it can't be undone |
 | `keepr rename-plan-folder <plan>` | Rename a plan's backup folder to match its name, and print the new name |
 | `keepr list-objects <destination>` | List every object in an S3, B2 or R2 destination's bucket |
-| `keepr copy-password <from> <to>` | Copy one plan's password in the Keychain to another |
+| `keepr copy-password <from> <to>` | Copy one plan's password in the Keychain (Credential Manager on Windows) to another |
 | `keepr completions <shell>` | Print a completion script for zsh, bash, fish, elvish or PowerShell |
 
 A plan or destination is named by its id or its name, in any case. `keepr --help` and `keepr <command> --help` say the rest; `keepr --version` prints the version.
@@ -79,7 +123,7 @@ The commands that change a backup or the history (`back-up`, `check`, `tidy`, `r
 
 The flags of earlier versions (`--back-up`, `--verify-restore`, `--rename-plan-folder`, `--list-destination`, `--copy-plan-password`, `--remove-path`) still work, each as its command, with a note on stderr; they'll go in a later version.
 
-`KEEPR_DATA` points Keepr at another settings folder instead of `~/Library/Application Support/Keepr`, for the app and the commands alike. `KEEPR_NO_SCHEDULE` stops the scheduler and `KEEPR_NO_STILL` the still copies; `KEEPR_SCENE` is the screenshot mode.
+`KEEPR_DATA` points Keepr at another settings folder instead of `~/Library/Application Support/Keepr` (`%APPDATA%\Keepr` on Windows), for the app and the commands alike. `KEEPR_NO_SCHEDULE` stops the scheduler and `KEEPR_NO_STILL` the still copies; `KEEPR_SCENE` is the screenshot mode.
 
 ## Signing and permissions
 
@@ -93,11 +137,11 @@ The Keychain still asks once after each new build, since a self-signed app has n
 
 ## Open at Login
 
-Works only in the app from `make install-app`, not under `make dev`. It registers the installed bundle with SMAppService, which survives rebuilds while the bundle identifier stays `com.wayned.keepr`. Screenshot scenes show it as available and on, so Settings and the menu bar panel look as they do installed.
+On macOS it works only in the app from `make install-app`, not under `make dev`. It registers the installed bundle with SMAppService, which survives rebuilds while the bundle identifier stays `com.wayned.keepr`. Screenshot scenes show it as available and on, so Settings and the menu bar panel look as they do installed. On Windows it's the Run key (`login_win.rs`), with `--login` so a login launch stays in the notification area; it works in any build, and records that build's program.
 
 ## Help
 
-The window's help drawer (`?`, the toolbar's ? button, or **Keepr Help**, ⌘?, in the Help menu) shows a topic per screen and step-by-step guides from `src/help/*.md`: frontmatter (`title`, `kind`: `screen` or `guide`, `screens`, `order`, `summary`) and a `##` section per part, or per step of a guide. Adding a topic is dropping a file in; `src/help/help.test.ts` (`npx vitest run`, in `make check`) checks every screen has one, every guide step links into the app, and every `app:` and `help:` link goes somewhere. `app:` links open a screen (`app:restore`, `app:plans/new`, `app:destinations/add`); `help:` links another topic. The keyboard list in the drawer is read from `src/help/keyboard.md`.
+The window's help drawer (`?`, the toolbar's ? button, or **Keepr Help**, ⌘?, in the Help menu; on Windows Ctrl+? and the notification-area panel's Keepr Help) shows a topic per screen and step-by-step guides from `src/help/*.md`: frontmatter (`title`, `kind`: `screen` or `guide`, `screens`, `order`, `summary`) and a `##` section per part, or per step of a guide. Adding a topic is dropping a file in; `src/help/help.test.ts` (`npx vitest run`, in `make check`) checks every screen has one, every guide step links into the app, and every `app:` and `help:` link goes somewhere. `app:` links open a screen (`app:restore`, `app:plans/new`, `app:destinations/add`); `help:` links another topic. Getting started and the All topics picker sit under the drawer's search box; Keyboard shortcuts (`src/help/keyboard.md`) is a topic like the rest, opened at the screen's section (`KEY_SECTION` in `src/help/HelpDrawer.tsx`), and a topic shows one section open at a time. `src/help/GuideOffer.tsx` offers Getting started when the window opens, while Settings' `offerGuide` is on. Each page shows only this computer's parts; see [Writing for both platforms](#writing-for-both-platforms).
 
 ## Writing the docs
 
@@ -107,9 +151,10 @@ Every new or changed feature updates its guide in `docs/` and its help topic in 
 - Short sentences in plain words. One idea per sentence or bullet.
 - In `docs/`, a `##` section per topic, with `###` headings to split up anything longer. A help topic is shorter: what the screen is for and how to do each thing on it, without the reference detail.
 - Developer detail goes here, not in the user guides or the help.
+- Both platforms at once: what differs on Windows is marked in the help and said in the docs (see [Writing for both platforms](#writing-for-both-platforms)).
 
 ## Screenshots
 
-`make screenshots` retakes every image in `docs/images/`, in both themes, from demo data it makes in `.demo/` (gitignored): sample folders in a demo home folder, a backup folder as the destination, a drive that isn't connected, and a few backups with edits between them. The app runs with `HOME` set to the demo's home, so paths show as `~/Documents`, and nothing outside `.demo/` is read or written. `--fresh` remakes the demo, and `-j N` sets how many apps run side by side (4 by default, each with its own copy of the demo's app data). Scenes are in `tools/screenshots/scenes.json`, and `{home}` in a scene is the demo home's path. `KEEPR_SCENE` is the screenshot mode: the window is invisible and takes no focus, so nothing flashes on screen, and the app saves its webview's snapshot to the file in `KEEPR_SNAPSHOT`; the script draws the window's buttons and rounded corners back on, and takes a blank shot again. It needs Pillow.
+`make screenshots` (macOS only) retakes every image in `docs/images/`, in both themes, from demo data it makes in `.demo/` (gitignored): sample folders in a demo home folder, a backup folder as the destination, a drive that isn't connected, and a few backups with edits between them. The app runs with `HOME` set to the demo's home, so paths show as `~/Documents`, and nothing outside `.demo/` is read or written. `--fresh` remakes the demo, and `-j N` sets how many apps run side by side (4 by default, each with its own copy of the demo's app data). Scenes are in `tools/screenshots/scenes.json`, and `{home}` in a scene is the demo home's path. `KEEPR_SCENE` is the screenshot mode: the window is invisible and takes no focus, so nothing flashes on screen, and the app saves its webview's snapshot to the file in `KEEPR_SNAPSHOT`; the script draws the window's buttons and rounded corners back on, and takes a blank shot again. It needs Pillow.
 
 The docs show each screenshot in the reader's theme with a `<picture>` element, linked to `docs/images/index.md`, which lists them all. A new screenshot goes in that list too.

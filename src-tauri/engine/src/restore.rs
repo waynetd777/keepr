@@ -16,7 +16,6 @@ use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering::Relaxed;
 
@@ -25,7 +24,7 @@ use std::sync::atomic::Ordering::Relaxed;
 pub enum Target {
     Original,
     /// Items keep their folders inside this one: /Users/w/Documents/Finance/x restores to
-    /// <folder>/Documents/Finance/x.
+    /// <folder>/Documents/Finance/x. A folder on this computer, as the file system names it.
     Folder(PathBuf),
 }
 
@@ -52,12 +51,18 @@ pub fn destination(snap: &Snapshot, path: &str, target: &Target) -> Result<PathB
     match target {
         // A bucket was only read from: Keepr has no leave to write there.
         Target::Original if path.contains("://") => Err(Error::new("Files from a bucket can only be restored into a folder. Choose one.")),
-        Target::Original => Ok(PathBuf::from(path)),
+        Target::Original => Ok(crate::paths::native(path)),
         Target::Folder(dir) => {
-            let (src, _) = crate::browse::split(snap, path).ok_or_else(|| Error::new(format!("{path} isn't in this snapshot")))?;
-            let parent = Path::new(&src).parent().unwrap_or(Path::new("/"));
-            let rel = Path::new(path).strip_prefix(parent).map_err(|_| Error::new(format!("{path} isn't in this snapshot")))?;
-            Ok(dir.join(rel))
+            // In the app's form (paths.rs): the source's own folder and everything below it.
+            let (src, names) = crate::browse::split(snap, path).ok_or_else(|| Error::new(format!("{path} isn't in this snapshot")))?;
+            // A drive's root ("D:/") has no folder name: its letter stands in. The whole disk ("/")
+            // has neither, and its folders go straight into `dir`.
+            let top = src.trim_end_matches('/').rsplit('/').next().unwrap_or_default().trim_end_matches(':');
+            let mut out = if top.is_empty() { dir.clone() } else { dir.join(top) };
+            for n in names {
+                out.push(n);
+            }
+            Ok(out)
         }
     }
 }
@@ -77,9 +82,49 @@ pub fn free_name(p: &Path) -> PathBuf {
     unreachable!()
 }
 
-/// Whether `name` is one file's name: not empty, `.` or `..`, and without a '/'.
+/// Whether `name` is one file's name: not empty, `.` or `..`, and without a '/' (on Windows,
+/// nor a '\\' or a ':', which would lead out of the folder or onto another drive).
 fn safe_name(name: &str) -> bool {
-    !name.is_empty() && name != "." && name != ".." && !name.contains('/') && !name.contains('\0')
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains('/')
+        && !name.contains('\0')
+        && !(cfg!(windows) && (name.contains('\\') || name.contains(':')))
+}
+
+/// A restored item's permissions from its mode: as they were on macOS; on Windows read-only or not.
+fn set_mode(p: &Path, mode: u32) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(p, fs::Permissions::from_mode(mode))
+    }
+    #[cfg(not(unix))]
+    {
+        let mut perm = fs::metadata(p)?.permissions();
+        perm.set_readonly(mode & 0o222 == 0);
+        fs::set_permissions(p, perm)
+    }
+}
+
+/// A link put back as it was. Windows makes a link to a folder and one to a file differently (and
+/// only with Developer Mode on, or as an administrator): a folder's was kept with mode 755.
+fn make_link(target: &str, dest: &Path, mode: u32) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let _ = mode;
+        std::os::unix::fs::symlink(target, dest)
+    }
+    #[cfg(windows)]
+    {
+        let t = target.replace('/', "\\");
+        if mode & 0o111 != 0 {
+            std::os::windows::fs::symlink_dir(t, dest)
+        } else {
+            std::os::windows::fs::symlink_file(t, dest)
+        }
+    }
 }
 
 struct Job<'a> {
@@ -121,7 +166,8 @@ impl Job<'_> {
                         self.restore(child, &dest.join(&child.name))?;
                     }
                 }
-                let _ = fs::set_permissions(dest, fs::Permissions::from_mode(n.mode | 0o700));
+                // Never read-only: on Windows that would stop the next restore writing into it.
+                let _ = set_mode(dest, n.mode | 0o700);
                 set_times(dest, n);
             }
             NodeKind::File => {
@@ -159,7 +205,7 @@ impl Job<'_> {
                     }
                 }
                 if let Some(t) = &n.target {
-                    if let Err(e) = std::os::unix::fs::symlink(t, dest) {
+                    if let Err(e) = make_link(t, dest, n.mode) {
                         self.err(dest, e);
                     }
                 }
@@ -182,9 +228,20 @@ impl Job<'_> {
             }
             crate::backend::sync(&f)?;
             drop(f);
-            fs::set_permissions(&tmp, fs::Permissions::from_mode(n.mode))?;
             set_times(&tmp, n);
-            fs::rename(&tmp, dest)?;
+            // On Windows a read-only file can't be replaced: one in the way is made writable first,
+            // and the restored one is made read-only once it's in place.
+            #[cfg(windows)]
+            if self.conflict == Conflict::Replace {
+                let _ = set_mode(dest, 0o644);
+            }
+            #[cfg(unix)]
+            set_mode(&tmp, n.mode)?;
+            crate::backend::rename(&tmp, dest)?;
+            #[cfg(windows)]
+            if n.mode & 0o222 == 0 {
+                let _ = set_mode(dest, n.mode);
+            }
             Ok(())
         })();
         if res.is_err() {
@@ -248,10 +305,11 @@ mod tests {
     #[test]
     fn restores_to_a_folder_and_handles_conflicts() {
         let (src, _d, repo) = setup(Some("pw"));
-        let base = src.path().to_string_lossy().to_string();
+        let base = key(src.path());
         fs::create_dir_all(src.path().join("docs")).unwrap();
         fs::write(src.path().join("docs/a.txt"), vec![9u8; 2_500_000]).unwrap();
         fs::write(src.path().join("top.txt"), b"top").unwrap();
+        #[cfg(unix)]
         std::os::unix::fs::symlink("top.txt", src.path().join("link")).unwrap();
         let snap = backup::run(&repo, &opts(src.path()), None, &Control::default()).unwrap();
 
@@ -261,6 +319,7 @@ mod tests {
         let name = src.path().file_name().unwrap();
         assert_eq!(r.files, 2);
         assert_eq!(fs::read(out.path().join(name).join("docs/a.txt")).unwrap(), vec![9u8; 2_500_000]);
+        #[cfg(unix)]
         assert_eq!(fs::read_link(out.path().join(name).join("link")).unwrap(), Path::new("top.txt"));
         let m1 = fs::metadata(src.path().join("top.txt")).unwrap().modified().unwrap();
         let m2 = fs::metadata(out.path().join(name).join("top.txt")).unwrap().modified().unwrap();

@@ -4,6 +4,8 @@
 
 // Numbers and times the way people say them.
 
+import { isMac, shown } from "./platform";
+
 export function bytes(n: number | null | undefined): string {
   if (n == null) return "—";
   const u = ["bytes", "KB", "MB", "GB", "TB", "PB"];
@@ -103,8 +105,10 @@ export function secondsLeft(secs: number | null): string {
 }
 
 /** A path inside the home folder written from ~. Only a whole folder name matches, so with home
- *  /Users/wayne, /Users/wayned stays as it is. */
+ *  /Users/wayne, /Users/wayned stays as it is. Windows has no ~: there the whole path, as Windows
+ *  writes it (platform.ts shown). */
 export function tilde(path: string, home: string): string {
+  if (!isMac) return shown(path);
   if (!home) return path;
   return path === home || path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
 }

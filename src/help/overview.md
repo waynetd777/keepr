@@ -14,14 +14,14 @@ Each plan has a card with its sources and destination, and:
 - A chart of the last 30 days, one bar per day, taller for more data sent. A red bar is a backup that didn't finish, a stub a day without one. Hover over a bar for that day's backups.
 - **Edit…** for the plan's settings, **Restore…**, and a button to back it up now, or stop it while it runs.
 
-Drag a card by its grip to change the order of your plans; Restore, the menu bar and the rest follow it. A plan that's turned off has a yellow **Off** chip.
+Drag a card by its grip to change the order of your plans; Restore, the <!-- mac -->menu bar<!-- /mac --><!-- github --> or <!-- /github --><!-- windows -->notification-area panel<!-- /windows --> and the rest follow it. A plan that's turned off has a yellow **Off** chip.
 
-A new plan you've started but not created shows as a banner, with **Continue** and **Discard**. It's kept only while Keepr is open: quitting discards it. **Open backup…** in the toolbar opens a backup made on another Mac; see [Restore](help:restore).
+A new plan you've started but not created shows as a banner, with **Continue** and **Discard**. It's kept only while Keepr is open: quitting discards it. **Open backup…** in the toolbar opens a backup made on another computer; see [Restore](help:restore).
 
 ## When a plan needs attention
 A plan that has failed, is waiting (for its drive, say) or hasn't backed up for a while shows as a compact red or amber card with the reason and **Try again**.
 
-- **Waiting**: the backup is due but can't run yet, because its destination isn't connected, the battery is low or the Mac is on a hotspot, as the plan says. Keepr tries again every few minutes.
+- **Waiting**: the backup is due but can't run yet, because its destination isn't connected, the battery is low or the computer is on a <!-- mac -->hotspot<!-- /mac --><!-- github --> or <!-- /github --><!-- windows -->metered connection<!-- /windows -->, as the plan says. Keepr tries again every few minutes.
 - **Failed**: the backup didn't finish. Its log in [Activity](app:activity) says why.
 - **Hasn't backed up for a while**: Keepr also warns you about it, as set in [Settings](app:settings).
 

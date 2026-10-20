@@ -10,10 +10,11 @@ import { api, type PlanSummary, type Run } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
 import { ago, bytes, count, longDate, next, when } from "./format";
+import { isMac } from "./platform";
 import { RecoverySheet } from "./Plans";
 import { openBackup } from "./OpenBackup";
 import { DRAFT_NOTE, draftName, setDraft, useDraft } from "./draft";
-import { DestIcon, jobTitle, PlanProgress, StopButton, useAct } from "./ui";
+import { DestIcon, jobTitle, PlanProgress, useAct } from "./ui";
 import { Connection, SpaceMeter } from "./DestStatus";
 import { resultLabel, resultTone, TONE_COLOR } from "./runResult";
 
@@ -133,12 +134,10 @@ function PlanCard({ p }: { p: PlanSummary }) {
         <button className="btn" disabled={p.snapshots === 0} onClick={() => go({ name: "restore", plan: p.id })}>
           Restore…
         </button>
-        {running ? (
-          <StopButton job={ov!.job!} iconOnly label={`Stop ${p.name}`} />
-        ) : waiting ? (
+        {/* A running backup's Pause and Stop are on its progress row below. */}
+        {running ? null : waiting ? (
           <button
-            className="btn"
-            style={{ width: 30, padding: 0 }}
+            className="btn square"
             aria-label={`Cancel ${p.name}'s waiting backup`}
             title="Cancel"
             onClick={() => act(() => api.cancel(waiting.id))}
@@ -147,8 +146,7 @@ function PlanCard({ p }: { p: PlanSummary }) {
           </button>
         ) : (
           <button
-            className="btn"
-            style={{ width: 30, padding: 0 }}
+            className="btn square"
             aria-label={`Back up ${p.name} now`}
             title="Back up now"
             onClick={() => act(() => api.backUp(p.id))}
@@ -259,7 +257,7 @@ function Welcome() {
             <Icon name="restore" size={20} />
           </div>
           <div className="grow col" style={{ gap: 2 }}>
-            <span style={{ fontWeight: 600 }}>Moving from another Mac?</span>
+            <span style={{ fontWeight: 600 }}>Moving from another {isMac ? "Mac" : "computer"}?</span>
             <span className="small muted">Open the Keepr backup it made, to restore your files from it here.</span>
           </div>
           <button className="btn" onClick={openBackup}>

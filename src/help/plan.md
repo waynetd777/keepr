@@ -10,9 +10,9 @@ A plan is a set of folders backed up to one destination, on a schedule, with rul
 ## What to keep
 **Add a source** adds what the plan backs up:
 
-- **Folder or drive…**: any folders on this Mac or a connected drive. Pick several at once.
+- **Folder or drive…**: any folders on this computer or a connected drive. Pick several at once.
 - **SMB share on the network…**: a folder on a NAS or another computer.
-- **In iCloud Drive…**, **In Google Drive…**, **In OneDrive…** and so on: a folder in a cloud service synced to this Mac.
+- **In iCloud Drive…**, **In Google Drive…**, **In OneDrive…** and so on: a folder in a cloud service synced to this computer.
 - **S3 bucket…**: a bucket at Amazon S3, Backblaze B2, Cloudflare R2 or another S3 service. **Check** tells you how much is in it.
 
 Keepr only reads your sources; it never changes or moves them. Click a source's name to change it. Removing a source that has been backed up asks whether to **Keep its versions** or **Delete its backed-up data…**. A plan backs up at least one source: to stop backing up its last, delete the plan.
@@ -22,9 +22,11 @@ Rules leave files and folders out. Type one in **+ Rule** and press Return; clic
 
 - `name` or `*.iso` leaves out any file or folder with that name, or matching the pattern.
 - `build/` leaves out any folder with that name, and everything in it.
-- `~/Movies` or `/Volumes/Scratch` leaves out that folder and everything in it.
+- <!-- mac -->`~/Movies` or `/Volumes/Scratch`<!-- /mac --><!-- github --> on a Mac, or on Windows <!-- /github --><!-- windows -->`~/Videos` or `D:/Scratch`<!-- /windows --> leaves out that folder and everything in it.<!-- windows --> Write a folder's path with `/`, from `~` (your user folder) or from a drive (`D:/`); `/` alone is the system drive. On Windows rules match in any case.<!-- /windows -->
 
-The switches below also skip what a project's `.gitignore` leaves out, files only in the cloud (they aren't downloaded), what apps mark as not needing a backup (as Time Machine does), and files larger than a size you choose.
+The switches below also skip what a project's `.gitignore` leaves out, files only in the cloud (they aren't downloaded), <!-- mac -->what apps mark as not needing a backup (as Time Machine does), <!-- /mac -->and files larger than a size you choose.<!-- windows --> On Windows a file only in the cloud is one OneDrive, iCloud or another service shows with its cloud mark in File Explorer.<!-- /windows -->
+
+A new plan starts with rules for what never needs a backup: <!-- mac -->`node_modules/`, `target/`, `.DS_Store`, `*.tmp`, `~/Library/Caches` and the folders macOS keeps on every drive (`.Trashes/`, `.Spotlight-V100/` and the like)<!-- /mac --><!-- github --> on a Mac; on Windows <!-- /github --><!-- windows -->`node_modules/`, `target/`, `*.tmp`, `Thumbs.db`, `~/AppData/Local/Temp`, `~/AppData/Local/Microsoft/Windows/INetCache`, `$RECYCLE.BIN/` and `System Volume Information/`<!-- /windows -->.
 
 **Leave this plan out of Ask** keeps the plan's folders and runs out of [Ask](help:ask): it sees only the plan's name, its Ask buttons are greyed out, and Ask can't suggest changes to it.
 
@@ -41,7 +43,7 @@ Every backup is a snapshot of all the plan's files. Older snapshots are thinned 
 
 - **Catch up after sleep or when the destination comes back** runs a missed backup as soon as it can.
 - **Back up while on battery**, and **Wait when battery is below 20%**.
-- **Not on a personal hotspot** waits while the Mac is on an expensive connection.
+- **Not on a personal hotspot** waits while the <!-- mac -->Mac is on an expensive connection<!-- /mac --><!-- github --> (Mac) or <!-- /github --><!-- windows -->PC is on a metered connection: a phone's hotspot, or one set as metered in Windows' Settings<!-- /windows --><!-- github --> (Windows)<!-- /github -->.
 - **Limit speed to** a number of MB/s, for writing to the destination.
 
 These hold back scheduled backups only: **Back up now** runs straight away.
@@ -55,12 +57,12 @@ The first backup copies everything; after that each one looks only at what chang
 The ⋯ menu runs either now.
 
 ## Before and after each backup
-**Before each backup** runs a command first, such as one that exports a database into a folder the plan backs up; **If it fails**, Keepr backs up anyway with a warning, or doesn't back up. **After each backup** runs one when the backup ends, however it went, and tells it how it went in `KEEPR_` environment variables such as `KEEPR_RESULT`. Both run in your login shell, and their output goes into the backup's log in [Activity](app:activity). While one runs, Activity and the menu bar say so, since nothing is read until it ends.
+**Before each backup** runs a command first, such as one that exports a database into a folder the plan backs up; **If it fails**, Keepr backs up anyway with a warning, or doesn't back up. **After each backup** runs one when the backup ends, however it went, and tells it how it went in `KEEPR_` environment variables such as `KEEPR_RESULT`. Both run in your <!-- mac -->login shell (zsh)<!-- /mac --><!-- github --> (Mac) or <!-- /github --><!-- windows -->PowerShell, which reads them as `$env:KEEPR_RESULT`<!-- /windows --><!-- github --> (Windows)<!-- /github -->, and their output goes into the backup's log in [Activity](app:activity). While one runs, Activity and the <!-- mac -->menu bar<!-- /mac --><!-- github --> (Mac) or <!-- /github --><!-- windows -->notification-area panel<!-- /windows --> say so, since nothing is read until it ends.
 
 ## Encryption
-An encrypted plan's files can only be read with its password or its recovery key. Encryption is chosen when you make a plan and can't be changed afterwards. Keepr keeps the password in your Keychain.
+An encrypted plan's files can only be read with its password or its recovery key. Encryption is chosen when you make a plan and can't be changed afterwards. Keepr keeps the password in your <!-- mac -->Keychain<!-- /mac --><!-- github --> (Mac) or <!-- /github --><!-- windows -->Windows' Credential Manager<!-- /windows --><!-- github --> (Windows)<!-- /github -->.
 
-The first backup makes a **recovery key**, which works in place of the password. Keepr keeps asking you to save it (**Save recovery key…**) until you click **I've saved it**. Keep it somewhere safe away from the Mac, such as a password manager.
+The first backup makes a **recovery key**, which works in place of the password. Keepr keeps asking you to save it (**Save recovery key…**) until you click **I've saved it**. Keep it somewhere safe away from this computer, such as a password manager.
 
 > Without the password or the recovery key, nobody can restore these files, including you.
 

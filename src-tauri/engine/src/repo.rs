@@ -599,7 +599,11 @@ impl Repo {
             if (exclusive || l.exclusive) && !(l.host == host && l.pid == me) {
                 return Err(Error::new(format!(
                     "The backup is in use by {} (since {}).",
-                    if l.host == host { "another Keepr on this Mac".to_string() } else { l.host.clone() },
+                    if l.host == host {
+                        format!("another Keepr on {}", if cfg!(windows) { "this PC" } else { "this Mac" })
+                    } else {
+                        l.host.clone()
+                    },
                     l.time
                 )));
             }
@@ -638,6 +642,13 @@ impl Drop for Lock {
     }
 }
 
+/// This computer's name, as a lock and a snapshot record it: on Windows %COMPUTERNAME%.
+#[cfg(windows)]
+pub fn hostname() -> String {
+    std::env::var("COMPUTERNAME").ok().filter(|n| !n.is_empty()).unwrap_or_else(|| "this PC".into())
+}
+
+#[cfg(unix)]
 pub fn hostname() -> String {
     let mut buf = [0u8; 256];
     let r = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) };
@@ -648,8 +659,27 @@ pub fn hostname() -> String {
     String::from_utf8_lossy(&buf[..end]).trim_end_matches(".local").to_string()
 }
 
+#[cfg(unix)]
 fn pid_alive(pid: u32) -> bool {
     unsafe { libc::kill(pid as libc::pid_t, 0) == 0 || *libc::__error() == libc::EPERM }
+}
+
+/// Whether a process is still running: one that can be opened and hasn't exited, or one Windows
+/// won't let this one open (another user's, or elevated), which is there.
+#[cfg(windows)]
+fn pid_alive(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ACCESS_DENIED, STILL_ACTIVE};
+    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return GetLastError() == ERROR_ACCESS_DENIED;
+        }
+        let mut code = 0u32;
+        let ok = GetExitCodeProcess(h, &mut code) != 0;
+        CloseHandle(h);
+        ok && code == STILL_ACTIVE as u32
+    }
 }
 
 /// One backup: when it was taken and the tree of everything in it.
@@ -827,8 +857,8 @@ mod tests {
         let t = tempfile::tempdir().unwrap();
         let r = Arc::new(repo(t.path(), None));
         let old = (chrono::Utc::now() - chrono::Duration::hours(48)).to_rfc3339();
-        // Process 1 is always running: two days old, its lock still holds.
-        let live = LockFile { host: hostname(), pid: 1, time: old.clone(), exclusive: false };
+        // Process 1 (on Windows 4, the System process) is always running: two days old, its lock still holds.
+        let live = LockFile { host: hostname(), pid: if cfg!(windows) { 4 } else { 1 }, time: old.clone(), exclusive: false };
         r.backend.write("locks/live.lock", &serde_json::to_vec(&live).unwrap()).unwrap();
         assert!(r.lock(true).is_err());
         r.backend.remove("locks/live.lock").unwrap();

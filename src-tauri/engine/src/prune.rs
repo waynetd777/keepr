@@ -526,7 +526,7 @@ mod tests {
         let s1 = backup::run(&repo, &o, None, &Control::default()).unwrap();
         backup::run(&repo, &o, Some(&s1), &Control::default()).unwrap();
         let before: u64 = repo.backend.list("packs").unwrap().iter().map(|f| repo.backend.size(&format!("packs/{f}")).unwrap()).sum();
-        let p = remove_source(&repo, &b.path().to_string_lossy(), &Control::default()).unwrap();
+        let p = remove_source(&repo, &crate::backup::tests::key(b.path()), &Control::default()).unwrap();
         assert_eq!(p.forgotten, 2, "both snapshots rewritten");
         let after: u64 = repo.backend.list("packs").unwrap().iter().map(|f| repo.backend.size(&format!("packs/{f}")).unwrap()).sum();
         assert!(before - after > 1_900_000, "{before} -> {after}");
@@ -534,9 +534,9 @@ mod tests {
         let snaps = r2.snapshots().unwrap();
         assert_eq!(snaps.len(), 2);
         for s in &snaps {
-            assert_eq!(s.sources, vec![a.path().to_string_lossy().to_string()]);
+            assert_eq!(s.sources, vec![crate::backup::tests::key(a.path())]);
             assert_eq!((s.stats.bytes, s.stats.files), (4, 1), "sizes are for what's left");
-            assert!(crate::browse::node_at(&r2, s, &format!("{}/keep.txt", a.path().display())).unwrap().is_some());
+            assert!(crate::browse::node_at(&r2, s, &format!("{}/keep.txt", crate::backup::tests::key(a.path()))).unwrap().is_some());
         }
         assert!(crate::check::run(&r2, 1.0, &Control::default()).unwrap().problems.is_empty());
     }
@@ -560,13 +560,15 @@ mod tests {
         fs::write(a.path().join("Pictures/keep.jpg"), b"keep").unwrap();
         let s1 = backup::run(&repo, &opts(a.path()), None, &Control::default()).unwrap();
         backup::run(&repo, &opts(a.path()), Some(&s1), &Control::default()).unwrap();
-        let lib = format!("{}/Pictures/Photos Library.photoslibrary", a.path().display());
+        let lib = format!("{}/Pictures/Photos Library.photoslibrary", crate::backup::tests::key(a.path()));
         let p = remove_path(&repo, &lib, &Control::default()).unwrap();
         assert_eq!(p.forgotten, 2);
         assert!(p.bytes_freed > 1_900_000, "{p:?}");
         for s in repo.snapshots().unwrap() {
             assert!(crate::browse::node_at(&repo, &s, &lib).unwrap().is_none());
-            assert!(crate::browse::node_at(&repo, &s, &format!("{}/Pictures/keep.jpg", a.path().display())).unwrap().is_some());
+            assert!(crate::browse::node_at(&repo, &s, &format!("{}/Pictures/keep.jpg", crate::backup::tests::key(a.path())))
+                .unwrap()
+                .is_some());
             assert_eq!((s.stats.bytes, s.stats.files), (4, 1));
             let top = repo.load_tree(&s.tree).unwrap();
             assert_eq!(top.nodes[0].size, 4, "folder totals updated up the chain");

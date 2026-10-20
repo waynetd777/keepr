@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { api, type Smb } from "./api";
 import { Icon } from "./icons";
 import { SAVED_PASSWORD, useSavedLogin } from "./ui";
+import { KEYCHAIN } from "./platform";
 
 export type SmbForm = ReturnType<typeof useSmbForm>;
 
@@ -171,7 +172,11 @@ export function SmbFields({ f, busy, editing }: { f: SmbForm; busy?: boolean; ed
             onChange={(e) => f.setPassword(e.target.value)}
           />
           {f.savedFrom && f.password === SAVED_PASSWORD && (
-            <span className="tiny faint">Saved {f.savedFrom === "finder" ? "by Finder" : "by Keepr"} in your Keychain</span>
+            <span className="tiny faint">
+              {f.savedFrom === "windows"
+                ? "Saved by Windows: Keepr connects with it"
+                : `Saved ${f.savedFrom === "finder" ? "by Finder" : "by Keepr"} in your ${KEYCHAIN}`}
+            </span>
           )}
         </label>
         <label className="field" style={{ gridColumn: "span 2" }}>

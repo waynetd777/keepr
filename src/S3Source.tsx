@@ -13,6 +13,7 @@ import { BucketPicker, s3EndpointFor, serviceOf, SetupBusy, type Service } from 
 import { R2Setup } from "./R2Setup";
 import { Icon } from "./icons";
 import { Seg, Sheet } from "./ui";
+import { KEYCHAIN, shortcut } from "./platform";
 
 export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; onClose: () => void }) {
   const [service, setService] = useState<Service>("aws");
@@ -137,7 +138,7 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
             <span style={{ fontWeight: 600 }}>Let Keepr set up read-only access</span>
             <span className="small muted" style={{ lineHeight: 1.5 }}>
               Sign in with your own AWS login and choose the bucket. Keepr makes a user that may only list and read it, and keeps that
-              user's key in your Keychain.
+              user's key in your {KEYCHAIN}.
             </span>
             <div className="row" style={{ gap: 8, alignItems: "flex-end" }}>
               <label className="field" style={{ width: 170 }}>
@@ -189,8 +190,8 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
                   </button>
                 </div>
                 <span className="small muted">
-                  Paste it in CloudShell (⌘V) and press Return, then copy the line starting <span className="mono">keepr-setup</span> back
-                  here:
+                  Paste it in CloudShell ({shortcut("⌘V")}) and press {shortcut("Return")}, then copy the line starting{" "}
+                  <span className="mono">keepr-setup</span> back here:
                 </span>
                 <div className="row" style={{ gap: 8 }}>
                   <input
@@ -224,7 +225,9 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
         {secretSaved && service !== "other" && (
           <div role="status" className="banner good">
             <Icon name="check" size={18} stroke={2.4} />
-            <span className="text">Keepr may now list and read {bucket}, and nothing more. Its key is in your Keychain.</span>
+            <span className="text">
+              Keepr may now list and read {bucket}, and nothing more. Its key is in your {KEYCHAIN}.
+            </span>
           </div>
         )}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px 14px" }}>
@@ -279,7 +282,7 @@ export function S3SourceSheet({ onAdd, onClose }: { onAdd: (p: Place) => void; o
             <input
               className="input"
               type="password"
-              placeholder={secretSaved ? "Saved in your Keychain" : ""}
+              placeholder={secretSaved ? `Saved in your ${KEYCHAIN}` : ""}
               value={secret}
               onChange={(e) => setSecret(e.target.value)}
             />

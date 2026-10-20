@@ -10,13 +10,13 @@ Activity (`⌘4`) shows what Keepr is doing now and what it has done.
 ## The backup that's running
 Step by step: looking for changes, comparing, packing (splitting, skipping what's already kept, compressing and encrypting), sending, and confirming. It shows the progress, the speed and the time left, and how much was already stored against how much is new.
 
-**Pause** holds it; **Stop** ends it once the file it's on is done. If the Mac sleeps or the destination drops off, the next backup picks up the work. Nothing half-sent counts as a snapshot.
+**Pause** holds it; **Stop** ends it once the file it's on is done. If the computer sleeps or the destination drops off, the next backup picks up the work. Nothing half-sent counts as a snapshot.
 
 ## History
 Every backup, full re-read, check, tidy-up and restore, and each change to a plan made with [Ask](help:ask), with when it ran, how many files and how much data, how long it took and its result. **All**, **Problems** and **Restores** filter it.
 
 ## A run's log
-Click a row for its log, which says what was backed up, skipped or couldn't be read, and the output of the plan's before and after commands. Files that couldn't be read are often a sign Keepr needs Full Disk Access; see [Start here](help:guide-start).
+Click a row for its log, which says what was backed up, skipped or couldn't be read, and the output of the plan's before and after commands. Files that couldn't be read are often <!-- mac -->a sign Keepr needs Full Disk Access; see [Start here](help:guide-start).<!-- /mac --><!-- github --> On a Mac. On Windows, <!-- /github --><!-- windows -->files another program holds open (a running database, say), or folders only an administrator can open.<!-- /windows -->
 
 **Ask**, under the log, asks an AI what happened, with the run's message and the end of its log. A plan change has **Undo** instead, which puts back the settings the change made.
 

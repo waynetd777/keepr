@@ -2,8 +2,9 @@
 // See LICENSE for the full text.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// No console window beside the app on Windows, in a debug build too. The command line attaches to
+// the terminal it was started from instead (cli::attach_console).
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 /// The app menu labels an unbundled process by its executable name in `tauri dev`; set the real
 /// name before AppKit starts. The bundled .app takes its name from Info.plist anyway.

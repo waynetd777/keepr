@@ -36,9 +36,18 @@ impl Made {
     }
 }
 
+#[cfg(not(windows))]
 const CANDIDATES: [&str; 3] = ["/opt/homebrew/bin/aws", "/usr/local/bin/aws", "/usr/bin/aws"];
 
+/// The AWS CLI, if it's installed and new enough to have `aws login` (2.32 and later). On Windows
+/// the setup's scripts (bash) can't run, so it's never there: Windows sets up in CloudShell.
+#[cfg(windows)]
+pub fn cli() -> Option<String> {
+    None
+}
+
 /// The AWS CLI, if it's installed and new enough to have `aws login` (2.32 and later).
+#[cfg(not(windows))]
 pub fn cli() -> Option<String> {
     let aws = CANDIDATES.iter().find(|p| std::path::Path::new(p).exists())?;
     let out = Command::new(aws).arg("--version").output().ok()?;

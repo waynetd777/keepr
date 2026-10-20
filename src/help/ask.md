@@ -8,7 +8,9 @@ summary: Ask an AI about what takes the space in your backups and why a run fail
 **Ask**, in the toolbar (`⌘J`), opens a chat beside the window. Ask what takes the space, why a backup stored so much, what went wrong with a run, or how to do something in Keepr. The **Ask** buttons on the Size Map and in Activity start a chat about that folder or run.
 
 ## Who answers
-Ask uses an AI tool already installed and signed in on this Mac: Claude Code, Codex, Antigravity or GitHub Copilot. Choose the model at the top of the chat. With none installed, the question box and the Ask buttons are greyed out and Ask says what to install; sign in to it, then reopen Keepr.
+Ask uses an AI tool already installed and signed in on this computer: Claude Code, Codex, Antigravity or GitHub Copilot. Choose the model at the top of the chat. With none installed, the question box and the Ask buttons are greyed out and Ask says what to install; sign in to it, then reopen Keepr.<!-- windows -->
+
+On Windows, install Claude Code with its installer from claude.ai/code (or `npm install -g @anthropic-ai/claude-code`), Codex with `npm install -g @openai/codex`, GitHub Copilot CLI with `npm install -g @github/copilot`, or Antigravity with its installer; run each once in a terminal to sign in. Keepr finds them in their installers' folders, npm's folder or on the PATH, and runs them with no window of their own.<!-- /windows -->
 
 ## What's sent
 With the first question of each chat, Ask sends the AI tool Keepr's instructions, this help, and what Keepr knows about your backups. Follow-up questions don't send the figures again: only the question with Keepr's instructions and this help (GitHub Copilot keeps those from the first question), plus what an Ask button adds. Switching to a different AI tool sends the figures again, since it hasn't seen them.

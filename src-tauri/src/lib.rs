@@ -2,8 +2,13 @@
 // See LICENSE for the full text.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Keepr's app: the window's commands, the menu-bar item, and starting the job runner and the
-//! scheduler. The backup engine itself is the keepr-engine crate (engine/).
+//! Keepr's app: the window's commands, the menu-bar item (the notification area's icon on
+//! Windows), and starting the job runner and the scheduler. The backup engine itself is the
+//! keepr-engine crate (engine/).
+//!
+//! What only macOS has lives in modules of its own, cfg'd to macOS; Windows has its own versions
+//! under the same names (`*_win.rs`), or stand-ins that say there's nothing (other.rs), so the rest
+//! of the app and the page call the same functions everywhere.
 
 mod about;
 mod ask;
@@ -18,21 +23,55 @@ mod config;
 mod core;
 #[cfg(target_os = "macos")]
 mod folder_panel;
+#[cfg(target_os = "macos")]
+mod fsevents;
+#[cfg(windows)]
+#[path = "fsevents_win.rs"]
 mod fsevents;
 mod help;
+#[cfg(windows)]
+mod helper_service_win;
+#[cfg(windows)]
+mod helper_win;
+#[cfg(target_os = "macos")]
+mod keychain;
+#[cfg(windows)]
+#[path = "keychain_win.rs"]
 mod keychain;
 #[cfg(target_os = "macos")]
 mod login_item;
+#[cfg(windows)]
+#[path = "login_win.rs"]
+mod login_item;
 #[cfg(target_os = "macos")]
 mod login_launch;
+#[cfg(not(any(target_os = "macos", windows)))]
+mod other;
+#[cfg(not(any(target_os = "macos", windows)))]
+use other::{fsevents, still};
 mod places;
+#[cfg(windows)]
+mod places_win;
+mod process;
 #[cfg(target_os = "macos")]
 mod quick_look;
 mod r2_setup;
 mod scheduler;
+#[cfg(target_os = "macos")]
 mod smb;
+#[cfg(windows)]
+#[path = "smb_win.rs"]
+mod smb;
+#[cfg(target_os = "macos")]
+mod still;
+#[cfg(windows)]
+#[path = "still_win.rs"]
 mod still;
 mod stored;
+#[cfg(target_os = "macos")]
+mod system;
+#[cfg(windows)]
+#[path = "system_win.rs"]
 mod system;
 mod updates;
 mod verify;
@@ -862,6 +901,14 @@ fn restore(
     target: keepr_engine::restore::Target,
     conflict: keepr_engine::restore::Conflict,
 ) -> String {
+    // The page names the folder in the app's form (keepr_engine::paths); the restore writes to it
+    // as the file system names it.
+    let target = match target {
+        keepr_engine::restore::Target::Folder(p) => {
+            keepr_engine::restore::Target::Folder(keepr_engine::paths::native(&p.to_string_lossy()))
+        }
+        t => t,
+    };
     core.enqueue(Job::Restore { plan, snapshot, items, target, conflict })
 }
 
@@ -1047,8 +1094,12 @@ async fn quick_look(
         })
         .map_err(|e| e.to_string())?;
     }
+    // Windows has no Quick Look: the copy opens in its own app, as File Explorer would open it.
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, file);
+    {
+        let _ = app;
+        tauri_plugin_opener::open_path(&file, None::<&str>).map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -1066,10 +1117,27 @@ async fn choose_folders(app: AppHandle, title: String, multiple: bool, start: Op
         });
         off_main(move || rx.recv().unwrap_or_default()).await.unwrap_or_default()
     }
+    // Windows' own folder picker, through the dialog plugin; the folders in the app's form.
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, title, multiple, start);
-        vec![]
+        use tauri_plugin_dialog::DialogExt;
+        let mut d = app.dialog().file().set_title(title);
+        if let Some(s) = start.filter(|s| !s.is_empty()) {
+            d = d.set_directory(keepr_engine::paths::native(&s));
+        }
+        let picked =
+            off_main(
+                move || {
+                    if multiple {
+                        d.blocking_pick_folders().unwrap_or_default()
+                    } else {
+                        d.blocking_pick_folder().into_iter().collect()
+                    }
+                },
+            )
+            .await
+            .unwrap_or_default();
+        picked.into_iter().filter_map(|f| f.into_path().ok()).map(|p| keepr_engine::paths::app(&p)).collect()
     }
 }
 
@@ -1078,9 +1146,59 @@ fn app_version() -> (String, String) {
     (env!("CARGO_PKG_VERSION").to_string(), option_env!("KEEPR_BUILD").unwrap_or("dev").to_string())
 }
 
+/// The home folder, in the app's form (keepr_engine::paths).
 #[tauri::command]
 fn home_dir() -> String {
-    std::env::var("HOME").unwrap_or_default()
+    keepr_engine::paths::home()
+}
+
+/// What the page needs to show paths as this system writes them: on Windows the system drive
+/// ("C:"), which "/" stands for in the app's paths; empty elsewhere.
+#[tauri::command]
+fn system_drive() -> String {
+    #[cfg(windows)]
+    return keepr_engine::paths::system_drive().to_string();
+    #[cfg(not(windows))]
+    String::new()
+}
+
+/// Keepr Helper on Windows (helper_win.rs): None elsewhere, where there's no helper to have.
+#[tauri::command]
+async fn helper_status() -> Option<serde_json::Value> {
+    #[cfg(windows)]
+    return off_main(|| serde_json::to_value(helper_win::status()).ok()).await.ok().flatten();
+    #[cfg(not(windows))]
+    None
+}
+
+/// Installs (or updates) Keepr Helper, asking Windows for an administrator; Remove takes it away.
+#[tauri::command]
+async fn helper_set(on: bool) -> Result<Option<serde_json::Value>, String> {
+    #[cfg(windows)]
+    {
+        let s = off_main(move || if on { helper_win::install() } else { helper_win::uninstall() }).await??;
+        Ok(serde_json::to_value(s).ok())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = on;
+        Err("Keepr Helper is for Windows.".into())
+    }
+}
+
+/// Settings › About's Check for Updates… (Windows has no app menu to hold it).
+#[tauri::command]
+fn check_for_updates(app: AppHandle) {
+    updates::check_now(&app);
+}
+
+/// Help, from the notification-area window (Windows has no Help menu).
+#[tauri::command]
+fn show_help(app: AppHandle) {
+    help::show_drawer(&app);
+    if let Some(t) = app.get_webview_window("tray") {
+        let _ = t.hide();
+    }
 }
 
 #[tauri::command]
@@ -1089,11 +1207,11 @@ fn login_item() -> (bool, bool) {
     if scene().is_some() {
         return (true, true);
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     {
         (login_item::available(), login_item::status().is_on())
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", windows)))]
     (false, false)
 }
 
@@ -1102,7 +1220,7 @@ fn set_login_item(on: bool) -> bool {
     if scene().is_some() {
         return on;
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     {
         use login_item::Status;
         let s = login_item::set(on);
@@ -1111,7 +1229,7 @@ fn set_login_item(on: bool) -> bool {
         }
         s.is_on()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         let _ = on;
         false
@@ -1315,6 +1433,26 @@ fn snapshot(w: &tauri::WebviewWindow, dest: &std::path::Path) -> Result<(), Stri
     }
 }
 
+/// A window bigger than its screen's working area (Keepr opens at 1320 x 840; many PCs have a
+/// 1366 x 768 screen with a taskbar below) is made to fit and centred. A maximised one is left
+/// alone, and Windows' invisible resizing border is allowed for.
+#[cfg(windows)]
+fn fit_on_screen(w: &tauri::WebviewWindow) {
+    if w.is_maximized().unwrap_or(false) {
+        return;
+    }
+    let (Ok(Some(m)), Ok(size)) = (w.current_monitor(), w.outer_size()) else { return };
+    let k = m.scale_factor();
+    let area = m.work_area().size;
+    let (aw, ah) = (area.width as f64 / k, area.height as f64 / k);
+    let (ww, wh) = (size.width as f64 / k, size.height as f64 / k);
+    if ww <= aw + 16.0 && wh <= ah + 8.0 {
+        return;
+    }
+    let _ = w.set_size(tauri::LogicalSize::new(ww.min(aw - 16.0).max(1040.0), wh.min(ah - 8.0).max(640.0)));
+    let _ = w.center();
+}
+
 fn show_main(app: &AppHandle) {
     // Back in the Dock before the window is shown: done afterwards, the window can come up
     // behind whatever had focus.
@@ -1329,7 +1467,8 @@ fn show_main(app: &AppHandle) {
 
 /// The menu-bar icon: plain, with a dot while backing up, with a mark when something needs attention.
 /// From what Keepr already knows, never the disks: it's worked out on the main thread at every
-/// change, and a share that has gone away would freeze the app.
+/// change, and a share that has gone away would freeze the app. macOS tints the black templates
+/// for the menu bar; Windows shows its tray icons as they are, so there they're in colour.
 fn tray_icon_for(core: &Core) -> &'static [u8] {
     let attention = || {
         let cfg = core.config.lock().unwrap();
@@ -1341,12 +1480,21 @@ fn tray_icon_for(core: &Core) -> &'static [u8] {
             matches!(status_of(p, &ps, last, cfg.settings.stale_days, now).0, "failed" | "waiting" | "stale")
         })
     };
+    #[cfg(windows)]
+    let (busy, alert, plain): (&[u8], &[u8], &[u8]) = (
+        include_bytes!("../icons/tray-win-busy.png"),
+        include_bytes!("../icons/tray-win-alert.png"),
+        include_bytes!("../icons/tray-win.png"),
+    );
+    #[cfg(not(windows))]
+    let (busy, alert, plain): (&[u8], &[u8], &[u8]) =
+        (include_bytes!("../icons/tray-busy@2x.png"), include_bytes!("../icons/tray-alert@2x.png"), include_bytes!("../icons/tray@2x.png"));
     if core.running() {
-        include_bytes!("../icons/tray-busy@2x.png")
+        busy
     } else if attention() {
-        include_bytes!("../icons/tray-alert@2x.png")
+        alert
     } else {
-        include_bytes!("../icons/tray@2x.png")
+        plain
     }
 }
 
@@ -1360,6 +1508,10 @@ const CLICK_AFTER_BLUR: std::time::Duration = std::time::Duration::from_millis(4
 /// Where the icon was that the menu last opened under. With two screens each menu bar has the
 /// icon, and a click on the other screen's takes the focus too: that one opens the menu there.
 static OPENED_UNDER: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new(None);
+
+/// With the taskbar at the bottom of the screen, as Windows' usually is, the menu opens above the
+/// icon: its left edge and where its bottom goes, in points.
+static ABOVE: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new(None);
 
 /// The icon's place as the click gives it, to tell one screen's icon from another's.
 fn icon_place(rect: &tauri::Rect) -> (f64, f64) {
@@ -1396,16 +1548,21 @@ fn toggle_tray_window(app: &AppHandle, rect: tauri::Rect) {
         let (left, top) = (p.x as f64 / k, p.y as f64 / k);
         let (x, y, slack) = (icon.x / k, icon.y / k, icon_size.height / k);
         let inside = x >= left && x < left + sz.width as f64 / k && y >= top - slack && y < top + sz.height as f64 / k;
-        inside.then_some((k, left, left + sz.width as f64 / k))
+        inside.then_some((k, left, left + sz.width as f64 / k, top + sz.height as f64 / 2.0 / k))
     };
     let screen = monitors.iter().find_map(in_points);
     let k = screen.map_or_else(|| w.scale_factor().unwrap_or(2.0), |s| s.0);
     let (x, y, iw, ih) = (icon.x / k, icon.y / k, icon_size.width / k, icon_size.height / k);
     let mut left = x + iw / 2.0 - 360.0 / 2.0;
-    if let Some((_, screen_left, screen_right)) = screen {
+    if let Some((_, screen_left, screen_right, _)) = screen {
         left = left.min(screen_right - 360.0 - 8.0).max(screen_left + 8.0);
     }
-    let place = tauri::LogicalPosition::new(left, y + ih + 6.0);
+    // Below the icon from a bar at the top of the screen (macOS's menu bar); above it from one at
+    // the foot (Windows' taskbar), growing upwards as the page sizes it.
+    let below = screen.is_none_or(|s| y < s.3);
+    *ABOVE.lock().unwrap() = (!below).then_some((left, y - 6.0));
+    let h = w.outer_size().map_or(0.0, |s| s.height as f64 / w.scale_factor().unwrap_or(k));
+    let place = tauri::LogicalPosition::new(left, if below { y + ih + 6.0 } else { y - 6.0 - h });
     let _ = w.set_position(place);
     let _ = w.show();
     // Once on that screen, place it again, in case macOS moved it while showing it.
@@ -1415,15 +1572,30 @@ fn toggle_tray_window(app: &AppHandle, rect: tauri::Rect) {
 }
 
 /// `keepr <command>` (see cli.rs): Some(exit status) when the arguments are for the command
-/// line, None to start the app.
+/// line, None to start the app. On Windows `--helper-…` is Keepr Helper's (helper_win.rs).
 pub fn cli(args: &[String]) -> Option<i32> {
+    #[cfg(windows)]
+    if let Some(code) = helper_win::main(args) {
+        return Some(code);
+    }
     cli::wanted(args).then(|| cli::main(args))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let frozen = scene().is_some();
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // On Windows a second launch (the Start menu, a pinned icon) brings this copy forward rather
+    // than starting another over the same data; macOS does that itself. Release builds only, and
+    // not with KEEPR_DATA set: the lock is per app id, so a dev build beside the installed copy
+    // would hand over to it and end.
+    #[cfg(windows)]
+    let builder = if cfg!(debug_assertions) || frozen || std::env::var_os("KEEPR_DATA").is_some() {
+        builder
+    } else {
+        builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
+    };
+    builder
         .manage(Arc::new(assistant::Running::default()))
         .plugin(tauri_plugin_window_state::Builder::default().with_state_flags(STATE_FLAGS).with_denylist(&["tray"]).build())
         .plugin(tauri_plugin_dialog::init())
@@ -1498,6 +1670,11 @@ pub fn run() {
             app_version,
             choose_folders,
             home_dir,
+            system_drive,
+            helper_status,
+            helper_set,
+            check_for_updates,
+            show_help,
             login_item,
             set_login_item,
             save_settings,
@@ -1537,7 +1714,10 @@ pub fn run() {
             // the menu bar.
             #[cfg(target_os = "macos")]
             let quiet = login_launch::probe() && !frozen;
-            #[cfg(not(target_os = "macos"))]
+            // Windows' Run key starts it with --login (login_win.rs).
+            #[cfg(windows)]
+            let quiet = login_item::started_at_login() && !frozen;
+            #[cfg(not(any(target_os = "macos", windows)))]
             let quiet = false;
             if quiet {
                 set_in_dock(app.handle(), false);
@@ -1565,7 +1745,7 @@ pub fn run() {
                             if let (Some(c), Some(t)) = (h.try_state::<Core_>(), h.tray_by_id("main")) {
                                 if let Ok(img) = tauri::image::Image::from_bytes(tray_icon_for(&c)) {
                                     let _ = t.set_icon(Some(img));
-                                    let _ = t.set_icon_as_template(true);
+                                    let _ = t.set_icon_as_template(cfg!(target_os = "macos"));
                                 }
                             }
                         });
@@ -1607,18 +1787,31 @@ pub fn run() {
             let icon = tauri::image::Image::from_bytes(tray_icon_for(&core)).expect("tray icon is a valid png");
             TrayIconBuilder::with_id("main")
                 .icon(icon)
-                .icon_as_template(true)
+                .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("Keepr")
                 .on_tray_icon_event(|tray, ev| {
-                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, rect, .. } = ev {
-                        toggle_tray_window(tray.app_handle(), rect);
+                    // Windows' tray icons open their menu on a right-click too.
+                    if let TrayIconEvent::Click { button, button_state: MouseButtonState::Up, rect, .. } = ev {
+                        if button == MouseButton::Left || (cfg!(windows) && button == MouseButton::Right) {
+                            toggle_tray_window(tray.app_handle(), rect);
+                        }
                     }
                 })
                 .build(app)?;
 
             if let Some(t) = app.get_webview_window("tray") {
+                // macOS draws the config's shadow softly; Windows draws it on a window without a
+                // title bar as a 1px rectangle around the menu's rounded card, so it goes there.
+                #[cfg(windows)]
+                let _ = t.set_shadow(false);
                 let t2 = t.clone();
                 t.on_window_event(move |ev| {
+                    // Above the icon, the menu grows upwards as the page sizes it.
+                    if let tauri::WindowEvent::Resized(size) = ev {
+                        if let (Some((left, bottom)), Ok(k)) = (*ABOVE.lock().unwrap(), t2.scale_factor()) {
+                            let _ = t2.set_position(tauri::LogicalPosition::new(left, bottom - size.height as f64 / k));
+                        }
+                    }
                     if let tauri::WindowEvent::Focused(false) = ev {
                         if t2.is_visible().unwrap_or(false) {
                             *TRAY_BLURRED_AT.lock().unwrap() = Some(std::time::Instant::now());
@@ -1657,6 +1850,8 @@ pub fn run() {
                     make_unseen(&w);
                     set_in_dock(app.handle(), false);
                 }
+                #[cfg(windows)]
+                fit_on_screen(&w);
                 if !quiet {
                     let _ = w.show();
                     if !frozen {

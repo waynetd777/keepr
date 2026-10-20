@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn lists_and_finds_versions() {
         let (src, _d, repo) = setup(None);
-        let base = src.path().to_string_lossy().to_string();
+        let base = crate::backup::tests::key(src.path());
         fs::create_dir_all(src.path().join("docs")).unwrap();
         fs::write(src.path().join("docs/budget.txt"), b"v1").unwrap();
         let s1 = run(&repo, &opts(src.path()), None, &Control::default()).unwrap();

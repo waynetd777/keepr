@@ -10,6 +10,8 @@ import "./styles.css";
 import App from "./App";
 import Tray from "./Tray";
 import { applyTheme, savedTheme } from "./Settings";
+import { isMac, setSystemDrive } from "./platform";
+import { api } from "./api";
 
 // WebKit's own right-click menu offers Reload, which throws away the app's state. Keep it only
 // where it's useful — in text fields and on selected text — and leave custom menus to their owners.
@@ -21,6 +23,12 @@ document.addEventListener("contextmenu", (e) => {
 });
 
 applyTheme(savedTheme());
+
+// macOS's room for the traffic lights and its drag areas (html.mac in styles.css); Windows' look
+// (html.windows: its own title bar, Segoe UI).
+document.documentElement.classList.add(isMac ? "mac" : "windows");
+// Paths are shown with the system drive on Windows (platform.ts shown).
+if (!isMac) void api.systemDrive().then(setSystemDrive, () => {});
 
 const tray = new URLSearchParams(location.search).get("view") === "tray";
 

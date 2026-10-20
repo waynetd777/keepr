@@ -95,7 +95,7 @@ export function RestoreFooter(p: {
         </select>
       </label>
       <span className="grow" />
-      <span className="small muted" style={{ maxWidth: 230, textAlign: "right", lineHeight: 1.4 }}>
+      <span className="small muted restore-hint" style={{ maxWidth: 230, textAlign: "right", lineHeight: 1.4 }}>
         {dest === "original"
           ? "Each item goes back where it was. Folders that no longer exist are made again."
           : "Items keep their folders inside the folder you choose."}

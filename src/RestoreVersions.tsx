@@ -9,10 +9,11 @@ import type { Entry, Version } from "./api";
 import { Icon } from "./icons";
 import { onlyOnMac } from "./RestoreFiles";
 import { bytes, tilde, when } from "./format";
+import { FILES_APP, isAbsolute, LOOK, MACHINE, parentPath } from "./platform";
 
 const ONE_ONLY = "For one item at a time: this is one of several selected";
 
-/** Remove from backup and Show in Finder, for the picked file or folder. */
+/** Remove from backup and Show in Finder (File Explorer on Windows), for the picked file or folder. */
 function PickedActions({
   dir,
   multi,
@@ -47,10 +48,12 @@ function PickedActions({
         className="btn small"
         disabled={!onMac || multi}
         onClick={reveal}
-        title={multi ? ONE_ONLY : dir ? "Show the folder on your Mac in Finder" : "Show the file on your Mac in its folder"}
+        title={
+          multi ? ONE_ONLY : dir ? `Show the folder on your ${MACHINE} in ${FILES_APP}` : `Show the file on your ${MACHINE} in its folder`
+        }
       >
         <Icon name="folder" size={13} />
-        Show in Finder
+        Show in {FILES_APP}
       </button>
     </>
   );
@@ -83,8 +86,8 @@ export function VersionsPane(p: {
   return (
     <aside
       aria-label="Versions"
+      className="versions-pane"
       style={{
-        width: 340,
         flexShrink: 0,
         borderLeft: "1px solid var(--line)",
         background: "var(--sunk)",
@@ -103,9 +106,9 @@ export function VersionsPane(p: {
       >
         <span className="caps">{picked?.kind === "dir" ? "Folder" : "Versions"}</span>
         <span style={{ fontSize: 17, fontWeight: 600, wordBreak: "break-word" }}>
-          {picked ? (picked.name.startsWith("/") ? tilde(picked.name, home) : picked.name) : "Pick a file"}
+          {picked ? (isAbsolute(picked.name) ? tilde(picked.name, home) : picked.name) : "Pick a file"}
         </span>
-        {picked && <span className="small muted">{tilde(picked.path.split("/").slice(0, -1).join("/") || "/", home)}</span>}
+        {picked && <span className="small muted">{tilde(parentPath(picked.path) || "/", home)}</span>}
       </div>
       {picked?.kind === "file" && (
         <>
@@ -152,21 +155,21 @@ export function VersionsPane(p: {
           <div style={{ padding: "12px 16px", borderTop: "1px solid var(--line)", display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
               className="btn"
-              title={multi ? ONE_ONLY : "Quick Look (Space)"}
+              title={multi ? ONE_ONLY : `${LOOK} (Space)`}
               disabled={!version || p.looking || multi}
               onClick={p.quickLook}
             >
               {p.looking ? <span className="dot spin" style={{ width: 12, height: 12 }} /> : <Icon name="eye" size={14} stroke={1.9} />}
-              {p.looking ? "Opening…" : "Quick Look"}
+              {p.looking ? "Opening…" : LOOK}
             </button>
             {p.looking && (
-              <button className="btn" title="Stop getting the file for Quick Look" onClick={p.stopLooking}>
+              <button className="btn" title={`Stop getting the file for ${LOOK === "Open" ? "opening" : LOOK}`} onClick={p.stopLooking}>
                 Cancel
               </button>
             )}
             <button
               className="btn"
-              title={multi ? ONE_ONLY : "Show what changed from the file on your Mac"}
+              title={multi ? ONE_ONLY : `Show what changed from the file on your ${MACHINE}`}
               disabled={!version || multi}
               onClick={() => version && p.compare(version)}
             >
@@ -189,7 +192,7 @@ export function VersionsPane(p: {
       {picked?.kind === "dir" && !onlyOnMac(picked) && (
         <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 10, color: "var(--ink2)", lineHeight: 1.5 }}>
           <span>
-            {picked.name.startsWith("/") ? tilde(picked.name, home) : picked.name} held {bytes(picked.size)} at this snapshot
+            {isAbsolute(picked.name) ? tilde(picked.name, home) : picked.name} held {bytes(picked.size)} at this snapshot
             {picked.items ? `, ${picked.items.toLocaleString()} items at its top` : ""}.
           </span>
           <span>Tick the folder to restore everything in it as it was then. Pick a file to see its versions.</span>

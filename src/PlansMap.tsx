@@ -17,6 +17,7 @@ import { openAsk } from "./Ask";
 import { bytes } from "./format";
 import { delta, sinceWhen } from "./growth";
 import { tilde } from "./format";
+import { shortcut } from "./platform";
 import { STOPPED, stopped, useRequests } from "./ui";
 
 // A path on this map is the plan's id, this, then the path in its snapshot.
@@ -262,7 +263,7 @@ export default function PlansMap() {
         <span className="small muted">
           On the left, each plan's latest backup, its folders as big as the files they hold. On the right, the space all its versions take,
           shared out among the folders they came from, so it adds up to the space used. Outlines show what grew. Click to zoom both in,
-          ⌘-click to open in Restore.
+          {shortcut("⌘-click")} to open in Restore.
         </span>
       </div>
       {(waiting.length > 0 || failed.length > 0 || unread.length > 0) && (

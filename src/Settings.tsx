@@ -7,10 +7,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { api, type Settings as SettingsData } from "./api";
+import { api, type HelperStatus, type Settings as SettingsData } from "./api";
 import { useApp } from "./context";
 import { Icon } from "./icons";
 import { Seg, Switch, useAct } from "./ui";
+import { isMac, LOG_IN, MACHINE, MENU_BAR } from "./platform";
 
 /** Keepr's website. The same as `WEBSITE` in src-tauri/src/about.rs, which the About panel and
  * Help › Keepr Website use (a test there keeps them the same). */
@@ -29,6 +30,48 @@ export function savedTheme(): Theme {
   } catch {
     return "system";
   }
+}
+
+/** Keepr Helper, on Windows: a still copy of the drive for each backup, and only the folders
+ *  that changed looked at, as macOS gives Keepr itself. Needs an administrator once. */
+function HelperRow() {
+  const act = useAct();
+  const [st, setSt] = useState<HelperStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.helperStatus().then(setSt);
+  }, []);
+  if (!st) return null;
+  const set = async (on: boolean) => {
+    setBusy(true);
+    const r = await act(() => api.helperSet(on));
+    setBusy(false);
+    setSt(r ?? (await api.helperStatus()));
+  };
+  const sub = st.running
+    ? st.outdated
+      ? "Keepr Helper is from another version of Keepr. Update it so backups can use it again."
+      : "Each backup reads a still copy of the drive (a shadow copy), and looks only in folders that changed (the drive's change journal)."
+    : st.installed
+      ? "Keepr Helper is installed but not running. Install it again to start it."
+      : "Read each backup from a still copy of the drive, so files that change during it are copied as they were at one moment, and look only in folders that changed. Installs Keepr Helper, a small Windows service; Windows asks for an administrator once.";
+  return (
+    <Row title="Still copies and the change journal" sub={sub}>
+      <div className="row" style={{ gap: 8 }}>
+        {st.running && st.outdated && (
+          <button className="btn" disabled={busy} onClick={() => set(true)}>
+            Update
+          </button>
+        )}
+        {st.installed && !st.running && (
+          <button className="btn" disabled={busy} onClick={() => set(true)}>
+            Install again
+          </button>
+        )}
+        <Switch label="Still copies and the change journal" disabled={busy} on={st.running} onChange={(v) => set(v)} />
+      </div>
+    </Row>
+  );
 }
 
 const Row = ({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) => (
@@ -83,7 +126,7 @@ export default function Settings() {
             title="Open at Login"
             sub={
               login[0]
-                ? "Keepr starts in the menu bar when you log in, so backups run on time."
+                ? `Keepr starts in the ${MENU_BAR} when you ${LOG_IN}, so backups run on time.`
                 : "Works in the installed app, not in a development build."
             }
           >
@@ -94,6 +137,13 @@ export default function Settings() {
               onChange={async (v) => setLogin([login[0], await api.setLoginItem(v)])}
             />
           </Row>
+          <Row
+            title="Offer Getting started when Keepr opens"
+            sub="A welcome that opens the help's step-by-step guides. They're always in the help: press ? and click Getting started."
+          >
+            <Switch label="Offer Getting started when Keepr opens" on={s.offerGuide !== false} onChange={(v) => save({ offerGuide: v })} />
+          </Row>
+          {!isMac && <HelperRow />}
           <Row title="Tell me when a backup fails" sub="A notification when a backup, check or restore doesn't finish.">
             <Switch label="Notify failures" on={s.notifyFailures} onChange={(v) => save({ notifyFailures: v })} />
           </Row>
@@ -111,15 +161,23 @@ export default function Settings() {
           </Row>
           <Row
             title="Ask"
-            sub="An AI already signed in on this Mac answers questions about your backups, with Keepr's figures and folder names, never your files. Off, nothing is sent."
+            sub={`An AI already signed in on this ${MACHINE} answers questions about your backups, with Keepr's figures and folder names, never your files. Off, nothing is sent.`}
           >
             <Switch label="Ask" on={s.ask !== false} onChange={(v) => save({ ask: v })} />
           </Row>
           <Row title="Website" sub="What Keepr does, and the latest version to download.">
-            <button className="btn" title="Opens keepr.davies.co.za in your browser" onClick={() => openUrl(WEBSITE)}>
-              <Icon name="globe" size={14} stroke={2} />
-              Website
-            </button>
+            <div className="row" style={{ gap: 8 }}>
+              <button className="btn" title="Opens keepr.davies.co.za in your browser" onClick={() => openUrl(WEBSITE)}>
+                <Icon name="globe" size={14} stroke={2} />
+                Website
+              </button>
+              {/* Windows has no app menu to hold it. */}
+              {!isMac && (
+                <button className="btn" title="Looks for a newer Keepr and offers to install it" onClick={() => api.checkForUpdates()}>
+                  Check for Updates…
+                </button>
+              )}
+            </div>
           </Row>
           <Row title="Appearance">
             <Seg
@@ -135,7 +193,7 @@ export default function Settings() {
                 }
               }}
               options={[
-                ["system", "Match the Mac"],
+                ["system", `Match ${isMac ? "the Mac" : "Windows"}`],
                 ["light", "Light"],
                 ["dark", "Dark"],
               ]}
@@ -144,8 +202,10 @@ export default function Settings() {
         </div>
       </section>
       <span className="small faint">
-        Keepr {ver[0]} (build {ver[1]}). Keepr needs Full Disk Access (System Settings › Privacy &amp; Security) to back up every folder and
-        to read a still copy of the startup disk.
+        Keepr {ver[0]} (build {ver[1]}).{" "}
+        {isMac
+          ? "Keepr needs Full Disk Access (System Settings › Privacy & Security) to back up every folder and to read a still copy of the startup disk."
+          : "Keepr backs up what your Windows account can read; other accounts' folders and Windows' own need an administrator."}
         <br />
         Free software under the GNU General Public License, version 3 or later.
       </span>

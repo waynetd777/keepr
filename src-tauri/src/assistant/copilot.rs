@@ -10,7 +10,7 @@
 //! routes to whatever the account allows. It takes no system prompt, so the instructions open the
 //! first message.
 
-use super::{finish, silent, spawn, system, Chunk, Done, Model, Running};
+use super::{finish, silent, spawn, with_instructions, Chunk, Done, Model, Running, PROMPT_ON_STDIN};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::Command;
@@ -38,23 +38,24 @@ pub fn ask(
 ) -> Result<(), String> {
     let bin = find().ok_or("GitHub Copilot CLI isn't installed, or couldn't be found. Install it and sign in, then try again.")?;
     // A follow-up resumes the session, which has the instructions already.
-    let prompt = if session.is_some() { prompt } else { format!("<instructions>\n{}\n</instructions>\n\n{prompt}", system()) };
+    let prompt = with_instructions(&prompt, &session);
     let mut cmd = Command::new(bin);
-    cmd.current_dir(&cwd)
-        .arg("-p")
-        .arg(&prompt)
-        .args(["--model", model.strip_prefix(PREFIX).unwrap_or(&model), "--output-format", "json", "--stream", "on"])
-        .args([
-            "--no-custom-instructions",
-            "--disable-builtin-mcps",
-            "--no-auto-update",
-            "--disallow-temp-dir",
-            "--available-tools=keepr-ask-has-no-tools",
-        ]);
+    cmd.current_dir(&cwd);
+    // On Windows, too long for the command line: on stdin, which Copilot reads without -p.
+    if !PROMPT_ON_STDIN {
+        cmd.arg("-p").arg(&prompt);
+    }
+    cmd.args(["--model", model.strip_prefix(PREFIX).unwrap_or(&model), "--output-format", "json", "--stream", "on"]).args([
+        "--no-custom-instructions",
+        "--disable-builtin-mcps",
+        "--no-auto-update",
+        "--disallow-temp-dir",
+        "--available-tools=keepr-ask-has-no-tools",
+    ]);
     if let Some(s) = &session {
         cmd.arg(format!("--resume={s}"));
     }
-    let (child, stdout, stderr) = spawn(&mut cmd, &running, &chat_id, "GitHub Copilot")?;
+    let (child, stdout, stderr) = spawn(&mut cmd, &running, &chat_id, "GitHub Copilot", PROMPT_ON_STDIN.then_some(prompt))?;
 
     std::thread::spawn(move || {
         let mut text = String::new();

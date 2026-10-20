@@ -4,7 +4,7 @@
 
 //! Keepr's backup repository.
 //!
-//! A repository is a folder (on this Mac, an external drive or a mounted SMB share) laid out as:
+//! A repository is a folder (on this computer, an external drive or an SMB share) laid out as:
 //!
 //! | Path | What |
 //! |---|---|
@@ -27,6 +27,7 @@ pub mod backup;
 pub mod browse;
 pub mod check;
 pub mod crypto;
+pub mod paths;
 pub mod prune;
 pub mod repo;
 pub mod restore;

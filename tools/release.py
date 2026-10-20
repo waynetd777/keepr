@@ -5,7 +5,9 @@
 """Publishes a release in one go: bumps the version (tools/bump_version.py, once the current one
 has a release), builds the app and the DMG with the update files, commits the bump as
 "<Name> <version>", pushes, creates the GitHub release with the DMG and the update files, then
-installs the app in /Applications and opens it again if it was running.
+installs the app in /Applications and opens it again if it was running. Publishing the release
+starts .github/workflows/windows-release.yml, which adds the Windows installer and its update entry
+a few minutes later (tools/update_windows.py).
 
     make release NOTES="What's new"                 # shown in the app's update offer and on the release
     make release NOTES="…" VERSION=1.1.0            # a minor or major step
@@ -28,6 +30,18 @@ INSTALLED = f"/Applications/{NAME}.app"
 # What tools/bump_version.py changes, and all the release commits.
 BUMPED = ["src-tauri/tauri.conf.json", "package.json", "package-lock.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock"]
 DRY_RUN = os.environ.get("DRY_RUN", "") not in ("", "0")
+# Added to every release's notes: how to get past each system's first-run warning. The Windows
+# installer is added by .github/workflows/windows-release.yml once the release is published.
+FIRST_RUN = (
+    "\n### Installing\n\n"
+    "**Mac** (macOS 13 or later): open `Keepr.dmg` and drag Keepr onto Applications. The first time"
+    " you open it, macOS warns because it is self-signed rather than notarised: click **Done**,"
+    " then in System Settings \u203a Privacy & Security click **Open Anyway**.\n\n"
+    "**Windows** (10 or 11, 64-bit): run `Keepr_x64-setup.exe` (added to the release a few minutes"
+    " after it is published). If Windows says it protected your PC, click **More info**, then"
+    " **Run anyway**: the app isn't code-signed. It installs for you alone, with no administrator"
+    " password.\n"
+)
 
 
 def run(*cmd):
@@ -71,7 +85,7 @@ def main():
     head = "HEAD" if DRY_RUN else output("git", "rev-parse", "HEAD").strip()
     dash = NAME.replace(" ", "-")
     files = [f"{OUT}/{dash}.dmg", f"{OUT}/{dash}.app.tar.gz", f"{OUT}/latest.json"]
-    run("gh", "release", "create", f"v{v}", *files, "--target", head, "--title", title, "--notes", notes)
+    run("gh", "release", "create", f"v{v}", *files, "--target", head, "--title", title, "--notes", notes + "\n" + FIRST_RUN)
     if os.environ.get("INSTALL", "1") != "0":
         was_running = running()
         run("make", "--no-print-directory", "-o", "app", "install-app")

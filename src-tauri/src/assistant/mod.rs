@@ -2,7 +2,7 @@
 // See LICENSE for the full text.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Ask: runs an AI coding CLI already installed and signed in on this Mac — Claude Code, Codex,
+//! Ask: runs an AI coding CLI already installed and signed in on this computer — Claude Code, Codex,
 //! Antigravity or GitHub Copilot — non-interactively, and streams its answer back to the window
 //! as events. It has no tools: the message carries the scan, and the app itself deletes nothing.
 //! A follow-up resumes the CLI's session. The model id says which CLI answers.
@@ -27,7 +27,7 @@ When a change to a plan would help and the user wants it, propose it as a fenced
 You have no tools and no files to read: answer from the message alone, run nothing, and never claim to have checked or changed anything. \
 Write tightly: short paragraphs or bullets, headings only when they help, paths as written in the message.";
 
-/// The in-app help's pages (src/help/): the whole guide, about 20 KB, so Ask can explain the
+/// The in-app help's pages (src/help/): the whole guide, about 50 KB, so Ask can explain the
 /// app's figures as the help does and answer how anything in Keepr works.
 /// Each page's name (its file in src/help/ without `.md`) and its text.
 macro_rules! help_pages {
@@ -35,11 +35,17 @@ macro_rules! help_pages {
         [$(($name, include_str!(concat!("../../../src/help/", $name, ".md")))),*]
     };
 }
-const HELP: [(&str, &str); 17] = help_pages![
+const HELP: [(&str, &str); 23] = help_pages![
     "guide-start",
     "guide-watch",
     "guide-restore",
     "guide-ask",
+    "guide-places",
+    "guide-plan",
+    "guide-space",
+    "guide-move",
+    "guide-commands",
+    "guide-checks",
     "overview",
     "plan",
     "sizemap",
@@ -58,10 +64,63 @@ const HELP: [(&str, &str); 17] = help_pages![
 /// The system prompt: SYSTEM, then the whole guide, built once.
 fn system() -> &'static str {
     static PROMPT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-        let guide: Vec<&str> = HELP.iter().map(|(_, p)| p.trim()).collect();
-        format!("{SYSTEM}\n\nThe app's user guide:\n\n{}", guide.join("\n\n"))
+        let guide: Vec<String> = HELP.iter().map(|(_, p)| for_platform(p.trim())).collect();
+        format!("{}\n\nThe app's user guide:\n\n{}", system_text(), guide.join("\n\n"))
     });
     &PROMPT
+}
+
+/// SYSTEM, in Windows' words on Windows.
+fn system_text() -> String {
+    if cfg!(windows) {
+        SYSTEM
+            .replace("a macOS backup app", "a backup app for Windows")
+            .replace("from the Mac", "from the PC")
+            .replace("this Mac", "this PC")
+    } else {
+        SYSTEM.to_string()
+    }
+}
+
+/// A guide page as the help shows it on this platform (src/help/index.ts forPlatform): the other
+/// platform's parts and the words joining the two for GitHub gone, the markers too.
+fn for_platform(md: &str) -> String {
+    let other = if cfg!(windows) { "mac" } else { "windows" };
+    let cut = |s: String, name: &str| {
+        let (open, close) = (format!("<!-- {name} -->"), format!("<!-- /{name} -->"));
+        let mut out = String::new();
+        let mut rest = s.as_str();
+        while let Some(a) = rest.find(&open) {
+            out.push_str(&rest[..a]);
+            rest = rest[a..].find(&close).map_or("", |b| &rest[a + b + close.len()..]);
+        }
+        out.push_str(rest);
+        out
+    };
+    let mut s = cut(cut(md.to_string(), "github"), other);
+    for m in ["<!-- mac -->", "<!-- /mac -->", "<!-- windows -->", "<!-- /windows -->"] {
+        s = s.replace(m, "");
+    }
+    while s.contains("\n\n\n") {
+        s = s.replace("\n\n\n", "\n\n");
+    }
+    s
+}
+
+/// Windows holds a command line to 32,767 characters, and the instructions with the whole guide
+/// are longer than that: there the question goes in on stdin, which Claude Code (`-p` with no
+/// prompt), Codex (`-`) and Copilot (no `-p`) read when it is piped, and the instructions open a
+/// chat's first message rather than going on the command line.
+pub(crate) const PROMPT_ON_STDIN: bool = cfg!(windows);
+
+/// The message for a CLI given its instructions in the first message (Copilot everywhere, and on
+/// Windows every CLI but Antigravity): a follow-up has them already.
+fn with_instructions(prompt: &str, session: &Option<String>) -> String {
+    if session.is_some() {
+        prompt.to_string()
+    } else {
+        format!("<instructions>\n{}\n</instructions>\n\n{prompt}", system())
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -113,12 +172,85 @@ impl Running {
 
 /// The CLIs start helpers of their own, so the whole process group goes.
 fn kill_group(pid: u32) {
+    #[cfg(unix)]
     unsafe {
         libc::kill(-(pid as libc::pid_t), libc::SIGTERM);
     }
+    // Windows has no process groups: taskkill ends the CLI and everything it started (/T).
+    #[cfg(windows)]
+    {
+        let mut kill = Command::new("taskkill");
+        kill.args(["/T", "/F", "/PID", &pid.to_string()]);
+        let _ = crate::process::no_window(&mut kill).status();
+    }
+}
+
+/// Where a CLI is installed on Windows: the native installers' places (Claude Code's,
+/// Antigravity's), npm's own folder, then whatever `where` finds on the PATH, which an app
+/// started before the install doesn't have yet. An npm .cmd shim comes last: a prompt's newlines
+/// can't be passed through one, so the program inside the npm package is run instead.
+#[cfg(windows)]
+fn find(name: &str, _extra: &[&str]) -> Option<PathBuf> {
+    let home = keepr_engine::paths::native(&keepr_engine::paths::home());
+    let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(|| home.join("AppData\\Local"));
+    let exe = format!("{name}.exe");
+    if let Some(p) = [home.join(".local\\bin").join(&exe), local.join(name).join("bin").join(&exe)].into_iter().find(|p| p.is_file()) {
+        return Some(p);
+    }
+    // npm's own folder, which isn't on the PATH when Node was installed by another account.
+    if let Some(npm) = std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join("npm")) {
+        if npm.join(format!("{name}.cmd")).is_file() {
+            if let Some(p) = in_npm_package(&npm.join("node_modules"), name) {
+                return Some(p);
+            }
+        }
+    }
+    let out = crate::process::no_window(Command::new("where").arg(name)).output().ok()?;
+    let found: Vec<PathBuf> =
+        String::from_utf8_lossy(&out.stdout).lines().map(|l| PathBuf::from(l.trim())).filter(|p| p.is_file()).collect();
+    let ext = |p: &PathBuf, e: &str| p.extension().is_some_and(|x| x.eq_ignore_ascii_case(e));
+    if let Some(p) = found.iter().find(|p| ext(p, "exe")) {
+        return Some(p.clone());
+    }
+    let shim = found.iter().find(|p| ext(p, "cmd"))?;
+    shim.parent().and_then(|d| in_npm_package(&d.join("node_modules"), name)).or_else(|| Some(shim.clone()))
+}
+
+/// The program itself inside an npm install of `name` (Codex's and Copilot's packages carry it,
+/// as codex-win32-x64\…\codex.exe), to run in place of npm's .cmd shim.
+#[cfg(windows)]
+fn in_npm_package(modules: &std::path::Path, name: &str) -> Option<PathBuf> {
+    fn walk(d: &std::path::Path, exe: &str, depth: u8) -> Option<PathBuf> {
+        let mut dirs = Vec::new();
+        for e in std::fs::read_dir(d).ok()?.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                dirs.push(p);
+            } else if p.file_name().is_some_and(|f| f.eq_ignore_ascii_case(exe)) {
+                return Some(p);
+            }
+        }
+        if depth == 0 {
+            return None;
+        }
+        dirs.into_iter().find_map(|p| walk(&p, exe, depth - 1))
+    }
+    let exe = format!("{name}.exe");
+    // The package is `name` or `@scope/name`.
+    let mut roots = vec![modules.join(name)];
+    roots.extend(
+        std::fs::read_dir(modules)
+            .ok()?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.file_name().is_some_and(|f| f.to_string_lossy().starts_with('@')))
+            .map(|p| p.join(name)),
+    );
+    roots.into_iter().filter(|r| r.is_dir()).find_map(|r| walk(&r, &exe, 6))
 }
 
 /// Where a CLI is installed: the usual places first, then the login shell's PATH.
+#[cfg(not(windows))]
 fn find(name: &str, extra: &[&str]) -> Option<PathBuf> {
     let home = std::env::var("HOME").unwrap_or_default();
     let mut places: Vec<String> = vec![format!("{home}/.local/bin/{name}")];
@@ -136,7 +268,7 @@ fn find(name: &str, extra: &[&str]) -> Option<PathBuf> {
 }
 
 fn version(bin: &PathBuf) -> Option<String> {
-    let out = Command::new(bin).arg("--version").output().ok()?;
+    let out = crate::process::no_window(Command::new(bin).arg("--version")).output().ok()?;
     String::from_utf8_lossy(&out.stdout).lines().map(str::trim).find(|l| !l.is_empty()).map(|l| l.trim_end_matches('.').to_string())
 }
 
@@ -182,16 +314,27 @@ pub async fn assistant_status() -> Result<Status, String> {
     .map_err(|e| e.to_string())
 }
 
+/// Starts the CLI, with `input` written to its stdin when there is any.
 fn spawn(
     cmd: &mut Command,
     running: &Running,
     chat_id: &str,
     name: &str,
+    input: Option<String>,
 ) -> Result<(Child, ChildStdout, std::thread::JoinHandle<String>), String> {
-    use std::os::unix::process::CommandExt;
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).process_group(0);
+    cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(cmd, 0);
+    crate::process::no_window(cmd);
     let mut child = cmd.spawn().map_err(|e| format!("Couldn't start {name}: {e}"))?;
     let stdout = child.stdout.take().ok_or("no stdout")?;
+    // Written on a thread of its own and then closed, so the CLI sees the end of it.
+    if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
+        std::thread::spawn(move || {
+            use std::io::Write;
+            let _ = stdin.write_all(text.as_bytes());
+        });
+    }
     let stderr = child.stderr.take();
     let err = std::thread::spawn(move || {
         let mut s = String::new();
@@ -283,13 +426,38 @@ mod tests {
     #[test]
     fn prompt_carries_the_whole_guide() {
         let p = system();
-        assert!(p.starts_with(SYSTEM));
+        assert!(p.starts_with(&system_text()));
         for (_, page) in HELP {
-            assert!(p.contains(page.trim()));
+            assert!(p.contains(&for_platform(page.trim())));
         }
         // Help's sections on the app's own figures among them.
         for title in ["Space used", "What grew this week"] {
             assert!(p.contains(&format!("## {title}\n")), "missing {title}");
+        }
+    }
+
+    /// Every platform part of the guide is closed, so the help and Ask drop only what they should.
+    #[test]
+    fn platform_markers_are_balanced() {
+        for (name, page) in HELP {
+            for m in ["mac", "windows", "github"] {
+                assert_eq!(
+                    page.matches(&format!("<!-- {m} -->")).count(),
+                    page.matches(&format!("<!-- /{m} -->")).count(),
+                    "{name}.md has an unclosed <!-- {m} --> part"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn keeps_this_platforms_parts() {
+        let md = "Show in <!-- mac -->Finder<!-- /mac --><!-- github --> (Mac) or <!-- /github --><!-- windows -->File Explorer<!-- /windows -->.\n\n<!-- windows -->\nOnly Windows.\n<!-- /windows -->\n\nEnd.";
+        let s = for_platform(md);
+        if cfg!(windows) {
+            assert_eq!(s, "Show in File Explorer.\n\nOnly Windows.\n\nEnd.");
+        } else {
+            assert_eq!(s, "Show in Finder.\n\nEnd.");
         }
     }
 

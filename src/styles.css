@@ -35,6 +35,11 @@
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
   --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
   --mono: "JetBrains Mono", ui-monospace, monospace;
+  /* Every ordinary button is this tall, the search box and icon-only buttons beside them too;
+     .btn.small is for dense rows, .btn.big for a screen's one main action. */
+  --btn-h: 32px;
+  --btn-h-small: 26px;
+  --btn-h-big: 38px;
   /* Restore's size map: a hue per folder level, as in Disk Usage Visualiser. */
   --h1: #d7263d;
   --h2: #e8590c;
@@ -51,6 +56,11 @@
   --tick: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2014%2014%22%3E%3Cpath%20d%3D%22M3.5%207.2%206%209.6l4.6-5%22%20fill%3D%22none%22%20stroke%3D%22%23ffffff%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3C/svg%3E");
   --dash: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2014%2014%22%3E%3Crect%20x%3D%223.5%22%20y%3D%226%22%20width%3D%227%22%20height%3D%222%22%20rx%3D%221%22%20fill%3D%22%230f7a5c%22/%3E%3C/svg%3E");
   color-scheme: light;
+}
+/* Windows' own type, where macOS's system font isn't. */
+html.windows {
+  --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -298,6 +308,10 @@ p {
   flex-direction: column;
   padding: 52px 12px 14px;
 }
+/* Windows has its own title bar above the window, so no room for macOS's traffic lights. */
+html.windows .sidebar {
+  padding-top: 18px;
+}
 .brand {
   display: flex;
   align-items: center;
@@ -396,15 +410,20 @@ p {
   gap: 12px;
   padding: 0 20px;
   border-bottom: 1px solid var(--line);
+}
+/* The toolbar stands in for the hidden title bar on macOS only (platform.ts dragRegion). */
+html.mac .toolbar {
   -webkit-app-region: drag;
 }
-.toolbar > * {
+html.mac .toolbar > * {
   -webkit-app-region: no-drag;
 }
 .toolbar .spacer {
   flex-grow: 1;
-  -webkit-app-region: drag;
   align-self: stretch;
+}
+html.mac .toolbar .spacer {
+  -webkit-app-region: drag;
 }
 .iconbtn {
   width: 28px;
@@ -418,6 +437,12 @@ p {
   color: var(--ink2);
   flex-shrink: 0;
 }
+/* Icon buttons in a row of ordinary buttons are as tall as they are, and square. */
+.toolbar .iconbtn,
+.iconbtn.std {
+  width: var(--btn-h);
+  height: var(--btn-h);
+}
 .iconbtn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--ink) 7%, transparent);
 }
@@ -426,7 +451,7 @@ p {
 }
 .search {
   width: 420px;
-  height: 32px;
+  height: var(--btn-h);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -483,7 +508,7 @@ p {
 
 /* ---- controls ---- */
 .btn {
-  height: 30px;
+  height: var(--btn-h);
   padding: 0 12px;
   border: 1px solid var(--line2);
   background: var(--surface);
@@ -506,14 +531,13 @@ p {
   color: var(--accent-ink);
   border-color: transparent;
   font-weight: 600;
-  height: 32px;
   padding: 0 14px;
 }
 .btn.primary:hover:not(:disabled) {
   background: color-mix(in srgb, #000 8%, var(--accent));
 }
 .btn.big {
-  height: 38px;
+  height: var(--btn-h-big);
   padding: 0 20px;
   border-radius: 9px;
   font-size: 14px;
@@ -522,9 +546,17 @@ p {
   color: var(--red);
 }
 .btn.small {
-  height: 26px;
+  height: var(--btn-h-small);
   font-size: 12px;
   padding: 0 10px;
+}
+/* An icon-only button among ordinary ones: as wide as it is tall. */
+.btn.square {
+  width: var(--btn-h);
+  padding: 0;
+}
+.btn.small.square {
+  width: var(--btn-h-small);
 }
 .btn.dashed {
   border-style: dashed;
@@ -598,7 +630,7 @@ html[data-scene] .switch::after {
 }
 .input,
 select.input {
-  height: 32px;
+  height: var(--btn-h);
   padding: 0 10px;
   border: 1px solid var(--line2);
   border-radius: 8px;
@@ -862,6 +894,28 @@ input.pick:focus-visible {
 .menu button:disabled {
   color: var(--ink3);
 }
+/* A select's menu on Windows (ui.tsx SelectMenus): the item under the keys or the pointer, the
+   chosen one's tick, and an option group's heading. */
+.select-menu {
+  min-width: 0;
+}
+.select-menu button {
+  flex-shrink: 0;
+}
+.select-menu button.active:not(:disabled),
+.select-menu button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+.select-menu button svg {
+  color: var(--accent-text);
+  flex-shrink: 0;
+}
+.select-group {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink3);
+}
 .menu hr {
   border: 0;
   height: 1px;
@@ -1041,6 +1095,20 @@ input.pick:focus-visible {
   align-items: center;
   gap: 10px;
   padding: 0 16px;
+}
+/* The versions pane beside Restore's file list; on a narrow window (a laptop's 1366 px screen at
+   125% is about 1090 px) it narrows and the Modified column goes, so names keep their room. */
+.versions-pane {
+  width: 340px;
+}
+@media (max-width: 1200px) {
+  .versions-pane {
+    width: 280px;
+  }
+  .col-modified,
+  .restore-hint {
+    display: none !important;
+  }
 }
 .files-head {
   height: 36px;
@@ -1232,6 +1300,13 @@ input.pick:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 3px;
+}
+/* A select's open list is drawn by the system. WebKit (macOS) draws its own menu; Edge's engine
+   (Windows) draws the options with the select's colours, so a transparent select gave white
+   text on its white list. Every option takes the theme's colours. */
+select option {
+  background-color: var(--surface);
+  color: var(--ink);
 }
 .keep-box select {
   border: 0;
@@ -1730,6 +1805,23 @@ html.tray body {
   width: auto;
   flex-shrink: 0;
 }
+/* Under the search: Getting started, and the picker of every topic. */
+.help-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.help-nav .btn.on {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  border-color: transparent;
+}
+.help-pick {
+  flex: 1;
+  min-width: 0;
+  height: var(--btn-h);
+}
 .help-body {
   flex: 1;
   min-height: 0;
@@ -1743,18 +1835,6 @@ html.tray body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-}
-.help-blockhead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.help-eyebrow {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink3);
 }
 .help-text {
   font-size: 13px;
@@ -1866,6 +1946,7 @@ html.tray body {
 .help-keys {
   display: flex;
   flex-direction: column;
+  padding: 2px 0 8px 20px;
 }
 .help-key {
   display: flex;
@@ -1878,19 +1959,6 @@ html.tray body {
 }
 .help-key .kbd + .kbd {
   margin-left: 4px;
-}
-.help-topics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.help-topics .chip {
-  background: var(--surface);
-  font: inherit;
-  font-size: 11.5px;
-}
-.help-topics .chip:hover {
-  background: var(--hover);
 }
 .help-guidebox {
   display: flex;
@@ -2097,14 +2165,14 @@ html.tray body {
   opacity: 0.75;
   margin-bottom: 2px;
 }
-/* The small Ask beside an incident, a crash or a flagged chart. */
-.btn.askbtn {
+/* The small Ask beside an incident, a crash or a flagged chart (the toolbar's Ask is a normal button). */
+.btn.small.askbtn {
   height: 22px;
   padding: 0 8px;
   gap: 4px;
   font-size: 11.5px;
 }
-.btn.askbtn svg {
+.btn.small.askbtn svg {
   width: 12px;
   height: 12px;
 }

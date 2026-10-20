@@ -13,6 +13,7 @@ import { useApp } from "./context";
 import { Icon } from "./icons";
 import { AFTER_COMMAND, BEFORE_COMMAND, pct as progressOf, Seg, STOPPING, StopButton, tell } from "./ui";
 import { bytes, duration, secondsLeft, tilde, when } from "./format";
+import { MACHINE } from "./platform";
 import { resultLabel, resultTone } from "./runResult";
 import { openAsk } from "./Ask";
 import { AskButton } from "./AskButton";
@@ -181,7 +182,8 @@ function Running() {
             </div>
             <span className="grow" />
             <span className="small faint" style={{ lineHeight: 1.45 }}>
-              If the Mac sleeps or the destination drops off, the next backup picks up the work. Nothing half-sent counts as a snapshot.
+              If the {MACHINE} sleeps or the destination drops off, the next backup picks up the work. Nothing half-sent counts as a
+              snapshot.
             </span>
           </aside>
         )}

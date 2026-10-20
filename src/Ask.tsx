@@ -2,7 +2,7 @@
 // See LICENSE for the full text.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Ask: a chat about the backups, answered by an AI CLI already signed in on this Mac (as
+// Ask: a chat about the backups, answered by an AI CLI already signed in on this computer (as
 // Tidemark's Ask is; src-tauri/src/assistant/). The first message carries what Keepr knows
 // (src-tauri/src/ask.rs: the plans, their biggest folders and growth, the space stored, the recent
 // runs), as the help's Ask page describes it; a follow-up resumes the CLI's session. An Ask

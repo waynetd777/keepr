@@ -1,12 +1,12 @@
 # Destinations
 
-A destination is where Keepr keeps backups: a folder or drive, a share on a NAS, a cloud folder synced to this Mac, or an S3 bucket. One destination can hold many plans, each in its own folder. Add one with **Add a destination** on the Destinations screen (⌘5), or from a plan's **Where**.
+A destination is where Keepr keeps backups: a folder or drive, a share on a NAS, a cloud folder synced to this computer, or an S3 bucket. One destination can hold many plans, each in its own folder. Add one with **Add a destination** on the Destinations screen (⌘5), or from a plan's **Where**.
 
 <a href="images/index.md#destinations"><picture><source media="(prefers-color-scheme: dark)" srcset="images/destinations-dark.png"><img alt="Destinations: a backup folder with its space used and the plans it holds, and a drive that isn't connected" src="images/destinations-light.png"></picture></a>
 
 Each destination's card shows whether it's connected, how much Keepr keeps there and how much is free, and which plans it holds. **Change…** edits it. **Remove** asks first, and takes the destination off Keepr's list without deleting anything in it. It's only possible once no plan uses it, unless the destination can't be found: then the plans that use it are removed with it. Adding a place that's already a destination gives you that one rather than a second. A plan's **Add another destination** adds one without leaving the plan.
 
-[Adding a destination](#adding-a-destination) · [Folder or drive](#folder-or-drive) · [SMB share](#smb-share) · [Cloud folders on this Mac](#cloud-folders-on-this-mac) · [S3 bucket](#s3-bucket) · [Amazon S3](#amazon-s3) · [Backblaze B2](#backblaze-b2) · [Cloudflare R2](#cloudflare-r2) · [Passwords and keys](#passwords-and-keys)
+[Adding a destination](#adding-a-destination) · [Folder or drive](#folder-or-drive) · [SMB share](#smb-share) · [Cloud folders on this computer](#cloud-folders-on-this-computer) · [S3 bucket](#s3-bucket) · [Amazon S3](#amazon-s3) · [Backblaze B2](#backblaze-b2) · [Cloudflare R2](#cloudflare-r2) · [Passwords and keys](#passwords-and-keys)
 
 ## Adding a destination
 
@@ -16,29 +16,31 @@ Pick the kind of place on the left and fill it in. Keepr suggests a **Name**, wh
 
 ## Folder or drive
 
-A folder on this Mac, or on a USB or Thunderbolt drive. **Choose…** picks it.
+A folder on this computer, or on a USB or Thunderbolt drive. **Choose…** picks it. On Windows a drive is any drive but the system drive, by its letter (`D:\Backups`).
 
-When a drive is unplugged, its plans wait, and catch up when it's back. Keepr never writes to a drive's folder while the drive isn't there, so it can't fill the Mac's own disk by mistake.
+When a drive is unplugged, its plans wait, and catch up when it's back. Keepr never writes to a drive's folder while the drive isn't there, so it can't fill the computer's own disk by mistake.
 
 ## SMB share
 
 A share on a NAS or another computer. Keepr lists the servers it finds on your network, and ones you already use; click one, or type its **Server** (`keep-nas.local` or `192.168.1.20`). Then the **Share** (**List** shows them), your **User name** and **Password**, and **Folder in the share**.
 
-**Save the password in my Keychain** is on by default, so Keepr can connect on its own. If Finder has already saved a password for the server, Keepr uses it.
+**Save the password in my Keychain** (**in Credential Manager** on Windows) is on by default, so Keepr can connect on its own. If Finder has already saved a password for the server, Keepr uses it. On Windows, Keepr can't read a password Windows saved (Remember my credentials in File Explorer), but with the **Password** left empty Windows uses it for Keepr's connection.
 
-Keepr connects to the share when a backup needs it, out of sight of Finder, and disconnects it after a few idle minutes. A share you've connected yourself is used where it is and left connected.
+Keepr connects to the share when a backup needs it, out of sight of Finder (on Windows as `\\server\share`, with no drive letter), and disconnects it after a few idle minutes. A share you've connected yourself, a mapped drive on Windows among them, is used where it is and left connected.
 
-## Cloud folders on this Mac
+The servers listed are those that announce themselves on the network (Bonjour), as most NAS and Macs do. Windows PCs don't: type their name or address.
 
-iCloud Drive, Google Drive, OneDrive, Dropbox, Box and any other service whose Mac app syncs a folder in Finder's sidebar under **Locations**. Install the service's app (Google Drive for desktop, the OneDrive or Dropbox app, Box Drive…) and sign in, and its folder appears in the list; Keepr needs nothing else from the service. Keepr writes the backup into that folder (**Folder inside**, `Keepr` unless you change it), and the service's app uploads it. One that's turned off is shown greyed out with the reason.
+## Cloud folders on this computer
 
-An older Dropbox app that keeps its folder at `~/Dropbox` isn't listed; choose that folder with **Folder or drive** instead.
+iCloud Drive, Google Drive, OneDrive, Dropbox, Box and any other service whose Mac app syncs a folder in Finder's sidebar under **Locations**. On Windows, the services that sync a folder through Windows' cloud files (OneDrive, iCloud for Windows, Dropbox, Box), and Google Drive for desktop by its drive (G:, named Google Drive). Install the service's app (Google Drive for desktop, the OneDrive or Dropbox app, Box Drive…) and sign in, and its folder appears in the list; Keepr needs nothing else from the service. Keepr writes the backup into that folder (**Folder inside**, `Keepr` unless you change it), and the service's app uploads it. One that's turned off is shown greyed out with the reason.
 
-The backup takes space on the Mac as well as in the cloud until the service offloads it: turn on **Optimise Mac Storage** (iCloud), **Files On-Demand** (OneDrive), **Stream files** (Google Drive) or **online-only** files (Dropbox) to let it.
+An older Dropbox app that keeps its folder at `~/Dropbox` (on a Mac) isn't listed; choose that folder with **Folder or drive** instead.
+
+The backup takes space on the computer as well as in the cloud until the service offloads it: turn on **Optimise Mac Storage** (iCloud), **Files On-Demand** (OneDrive), **Stream files** (Google Drive) or **online-only** files (Dropbox) to let it.
 
 ## S3 bucket
 
-A bucket at Amazon S3, Backblaze B2, Cloudflare R2, or another S3 service such as MinIO or Wasabi (**Other**, with its **Endpoint** and **Region**). If you have a bucket and a key for it, fill in the **Bucket**, **Folder in the bucket** (its top unless you choose one), **Access key ID** and **Secret access key**. The secret key is kept in your Keychain.
+A bucket at Amazon S3, Backblaze B2, Cloudflare R2, or another S3 service such as MinIO or Wasabi (**Other**, with its **Endpoint** and **Region**). If you have a bucket and a key for it, fill in the **Bucket**, **Folder in the bucket** (its top unless you choose one), **Access key ID** and **Secret access key**. The secret key is kept in your Keychain (Credential Manager on Windows).
 
 If you're new to this, each service has a helper that makes the bucket and a key that can only use that bucket, as below.
 
@@ -46,8 +48,8 @@ If you're new to this, each service has a helper that makes the bucket and a key
 
 **New to this? Let Keepr set it up** makes a private bucket with public access blocked, and a user whose key can only list, read, write and delete in that bucket. Give the **New bucket's name** (Keepr suggests one) and the **Region**, then:
 
-- **Sign in to AWS and set up** signs you in in the browser and does the rest. It needs version 2.32 or later of the AWS command-line tools; the sign-in is kept only for the setup, never in `~/.aws`.
-- Or **Set up in AWS CloudShell**: Keepr copies a setup script and opens CloudShell in the browser. Paste it there, run it, copy the `keepr-setup {…}` line it prints, paste that back into Keepr and click **Use it**.
+- **Sign in to AWS and set up** (on a Mac) signs you in in the browser and does the rest. It needs version 2.32 or later of the AWS command-line tools; the sign-in is kept only for the setup, never in `~/.aws`.
+- Or **Set up in AWS CloudShell**, the way on Windows: Keepr copies a setup script and opens CloudShell in the browser. Paste it there, run it, copy the `keepr-setup {…}` line it prints, paste that back into Keepr and click **Use it**.
 
 For an S3 bucket as a plan's source, the same setup makes a key that can only read.
 
@@ -61,4 +63,4 @@ First turn R2 on for your account, if you haven't: open **R2 Object Storage** in
 
 ## Passwords and keys
 
-Share passwords, bucket keys, and the passwords and recovery keys of encrypted plans are kept in one item in your login keychain, named Keepr. Nothing is written to a file. Deleting a plan removes its password and recovery key.
+Share passwords, bucket keys, and the passwords and recovery keys of encrypted plans are kept in one item in your login keychain, named Keepr. On Windows they're in Credential Manager, one for each, named Keepr/… (Control Panel › Credential Manager › Windows Credentials), readable only when you're signed in. Nothing is written to a file. Deleting a plan removes its password and recovery key.

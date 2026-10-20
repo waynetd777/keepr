@@ -13,6 +13,7 @@ import { Icon } from "./icons";
 import { DestIcon, Sheet } from "./ui";
 import { AddDestination } from "./Destinations";
 import { ago } from "./format";
+import { MACHINE } from "./platform";
 
 /** Opens the sheet (App holds it), from wherever it's offered. */
 export const openBackup = () => window.dispatchEvent(new Event("keepr:open-backup"));
@@ -71,7 +72,7 @@ export function OpenBackupSheet({ onClose }: { onClose: () => void }) {
   return (
     <Sheet
       title="Open an existing backup"
-      subtitle="A Keepr backup made on another Mac, or by a plan you deleted. It opens as a plan that's turned off, ready to restore from."
+      subtitle={`A Keepr backup made on another ${MACHINE === "Mac" ? "Mac" : "computer"}, or by a plan you deleted. It opens as a plan that's turned off, ready to restore from.`}
       width={560}
       onClose={onClose}
       foot={
@@ -132,7 +133,7 @@ export function OpenBackupSheet({ onClose }: { onClose: () => void }) {
         {found && free.length === 0 && d && <NothingToOpen name={d.name} found={found} />}
         {chosen?.encrypted && (
           <label className="field">
-            <span>Its password, as set on the Mac that made it</span>
+            <span>Its password, as set on the computer that made it</span>
             <input
               className="input"
               type="password"
@@ -149,7 +150,7 @@ export function OpenBackupSheet({ onClose }: { onClose: () => void }) {
         <AddDestination
           title="Open a source"
           okLabel="Open"
-          subtitle="Where the backup is: the drive, share, cloud folder or bucket the other Mac backed up to."
+          subtitle={`Where the backup is: the drive, share, cloud folder or bucket the other ${MACHINE === "Mac" ? "Mac" : "computer"} backed up to.`}
           onClose={() => setChoosing(false)}
           onAdded={(x) => chooseSource(x.id)}
         />
@@ -165,7 +166,7 @@ function NothingToOpen({ name, found }: { name: string; found: FoundBackup[] }) 
     <span className="muted">
       {used.length === 0
         ? `There's no Keepr backup in ${name}. Choose the folder the backup is in, or the one holding it.`
-        : `The backup in ${name} is already ${used.length === 1 ? `the plan ${used[0]}` : `the plans ${used.join(", ")}`} on this Mac.`}
+        : `The backup in ${name} is already ${used.length === 1 ? `the plan ${used[0]}` : `the plans ${used.join(", ")}`} on this ${MACHINE}.`}
     </span>
   );
 }

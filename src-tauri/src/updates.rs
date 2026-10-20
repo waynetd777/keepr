@@ -9,7 +9,8 @@
 //!
 //! When: 20 seconds after launch, then once a day while the app runs (the last check's time is
 //! kept in updates.json in the settings folder, so restarting doesn't check again), and whenever
-//! the user picks Keepr › Check for Updates…. An update found in the background waits until the
+//! the user picks Keepr › Check for Updates… (on Windows, which has no app menu, the button in
+//! Settings and the notification-area menu). An update found in the background waits until the
 //! main window is next focused, so the offer never pops up over another app. It offers Install
 //! and Restart, Later (asked again at the next day's check) or Skip This Version. Release builds
 //! only.
@@ -132,6 +133,8 @@ pub fn start(app: &AppHandle, hooks: Hooks) -> tauri::Result<()> {
         let at = if app_menu.get(crate::about::ABOUT_ID).is_some() { 1 } else { 0 };
         app_menu.insert(&MenuItemBuilder::with_id(MENU_ID, "Check for Updates…").build(app)?, at)?;
     }
+    #[cfg(windows)]
+    remove_old_installers(&app_name(app));
     if cfg!(debug_assertions) {
         return Ok(());
     }
@@ -146,6 +149,21 @@ pub fn start(app: &AppHandle, hooks: Hooks) -> tauri::Result<()> {
         }
     });
     Ok(())
+}
+
+/// On Windows the updater downloads each update's installer to a folder in Temp
+/// ("Keepr-1.1.0-updater-Zu7DmM") and leaves it there after installing. By the time the app starts
+/// again that installer has done its work, so the folders go.
+#[cfg(windows)]
+fn remove_old_installers(name: &str) {
+    let Ok(dir) = std::fs::read_dir(std::env::temp_dir()) else { return };
+    let prefix = format!("{name}-");
+    for e in dir.flatten() {
+        let n = e.file_name().to_string_lossy().into_owned();
+        if n.starts_with(&prefix) && n.contains("-updater-") && e.path().is_dir() {
+            let _ = std::fs::remove_dir_all(e.path());
+        }
+    }
 }
 
 /// Check for Updates…: says what it found, even when there's nothing new.
@@ -201,7 +219,14 @@ async fn check(app: &AppHandle, asked: bool) {
             // A failed background check is tried again within the hour.
             eprintln!("update check failed: {e}");
             if asked {
-                tell(app, "Couldn't check for updates", &e.to_string()).await;
+                // The release has no package for this system (a Windows one comes some minutes
+                // after the Mac's, from the release workflow).
+                let why = if e.to_string().contains("platform") {
+                    "The newest release has no update for this system yet. Try again in a little while.".to_string()
+                } else {
+                    e.to_string()
+                };
+                tell(app, "Couldn't check for updates", &why).await;
             }
         }
     }
@@ -365,6 +390,14 @@ async fn install(app: &AppHandle, update: Update) {
     }
     let size = bytes.len() as u64;
     progress(Stage::Installing, size, Some(size));
+    // Windows' installer closes the app as it starts, so the restart below isn't reached there:
+    // what quitting does is done now, and the dialog says it's restarting.
+    #[cfg(windows)]
+    {
+        progress(Stage::Restarting, size, Some(size));
+        let _ = tauri::async_runtime::spawn_blocking(|| std::thread::sleep(Duration::from_millis(400))).await;
+        (state.hooks.quitting)(app);
+    }
     match update.install(bytes) {
         Ok(()) => {
             progress(Stage::Restarting, size, Some(size));

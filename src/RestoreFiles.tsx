@@ -10,6 +10,7 @@ import type { Entry } from "./api";
 import { Icon } from "./icons";
 import { useMenu } from "./ui";
 import { bytes, tilde, when } from "./format";
+import { FILES_APP, isAbsolute, LOOK, MACHINE } from "./platform";
 
 // On the Mac and in no snapshot this far: nothing to restore or remove.
 export const onlyOnMac = (e: Entry) => e.disk === "unsaved" && e.tag !== "deleted";
@@ -56,7 +57,7 @@ export function RowMenu(p: {
       {file && (
         <button role="menuitem" disabled={!one || !p.inSnapshot} onClick={p.quickLook}>
           <Icon name="eye" size={14} stroke={1.9} />
-          Quick Look
+          {LOOK}
         </button>
       )}
       {file && (
@@ -87,7 +88,7 @@ export function RowMenu(p: {
       <hr />
       <button role="menuitem" disabled={!one || !p.onMac} onClick={p.reveal}>
         <Icon name="folder" size={14} />
-        Show in Finder
+        Show in {FILES_APP}
       </button>
       <button role="menuitem" onClick={p.copyPath}>
         <Icon name="link" size={14} />
@@ -259,7 +260,7 @@ export function FileList(p: {
         <SortHead by="name" sort={sort} setSort={p.setSort} className="grow" style={{ paddingLeft: 40 }}>
           {hits ? `${hits.length} found` : "Name"}
         </SortHead>
-        <SortHead by="modified" sort={sort} setSort={p.setSort} style={{ width: 140 }}>
+        <SortHead by="modified" sort={sort} setSort={p.setSort} className="col-modified" style={{ width: 140 }}>
           Modified
         </SortHead>
         <SortHead by="size" sort={sort} setSort={p.setSort} style={{ width: 76, justifyContent: "flex-end" }}>
@@ -284,7 +285,7 @@ export function FileList(p: {
                 Opening {e.name}…
               </div>
             );
-          const name = e.name.startsWith("/") ? tilde(e.name, home) : hits ? tilde(e.path, home) : e.name;
+          const name = isAbsolute(e.name) ? tilde(e.name, home) : hits ? tilde(e.path, home) : e.name;
           return (
             <div
               key={key}
@@ -339,7 +340,7 @@ export function FileList(p: {
                   </span>
                   {e.kind === "dir" && e.items > 0 && <span className="tiny faint nowrap">{e.items.toLocaleString()} items</span>}
                 </span>
-                <span className="muted nowrap" style={{ width: 140 }}>
+                <span className="muted nowrap col-modified" style={{ width: 140 }}>
                   {e.kind === "dir" ? "" : when(new Date(e.mtime).toISOString())}
                 </span>
                 <span className="mono muted" style={{ width: 76, textAlign: "right", fontSize: 11 }}>
@@ -350,11 +351,11 @@ export function FileList(p: {
                 </span>
                 <span style={{ width: 96, display: "flex", justifyContent: "flex-end" }}>
                   {e.disk === "gone" ? (
-                    <span className="tag deleted" title="In this backup, but no longer on your Mac">
-                      Not on Mac
+                    <span className="tag deleted" title={`In this backup, but no longer on your ${MACHINE}`}>
+                      Not on {MACHINE}
                     </span>
                   ) : e.disk === "unsaved" ? (
-                    <span className="tag plain" title="On your Mac, but not in the backup yet">
+                    <span className="tag plain" title={`On your ${MACHINE}, but not in the backup yet`}>
                       Not backed up
                     </span>
                   ) : (

@@ -3,12 +3,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Which AI CLIs are installed and the models they offer. Ask needs Claude Code, Codex,
-// Antigravity or GitHub Copilot on this Mac; with none, the Ask button is disabled and says why.
+// Antigravity or GitHub Copilot on this computer; with none, the Ask button is disabled and says why.
 // Checked once at start. The model is chosen in the Ask panel
 // and remembered between launches.
 
 import { useSyncExternalStore } from "react";
 import { api, type AssistantStatus } from "./api";
+import { isMac, MACHINE } from "./platform";
 
 export type Provider = "claude" | "codex" | "antigravity" | "copilot";
 export interface ModelOpt {
@@ -90,8 +91,8 @@ export function refreshAssistant() {
         models.length > 0
           ? null
           : installed.length === 0
-            ? "Ask needs an AI CLI on this Mac. Install Claude Code, Codex, Antigravity or GitHub Copilot, sign in, then relaunch."
-            : `${installed.map((p) => GROUP_NAME[p]).join(" and ")} installed but offering no models: run it once in Terminal to sign in, then relaunch.`;
+            ? `Ask needs an AI CLI on this ${MACHINE}. Install Claude Code, Codex, Antigravity or GitHub Copilot, sign in, then relaunch.`
+            : `${installed.map((p) => GROUP_NAME[p]).join(" and ")} installed but offering no models: run it once in ${isMac ? "Terminal" : "a terminal"} to sign in, then relaunch.`;
       state = { status, models, available: models.length > 0, reason };
       listeners.forEach((l) => l());
     })

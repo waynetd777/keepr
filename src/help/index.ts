@@ -4,10 +4,13 @@
 
 // The help topics: the markdown files beside this one. Each is frontmatter (`title`, `kind`: screen
 // or guide, `screens`, `order`, `summary`) and `##` sections; a guide's sections are its steps.
-// Links into the app are `app:` links, links to another topic `help:` links.
+// Links into the app are `app:` links, links to another topic `help:` links. Written once for macOS
+// and Windows: the help shows only this computer's parts (forPlatform), with its shortcuts in its
+// own words (shortcut).
 
 import { defaultUrlTransform } from "react-markdown";
 import type { Screen } from "../context";
+import { isMac, shortcut } from "../platform";
 
 export interface HelpSection {
   title: string;
@@ -64,11 +67,23 @@ export function parseTopic(id: string, text: string): HelpTopic {
   };
 }
 
-const FILES = import.meta.glob<string>("./*.md", { query: "?raw", import: "default", eager: true });
+/** Mac-only and Windows-only parts of a page, between `<!-- mac -->` and `<!-- /mac -->` or
+ *  `<!-- windows -->` and `<!-- /windows -->`: the help shows only this computer's. Words that join
+ *  the two for GitHub, which shows both ("Finder<!-- github --> (Mac) or <!-- /github -->File
+ *  Explorer"), go between `<!-- github -->` and `<!-- /github -->`, which the help never shows.
+ *  src-tauri/src/assistant/mod.rs filters Ask's copy the same way. */
+export const forPlatform = (md: string, mac = isMac) =>
+  md
+    .replace(/<!-- github -->[\s\S]*?<!-- \/github -->/g, "")
+    .replace(mac ? /<!-- windows -->[\s\S]*?<!-- \/windows -->/g : /<!-- mac -->[\s\S]*?<!-- \/mac -->/g, "")
+    .replace(/<!-- \/?(?:mac|windows) -->/g, "")
+    .replace(/\n{3,}/g, "\n\n");
+
+export const FILES = import.meta.glob<string>("./*.md", { query: "?raw", import: "default", eager: true });
 
 /** Every topic: screens first, then guides, each in their order. */
 export const TOPICS: HelpTopic[] = Object.entries(FILES)
-  .map(([p, text]) => parseTopic(p.replace(/^\.\//, "").replace(/\.md$/, ""), text))
+  .map(([p, text]) => parseTopic(p.replace(/^\.\//, "").replace(/\.md$/, ""), shortcut(forPlatform(text))))
   .sort((a, b) => Number(a.kind === "guide") - Number(b.kind === "guide") || a.order - b.order || a.title.localeCompare(b.title));
 
 export const GUIDES = TOPICS.filter((t) => t.kind === "guide");

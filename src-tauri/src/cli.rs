@@ -204,16 +204,69 @@ const OLD_FLAGS: &[(&str, &str)] = &[
 ];
 
 /// Whether these arguments are for the command line rather than the app. Finder and Login Items
-/// start the app with none (an old macOS adds a `-psn_` one), and `tauri dev` with none either.
+/// start the app with none (an old macOS adds a `-psn_` one), `tauri dev` with none either, and
+/// Windows' Run key with `--login` (login_win.rs).
 pub fn wanted(args: &[String]) -> bool {
-    args.first().is_some_and(|a| !a.starts_with("-psn_"))
+    args.first().is_some_and(|a| !a.starts_with("-psn_") && a != "--login")
+}
+
+/// On Windows the app has no console of its own (main.rs): the command line writes to the
+/// terminal it was started from, attached here, unless its output is going to a file or a pipe
+/// already. Ctrl-C there comes as a console event, which `on_interrupt` answers as a SIGINT.
+#[cfg(windows)]
+fn attach_console() {
+    use windows::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE, HANDLE};
+    use windows::Win32::Storage::FileSystem::{CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
+    use windows::Win32::System::Console::{
+        AttachConsole, GetStdHandle, SetStdHandle, ATTACH_PARENT_PROCESS, STD_ERROR_HANDLE, STD_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
+    unsafe {
+        // Handles the parent passed (a pipe, a file) are kept: only missing ones are the console's.
+        let missing = |h: STD_HANDLE| GetStdHandle(h).map_or(true, |h| h.is_invalid() || h.0.is_null());
+        let wanted: Vec<STD_HANDLE> = [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE].into_iter().filter(|h| missing(*h)).collect();
+        if wanted.is_empty() || AttachConsole(ATTACH_PARENT_PROCESS).is_err() {
+            return;
+        }
+        for h in wanted {
+            let name: windows::core::HSTRING = if h == STD_INPUT_HANDLE { "CONIN$".into() } else { "CONOUT$".into() };
+            if let Ok(f) = CreateFileW(
+                &name,
+                (GENERIC_READ | GENERIC_WRITE).0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                None,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                Some(HANDLE::default()),
+            ) {
+                let _ = SetStdHandle(h, f);
+            }
+        }
+    }
+}
+
+/// A path typed on the command line in the app's form (keepr_engine::paths): on Windows
+/// "C:\Users\w\Documents" is "/Users/w/Documents"; with no trailing "/" anywhere.
+fn app_path(p: &str) -> String {
+    let p = p.trim_end_matches('/');
+    #[cfg(windows)]
+    let p = if p.contains('\\') || (p.len() >= 2 && p.as_bytes()[1] == b':') {
+        keepr_engine::paths::app(std::path::Path::new(p))
+    } else {
+        p.to_string()
+    };
+    p.to_string()
 }
 
 /// Runs the command line and returns the exit status.
 pub fn main(args: &[String]) -> i32 {
     // A closed pipe (`keepr plans | head`) ends the process quietly, as for other tools, rather
     // than as a failed write.
-    unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL)
+    };
+    #[cfg(windows)]
+    attach_console();
     // Before anything reads a file: both the app and these commands may meet cloud-only files.
     system::allow_cloud_downloads();
     let mut argv = vec!["keepr".to_string()];
@@ -314,12 +367,14 @@ fn run(cmd: Command) -> Res<i32> {
                     }
                 }
             };
-            let items =
-                if paths.is_empty() { snap.sources.clone() } else { paths.iter().map(|p| p.trim_end_matches('/').to_string()).collect() };
+            // As the snapshot names them (on Windows, C:\Users\… is /Users/…).
+            let items = if paths.is_empty() { snap.sources.clone() } else { paths.iter().map(|p| app_path(p)).collect() };
             let target = match to {
                 Some(dir) => {
                     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-                    Target::Folder(dir.canonicalize().map_err(|e| e.to_string())?)
+                    // Windows' canonical form starts \\?\; the same folder without it reads better in the log.
+                    let real = dir.canonicalize().map_err(|e| e.to_string())?;
+                    Target::Folder(keepr_engine::paths::native(&keepr_engine::paths::app(&real)))
                 }
                 None => Target::Original,
             };
@@ -342,7 +397,7 @@ fn run(cmd: Command) -> Res<i32> {
             }
             let core = locked_core(&progress)?;
             let plan = plan_id(&core, &plan)?;
-            finish(&core, vec![Job::RemovePath { plan, path }], out, |r| r.result == "ok")
+            finish(&core, vec![Job::RemovePath { plan, path: app_path(&path) }], out, |r| r.result == "ok")
         }
         Command::RenamePlanFolder { plan } => {
             let core = locked_core(&Progress { quiet: true })?;
@@ -410,16 +465,37 @@ fn show_progress() -> crate::core::Emit {
 /// Ctrl-C presses: the first stops the job at a safe point, a second quits at once.
 static INTERRUPTS: AtomicUsize = AtomicUsize::new(0);
 
+#[cfg(unix)]
 extern "C" fn on_interrupt(_: libc::c_int) {
     if INTERRUPTS.fetch_add(1, Relaxed) > 0 {
         unsafe { libc::_exit(130) };
     }
 }
 
+/// Ctrl-C and Ctrl-Break in the terminal, as SIGINT is answered elsewhere.
+#[cfg(windows)]
+unsafe extern "system" fn on_interrupt(kind: u32) -> windows::core::BOOL {
+    // CTRL_C_EVENT and CTRL_BREAK_EVENT; closing the window or signing out ends the process anyway.
+    if kind > 1 {
+        return false.into();
+    }
+    if INTERRUPTS.fetch_add(1, Relaxed) > 0 {
+        std::process::exit(130);
+    }
+    true.into()
+}
+
 /// Runs the jobs one after another, waits for them, and prints how each went. `good` says which
 /// results count as done; any other gives exit status 1, or 130 when Ctrl-C stopped it.
 fn finish(core: &Core_, jobs: Vec<Job>, out: Out, good: impl Fn(&Run) -> bool) -> Res<i32> {
-    unsafe { libc::signal(libc::SIGINT, on_interrupt as *const () as libc::sighandler_t) };
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGINT, on_interrupt as *const () as libc::sighandler_t)
+    };
+    #[cfg(windows)]
+    unsafe {
+        let _ = windows::Win32::System::Console::SetConsoleCtrlHandler(Some(on_interrupt), true);
+    }
     core.start();
     let before = core.state.lock().unwrap().history.len();
     for j in jobs {

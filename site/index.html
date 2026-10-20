@@ -7,8 +7,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Keepr: backups for your Mac</title>
-    <meta name="description" content="Keepr is a free Mac backup app that keeps every version of the files you choose, on a drive, a NAS, a cloud folder or an S3 bucket, and restores any file as it was at any moment. Encrypted, de-duplicated, open source." />
+    <title>Keepr: backups for your Mac or PC</title>
+    <meta name="description" content="Keepr is a free backup app for Mac and Windows that keeps every version of the files you choose, on a drive, a NAS, a cloud folder or an S3 bucket, and restores any file as it was at any moment. Encrypted, de-duplicated, open source." />
     <meta name="google-site-verification" content="i4TUXxiTMawK83ozrMTEYSBRZYrrRbZOhnqJokfEkfU" />
     <link rel="canonical" href="https://keepr.davies.co.za/" />
     <meta name="color-scheme" content="light" />
@@ -17,14 +17,14 @@
     <meta property="og:site_name" content="Keepr" />
     <meta property="og:url" content="https://keepr.davies.co.za/" />
     <meta property="og:title" content="Keepr: every file, every version, kept" />
-    <meta property="og:description" content="Backups for your Mac that keep every version, encrypted, to a drive, a NAS, a cloud folder or S3. Free and open source." />
+    <meta property="og:description" content="Backups for your Mac or PC that keep every version, encrypted, to a drive, a NAS, a cloud folder or S3. Free and open source." />
     <meta property="og:image" content="https://keepr.davies.co.za/img/og.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="Keepr's Backup Plans screen under the headline Every file. Every version. Kept." />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Keepr: every file, every version, kept" />
-    <meta name="twitter:description" content="Backups for your Mac that keep every version, encrypted, to a drive, a NAS, a cloud folder or S3. Free and open source." />
+    <meta name="twitter:description" content="Backups for your Mac or PC that keep every version, encrypted, to a drive, a NAS, a cloud folder or S3. Free and open source." />
     <meta name="twitter:image" content="https://keepr.davies.co.za/img/og.png" />
     <link rel="apple-touch-icon" href="img/icon-180.png" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect width='28' height='28' rx='8' fill='%230f7a5c'/%3E%3Cpath d='M8 10h12M8 14h12M8 18h7' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' fill='none'/%3E%3C/svg%3E" />
@@ -35,10 +35,13 @@
         "@type": "SoftwareApplication",
         "name": "Keepr",
         "url": "https://keepr.davies.co.za/",
-        "description": "A Mac backup app that keeps every version of the files you choose, on a drive, a NAS, a cloud folder or an S3 bucket, encrypted and de-duplicated, and restores any file as it was at any moment.",
+        "description": "A backup app for macOS and Windows that keeps every version of the files you choose, on a drive, a NAS, a cloud folder or an S3 bucket, encrypted and de-duplicated, and restores any file as it was at any moment.",
         "applicationCategory": "UtilitiesApplication",
-        "operatingSystem": "macOS 13 or later (Apple silicon)",
-        "downloadUrl": "https://github.com/waynetd777/keepr/releases/latest/download/Keepr.dmg",
+        "operatingSystem": "macOS 13 or later (Apple silicon), Windows 10 or later (64-bit)",
+        "downloadUrl": [
+          "https://github.com/waynetd777/keepr/releases/latest/download/Keepr.dmg",
+          "https://github.com/waynetd777/keepr/releases/latest/download/Keepr_x64-setup.exe"
+        ],
         "image": "https://keepr.davies.co.za/img/og.png",
         "screenshot": "https://keepr.davies.co.za/img/overview-light.webp",
         "license": "https://www.gnu.org/licenses/gpl-3.0.html",
@@ -65,7 +68,7 @@
         <div class="links">
           <a href="#what">What it does</a>
           <a href="#ask">Ask</a>
-          <a href="#menubar">Menu bar</a>
+          <a href="#menubar">In the background</a>
           <a href="https://github.com/waynetd777/keepr">GitHub</a>
           <a class="pill" href="#download">Download</a>
         </div>
@@ -79,10 +82,10 @@
           <h1>Every file.<br />Every version.<br />Kept.</h1>
           <p class="lede">Keepr backs up the folders you choose to a drive, a NAS, a cloud folder or an S3 bucket, and keeps every version, so you can bring back any file as it was.</p>
           <div class="actions">
-            <a class="btn" href="https://github.com/waynetd777/keepr/releases/latest/download/Keepr.dmg">Download for Mac</a>
+            <a class="btn" href="#download">Download for Mac or Windows</a>
             <a class="more" href="#what">See what it does</a>
           </div>
-          <p class="fine">For Apple silicon Macs running macOS 13 or later.</p>
+          <p class="fine">For Apple silicon Macs running macOS 13 or later, and PCs with Windows 10 or 11 (64-bit).</p>
         </div>
         <div class="wrap shotwrap" data-shimmer>
           <img class="shot hero-shot" src="img/overview-light.webp" width="1400" height="875" alt="Keepr's Backup Plans screen: three plans with their last and next backups, the space they use and the destinations" fetchpriority="high" />
@@ -118,7 +121,7 @@
           <div class="steps">
             <section class="step" id="plan" data-shot="plan" data-focus="0 0 100 100">
               <h3>Choose what to keep.</h3>
-              <p>Folders on your Mac, a drive, an SMB share, a cloud folder or an S3 bucket. Backed up every 15 minutes, hourly, daily, weekly, or when you ask.</p>
+              <p>Folders on your computer, a drive, an SMB share, a cloud folder or an S3 bucket. Backed up every 15 minutes, hourly, daily, weekly, or when you ask.</p>
             </section>
             <section class="step" id="exclude" data-shot="plan" data-focus="18 47 42 33">
               <h3>Leave things out.</h3>
@@ -130,7 +133,7 @@
             </section>
             <section class="step" id="restore" data-shot="restore" data-focus="16.5 7 83.5 40">
               <h3>Go back to any moment.</h3>
-              <p>Step through the snapshots and see your files as they were on that day, folder by folder. Restore them to where they were, or somewhere else. On a new Mac, open the old one's backup and restore from it there.</p>
+              <p>Step through the snapshots and see your files as they were on that day, folder by folder. Restore them to where they were, or somewhere else. On a new computer, Mac or PC, open the old one's backup and restore from it there.</p>
             </section>
             <section class="step" id="deleted" data-shot="deleted" data-focus="16.5 36 83.5 52">
               <h3>Find what was deleted.</h3>
@@ -138,7 +141,7 @@
             </section>
             <section class="step" id="versions" data-shot="versions" data-focus="60 36 40 52">
               <h3>Every version of a file.</h3>
-              <p>Pick a file to see each version of it. Quick Look one, compare it with the file on your Mac, and bring back the one you want.</p>
+              <p>Pick a file to see each version of it. Look inside one, compare it with the file on your computer, and bring back the one you want.</p>
             </section>
             <section class="step" id="search" data-shot="search" data-focus="16.5 0 83.5 46">
               <h3>Find a file in every backup at once.</h3>
@@ -157,11 +160,11 @@
         <div class="wrap two">
           <div class="text">
             <h2>Encrypted before it leaves.</h2>
-            <p>Set a password and Keepr gives you a recovery key. Everything is encrypted on your Mac, so the drive, the share or the cloud service that holds your backups can't read them.</p>
+            <p>Set a password and Keepr gives you a recovery key. Everything is encrypted on your computer, so the drive, the share or the cloud service that holds your backups can't read them.</p>
           </div>
           <figure class="plain-vs-cipher" id="cipherfig">
             <div class="doc" id="plain">
-              <span class="label">On your Mac</span>
+              <span class="label">On your computer</span>
               <pre>Budget 2026.numbers
 Wedding speech.pages
 Finance/Tax return 2025.pdf
@@ -185,7 +188,7 @@ Projects/keepr/design-notes.md</pre>
         <div class="wrap two">
           <div class="text">
             <h2>Ask about your backups.</h2>
-            <p>Ask what takes the space, or why a backup failed. An AI you already use on your Mac answers: Claude Code, Codex, Antigravity or GitHub Copilot.</p>
+            <p>Ask what takes the space, or why a backup failed. An AI you already use on your computer answers: Claude Code, Codex, Antigravity or GitHub Copilot.</p>
             <p>It sees Keepr's figures and folder names, never your files or what's in them. Leave a plan out, or turn Ask off in Settings. <a href="https://github.com/waynetd777/keepr/blob/main/docs/features.md#ask">What it sends</a></p>
             <p>It can suggest a change to a plan. Keepr shows what would change before you apply it, and you can undo it.</p>
           </div>
@@ -199,7 +202,7 @@ Projects/keepr/design-notes.md</pre>
       <section class="where">
         <div class="wrap">
           <h2>Anywhere you like.</h2>
-          <p class="lede">Each plan has its own destination. Keep one on the drive beside your Mac and another in a bucket far away.</p>
+          <p class="lede">Each plan has its own destination. Keep one on the drive beside your computer and another in a bucket far away.</p>
           <ul class="dests">
             <li><strong>Drives and folders</strong><span>An external SSD, a folder on another disk, or anything else that mounts.</span></li>
             <li><strong>NAS and SMB shares</strong><span>Keepr finds servers on your network and connects when the share is there.</span></li>
@@ -214,7 +217,7 @@ Projects/keepr/design-notes.md</pre>
         <div class="wrap two">
           <div class="text">
             <h2>Backing up while you work.</h2>
-            <p>Close the window and Keepr keeps going from the menu bar. It waits for drives, batteries and hotspots, catches up after sleep, checks that the backups can be read back, and tells you when something needs attention.</p>
+            <p>Close the window and Keepr keeps going from the menu bar, or on Windows the notification area. It waits for drives, batteries and hotspots, catches up after sleep, checks that the backups can be read back, and tells you when something needs attention.</p>
           </div>
           <figure class="mac" aria-label="The Keepr menu bar panel, open under its icon">
             <div class="macbar">
@@ -237,7 +240,7 @@ Projects/keepr/design-notes.md</pre>
           </div>
           <div>
             <h3>Checks its own work.</h3>
-            <p>A still copy of the disk means files that change mid-backup are copied as they were at one moment. Keepr reads a sample of every backup back to make sure it can be restored.</p>
+            <p>On a Mac, a still copy of the disk means files that change mid-backup are copied as they were at one moment. Keepr reads a sample of every backup back to make sure it can be restored.</p>
           </div>
           <div>
             <h3>Scriptable too.</h3>
@@ -255,16 +258,25 @@ Projects/keepr/design-notes.md</pre>
         <div class="wrap">
           <svg class="mark" width="64" height="64" viewBox="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="8" fill="#0f7a5c"/><path d="M8 10h12M8 14h12M8 18h7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg>
           <h2>Download Keepr.</h2>
-          <p class="lede">For a Mac with Apple silicon running macOS 13 or later.</p>
+          <p class="lede">For a Mac with Apple silicon running macOS 13 or later, or a PC with Windows 10 or 11 (64-bit).</p>
           <div class="actions">
-            <a class="btn" href="https://github.com/waynetd777/keepr/releases/latest/download/Keepr.dmg">Download Keepr.dmg</a>
+            <a class="btn" href="https://github.com/waynetd777/keepr/releases/latest/download/Keepr.dmg">Download for Mac</a>
+            <a class="btn" href="https://github.com/waynetd777/keepr/releases/latest/download/Keepr_x64-setup.exe">Download for Windows</a>
           </div>
           <p class="fine"><span id="version">Latest release</span> on GitHub.</p>
+          <h3 class="install-os">On a Mac</h3>
           <ol class="firstrun">
             <li>Open the disk image and drag Keepr onto Applications.</li>
             <li>Open it once. macOS says it can't check the app, because it isn't notarised by Apple. Click Done.</li>
             <li>In System Settings › Privacy &amp; Security, click Open Anyway. It opens normally after that.</li>
             <li>In the same place, under Full Disk Access, turn Keepr on, so it can back up every folder.</li>
+          </ol>
+          <h3 class="install-os">On Windows</h3>
+          <ol class="firstrun">
+            <li>Run the installer. It installs for you alone, with no administrator password.</li>
+            <li>If Windows says it protected your PC, click More info, then Run anyway: the installer isn't code-signed.</li>
+            <li>Open Keepr from the Start menu. There's no Full Disk Access to give, and passwords go in Windows' Credential Manager.</li>
+            <li>Keepr keeps backing up from the notification area, at the right of the taskbar, with its window closed.</li>
           </ol>
         </div>
       </section>

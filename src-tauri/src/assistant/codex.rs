@@ -10,7 +10,7 @@
 //! computer use, sub-agents and goals. What is left can't read or change anything: a clock, and
 //! apply_patch, which the read-only sandbox refuses.
 
-use super::{finish, silent, spawn, status, system, Done, Model, Running};
+use super::{finish, silent, spawn, status, system, with_instructions, Done, Model, Running, PROMPT_ON_STDIN};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::Command;
@@ -38,8 +38,8 @@ pub fn find() -> Option<PathBuf> {
 /// The models the Codex CLI would offer in its picker, from the list it caches for the
 /// signed-in account. Empty if Codex has never run, so the app shows nothing to choose.
 pub fn models() -> Vec<Model> {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let Ok(s) = std::fs::read_to_string(format!("{home}/.codex/models_cache.json")) else {
+    let home = keepr_engine::paths::native(&keepr_engine::paths::home());
+    let Ok(s) = std::fs::read_to_string(home.join(".codex").join("models_cache.json")) else {
         return Vec::new();
     };
     let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) else {
@@ -72,14 +72,19 @@ pub fn ask(
     let bin = find().ok_or("Codex isn't installed, or couldn't be found. Install it and sign in, then try again.")?;
     // -c values are TOML; a JSON string is a valid TOML basic string.
     let instructions = format!("developer_instructions={}", serde_json::to_string(system()).map_err(|e| e.to_string())?);
+    // On Windows the instructions are too long for the command line: they open the first message,
+    // which goes in on stdin (mod.rs PROMPT_ON_STDIN).
     let mut cmd = Command::new(bin);
     cmd.current_dir(&cwd).arg("exec");
     if session.is_some() {
         cmd.arg("resume");
     }
     cmd.args(["--json", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "-m", &model])
-        .args(["-c", "sandbox_mode=\"read-only\"", "-c", &instructions])
+        .args(["-c", "sandbox_mode=\"read-only\""])
         .args(["-c", "web_search=\"disabled\""]);
+    if !PROMPT_ON_STDIN {
+        cmd.args(["-c", &instructions]);
+    }
     for f in NO_FEATURES {
         cmd.args(["-c", &format!("features.{f}=false")]);
     }
@@ -87,8 +92,9 @@ pub fn ask(
     if let Some(s) = &session {
         cmd.arg(s);
     }
-    cmd.arg(&prompt);
-    let (child, stdout, stderr) = spawn(&mut cmd, &running, &chat_id, "Codex")?;
+    cmd.arg(if PROMPT_ON_STDIN { "-" } else { prompt.as_str() });
+    let input = PROMPT_ON_STDIN.then(|| with_instructions(&prompt, &session));
+    let (child, stdout, stderr) = spawn(&mut cmd, &running, &chat_id, "Codex", input)?;
 
     std::thread::spawn(move || {
         let mut text = String::new();

@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Ctx, useApp, type AppCtx, type Screen } from "./context";
 import { api, on, type Config, type JobStatus, type Overview as OverviewData, type UpdateShown } from "./api";
 import { Icon, Mark } from "./icons";
-import { ClearButton, Confirm, jobTitle, pct, StopButton, ToastProvider, Tooltips } from "./ui";
+import { ClearButton, Confirm, jobTitle, pct, SelectMenus, StopButton, ToastProvider, Tooltips } from "./ui";
 import Overview from "./Overview";
 import Plans from "./Plans";
 import Restore from "./Restore";
@@ -24,6 +24,8 @@ import { UpdateDialog } from "./Update";
 import AskPanel, { AskToolbarButton, openAsk, toggleAsk } from "./Ask";
 import { hideSplash } from "./splash";
 import { HelpButton, HelpDrawer, openHelp, type HelpView } from "./help/HelpDrawer";
+import { GuideOffer } from "./help/GuideOffer";
+import { cmdKey, dragRegion, MACHINE, shortcut } from "./platform";
 
 // Backup Plans is the overview of every plan; a plan's settings open from its card.
 const NAV: [Screen["name"], string, string, string][] = [
@@ -52,7 +54,7 @@ function Sidebar() {
           >
             <Icon name={icon} />
             <span className="grow">{label}</span>
-            <span className="key">{key}</span>
+            <span className="key">{shortcut(key)}</span>
           </button>
         ))}
       </div>
@@ -65,7 +67,7 @@ function Sidebar() {
       >
         <Icon name="settings" />
         <span className="grow">Settings</span>
-        <span className="key">⌘,</span>
+        <span className="key">{shortcut("⌘,")}</span>
       </button>
     </nav>
   );
@@ -78,7 +80,7 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      if (e.metaKey && e.key.toLowerCase() === "k") {
+      if (cmdKey(e) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         input.current?.focus();
         input.current?.select();
@@ -90,7 +92,7 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
   const watching = ov?.plans.filter((p) => p.enabled && p.status !== "off").length ?? 0;
   const running = !!ov?.job;
   return (
-    <header className="toolbar" data-tauri-drag-region>
+    <header className="toolbar" {...dragRegion()}>
       <button className="iconbtn" aria-label="Back" title="Back ⌘[" disabled={!canBack} onClick={back}>
         <Icon name="back" stroke={2} />
       </button>
@@ -122,10 +124,10 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
             }}
           />
         ) : (
-          <span className="kbd">⌘K</span>
+          <span className="kbd">{shortcut("⌘K")}</span>
         )}
       </form>
-      <div className="spacer" data-tauri-drag-region />
+      <div className="spacer" {...dragRegion()} />
       {watching > 0 && (
         <span className="row small muted" style={{ gap: 6 }}>
           <span className={running ? "dot spin" : "dot"} />
@@ -168,7 +170,7 @@ function Toolbar({ back, forward, canBack, canForward }: { back: () => void; for
         <button
           className="btn"
           onClick={openBackup}
-          title="Open a Keepr backup made on another Mac, or by a plan you deleted, to restore from it"
+          title={`Open a Keepr backup made on another ${MACHINE}, or by a plan you deleted, to restore from it`}
         >
           Open backup…
         </button>
@@ -302,7 +304,7 @@ export default function App() {
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      if (!e.metaKey) return;
+      if (!cmdKey(e)) return;
       const i = "12345".indexOf(e.key);
       if (i >= 0) {
         e.preventDefault();
@@ -361,6 +363,7 @@ export default function App() {
             )}
           </main>
           <HelpDrawer />
+          <GuideOffer />
           <AskPanel />
         </div>
         {opening && <OpenBackupSheet onClose={() => setOpening(false)} />}
@@ -368,6 +371,7 @@ export default function App() {
         <Confirm />
         <QuitDialog />
         <Tooltips />
+        <SelectMenus />
       </ToastProvider>
     </Ctx.Provider>
   );

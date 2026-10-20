@@ -2,8 +2,8 @@
 // See LICENSE for the full text.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Where a repository's files live. Today that's a folder: on this Mac, an external drive or a
-//! mounted SMB share, which all look the same once mounted; or an S3 bucket (s3.rs). Other cloud stores (Google Drive,
+//! Where a repository's files live. Today that's a folder: on this computer, an external drive or
+//! an SMB share, which all look the same once connected; or an S3 bucket (s3.rs). Other cloud stores (Google Drive,
 //! OneDrive) will be other implementations of `Backend`.
 //!
 //! Paths are relative, '/'-separated, and never start with '/' or hold "..".
@@ -14,8 +14,12 @@ use std::path::PathBuf;
 
 /// Makes sure a file's data has reached its disk or server. On macOS `sync_all` asks for a full
 /// flush (F_FULLFSYNC), which SMB shares and some other file systems refuse with ENOTSUP
-/// ("Operation not supported"); those get a plain fsync instead.
+/// ("Operation not supported"); those get a plain fsync instead. On Windows it is
+/// FlushFileBuffers, which shares take.
 pub fn sync(f: &fs::File) -> io::Result<()> {
+    #[cfg(not(unix))]
+    return f.sync_all();
+    #[cfg(unix)]
     match f.sync_all() {
         Err(e) if matches!(e.raw_os_error(), Some(libc::ENOTSUP) | Some(libc::EINVAL) | Some(libc::ENOTTY)) => {
             use std::os::fd::AsRawFd;
@@ -29,6 +33,30 @@ pub fn sync(f: &fs::File) -> io::Result<()> {
     }
 }
 
+/// Renames a file over another. On Windows a rename onto a file another program has open (an
+/// antivirus scanner, OneDrive's sync, a backup being read) fails for a moment with access denied
+/// or a sharing violation; it is tried again for about a second before that counts. Elsewhere, and
+/// for any other error, once.
+pub fn rename(from: &std::path::Path, to: &std::path::Path) -> io::Result<()> {
+    retry(|| fs::rename(from, to))
+}
+
+/// `op`, tried again up to ten times over about a second while it fails as a file held open by
+/// another program does on Windows (errors 5, 32 and 33).
+pub fn retry<T>(mut op: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    let mut wait = std::time::Duration::from_millis(10);
+    for _ in 0..10 {
+        match op() {
+            Err(e) if cfg!(windows) && matches!(e.raw_os_error(), Some(5 | 32 | 33)) => {
+                std::thread::sleep(wait);
+                wait = (wait * 2).min(std::time::Duration::from_millis(200));
+            }
+            r => return r,
+        }
+    }
+    op()
+}
+
 pub trait Backend: Send + Sync {
     fn read(&self, path: &str) -> io::Result<Vec<u8>>;
     fn read_at(&self, path: &str, offset: u64, len: u64) -> io::Result<Vec<u8>>;
@@ -39,7 +67,7 @@ pub trait Backend: Send + Sync {
     fn remove(&self, path: &str) -> io::Result<()>;
     fn exists(&self, path: &str) -> bool;
     fn size(&self, path: &str) -> io::Result<u64>;
-    /// For people: where this is ("/Volumes/Backups/Keepr/…").
+    /// For people: where this is ("/Volumes/Backups/Keepr/…", "D:\\Backups\\Keepr").
     fn describe(&self) -> String;
 }
 
@@ -85,7 +113,7 @@ impl Backend for Folder {
             // On a share, a rename can reach the server before the data does; sync first.
             sync(&f)?;
             drop(f);
-            fs::rename(&tmp, &p)
+            rename(&tmp, &p)
         })();
         if res.is_err() {
             let _ = fs::remove_file(&tmp);

@@ -58,7 +58,14 @@ export type Plan = {
   askExclude?: boolean;
 };
 
-export type Settings = { notifyFailures: boolean; notifySuccess: boolean; staleDays: number; ask: boolean };
+export type Settings = {
+  notifyFailures: boolean;
+  notifySuccess: boolean;
+  staleDays: number;
+  ask: boolean;
+  /** Offer Getting started when Keepr opens (src/help/GuideOffer.tsx). */
+  offerGuide: boolean;
+};
 
 /** The AI CLIs on this Mac and their models (src-tauri/src/assistant/). */
 export type Cli = { path: string | null; version: string | null; models: { id: string; name: string }[] };
@@ -199,6 +206,8 @@ export type MapDir = {
 };
 export type Version = { snapshot: string; time: string; size: number; mtime: number; keptIn: number };
 export type Found = { plan: string; planName: string; snapshot: string; time: string; gone: boolean; entry: Entry };
+export type HelperStatus = { running: boolean; installed: boolean; version: number; app: string; outdated: boolean };
+
 export type Target = { kind: "original" } | { kind: "folder"; path: string };
 export type Conflict = "keepBoth" | "replace" | "skip";
 export type Tested = { ok: boolean; message: string; free: number | null; total: number | null; mbps: number | null };
@@ -252,7 +261,7 @@ export const api = {
   cloudFolders: () =>
     invoke<{ name: string; provider: string; root: string; live: boolean; why: string; free: number | null }[]>("cloud_folders"),
   discoverServers: () => invoke<string[]>("discover_servers"),
-  savedSmbLogin: (server: string) => invoke<{ user: string; source: "keepr" | "finder" } | null>("saved_smb_login", { server }),
+  savedSmbLogin: (server: string) => invoke<{ user: string; source: "keepr" | "finder" | "windows" } | null>("saved_smb_login", { server }),
   listShares: (server: string, user: string, password?: string) =>
     invoke<string[]>("list_shares", { server, user, password: password ?? null }),
   saveSmbPassword: (server: string, user: string, password: string) => invoke<void>("save_smb_password", { server, user, password }),
@@ -288,11 +297,22 @@ export const api = {
     invoke<void>("quick_look", { plan, snapshot, path, token: token ?? null }),
   stopRequest: (token: string) => invoke<void>("cancel", { token }),
   compare: (plan: string, snapshot: string, path: string) => invoke<Comparison>("compare", { plan, snapshot, path }),
-  /** macOS's folder panel, one kept and reused (a new one takes ~26 s on macOS 27). */
+  /** macOS's folder panel, one kept and reused (a new one takes ~26 s on macOS 27); Windows' own
+   *  folder picker there. The folders come back in the app's form (platform.ts). */
   chooseFolders: (title: string, multiple = false, start?: string) =>
     invoke<string[]>("choose_folders", { title, multiple, start: start ?? null }),
   version: () => invoke<[string, string]>("app_version"),
   home: () => invoke<string>("home_dir"),
+  /** The system drive ("C:") on Windows, which "/" stands for in the app's paths; "" elsewhere. */
+  systemDrive: () => invoke<string>("system_drive"),
+  /** Keepr Helper on Windows (src-tauri/src/helper_win.rs); null elsewhere. */
+  helperStatus: () => invoke<HelperStatus | null>("helper_status"),
+  /** Installs or removes Keepr Helper; Windows asks for an administrator first. */
+  helperSet: (on: boolean) => invoke<HelperStatus | null>("helper_set", { on }),
+  /** Check for Updates… (Settings › About and the notification-area menu on Windows). */
+  checkForUpdates: () => invoke<void>("check_for_updates"),
+  /** The help drawer, from the notification-area menu on Windows. */
+  showHelp: () => invoke<void>("show_help"),
   loginItem: () => invoke<[boolean, boolean]>("login_item"),
   setLoginItem: (on: boolean) => invoke<boolean>("set_login_item", { on }),
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),

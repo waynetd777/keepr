@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, type Comparison, type Conflict, type Entry, type SnapInfo, type Version } from "./api";
 import { FileList, onlyOnMac, RowMenu, type Sort } from "./RestoreFiles";
+import { baseName, FILES_APP, isAbsolute, isMac, LOOK, MACHINE, parentPath, shortcut, shown as shownPath } from "./platform";
 import { RestoreFooter } from "./RestoreFooter";
 import { VersionsPane } from "./RestoreVersions";
 import { statusDot, useApp } from "./context";
@@ -120,11 +121,11 @@ function CompareSheet({ plan, snapshot, path, onClose }: { plan: string; snapsho
   useEffect(() => {
     api.compare(plan, snapshot, path).then(setC, (e) => setErr(String(e)));
   }, [plan, snapshot, path]);
-  const name = path.split("/").pop();
+  const name = baseName(path);
   return (
     <Sheet
       title={`Compare ${name}`}
-      subtitle="The version from the backup against the file on this Mac now."
+      subtitle={`The version from the backup against the file on this ${MACHINE} now.`}
       width={820}
       onClose={onClose}
       foot={
@@ -136,19 +137,23 @@ function CompareSheet({ plan, snapshot, path, onClose }: { plan: string; snapsho
       <div className="sheet-body">
         {err && <span style={{ color: "var(--red)" }}>{err}</span>}
         {!c && !err && <span className="muted">Comparing…</span>}
-        {c && !c.currentExists && <span>The file isn't on this Mac any more. Restoring it puts back the version from the backup.</span>}
+        {c && !c.currentExists && (
+          <span>The file isn't on this {MACHINE} any more. Restoring it puts back the version from the backup.</span>
+        )}
         {c && c.currentExists && c.identical && <span>They're the same: the file hasn't changed since this version.</span>}
         {c && c.currentExists && !c.identical && !c.text && (
           <span>
             They differ ({bytes(c.backupSize)} in the backup, {bytes(c.currentSize)} now). Only text files can be compared line by line; use
-            Quick Look to see the version from the backup.
+            {LOOK} to see the version from the backup.
           </span>
         )}
         {c && c.text && !c.identical && (
           <>
             <span className="small muted">
               <span style={{ color: "var(--red)" }}>{c.removed.toLocaleString()} lines only in the backup</span> ·{" "}
-              <span style={{ color: "var(--accent-text)" }}>{c.added.toLocaleString()} lines only on this Mac</span>
+              <span style={{ color: "var(--accent-text)" }}>
+                {c.added.toLocaleString()} lines only on this {MACHINE}
+              </span>
             </span>
             <div className="diff">
               {c.lines.map((l, i) =>
@@ -678,10 +683,10 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
   const total = items.reduce((n, e) => n + e.size, 0);
   // The original on the Mac, shown in its folder in Finder. An SMB share's files show no
   // "Not on Mac" until the share is connected, so Show in Finder finds out then.
-  const onMac = (e: Entry) => e.path.startsWith("/") && e.disk !== "gone";
+  const onMac = (e: Entry) => isAbsolute(e.path) && e.disk !== "gone";
   // Connects an SMB share first, so it can take a moment; errors say why it can't be shown.
   // Connecting its share first can take a moment, with nothing else to show for it.
-  const showInFinder = (e: Entry) => act(() => slowToast(api.showInFinder(plan.id, e.path), `Opening ${e.name} in Finder…`));
+  const showInFinder = (e: Entry) => act(() => slowToast(api.showInFinder(plan.id, e.path), `Opening ${e.name} in ${FILES_APP}…`));
   // Whether the restore was started: when it wasn't, act's toast says why, and there's nothing to
   // back up afterwards or announce.
   const start = async (snapshot: string, paths: string[]): Promise<boolean> => {
@@ -694,7 +699,7 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
     // Back in place, a restored file is on the Mac again; a backup after it puts that in a
     // snapshot, so it stops showing as deleted.
     if (dest === "original") await api.backUp(plan.id).catch(() => {});
-    toast(`Restoring ${paths.length === 1 ? paths[0].split("/").pop() : `${paths.length} items`}. Activity shows how it's going.`);
+    toast(`Restoring ${paths.length === 1 ? baseName(paths[0]) : `${paths.length} items`}. Activity shows how it's going.`);
     return true;
   };
   const chooseFolder = async () => {
@@ -708,7 +713,7 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
   // What's being removed, as "2 files from ~/Desktop" or "the folder Old from ~/Desktop and
   // everything in it", so it's plain that only those go, not the folder they're in.
   const describe = (es: Entry[]) => {
-    const parentOf = (p: string) => p.slice(0, p.lastIndexOf("/")) || "/";
+    const parentOf = (p: string) => parentPath(p) || "/";
     const parents = new Set(es.map((e) => parentOf(e.path)));
     const from = parents.size === 1 ? ` from ${tilde([...parents][0], home)}` : "";
     if (es.length === 1) {
@@ -740,7 +745,12 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
       if (!isRoot) continue;
       const prefix = s.kind === "s3" ? s.prefix.replace(/^\/+|\/+$/g, "") : "";
       if (s.kind === "s3" && same(`s3://${s.bucket.trim()}${prefix ? `/${prefix}` : ""}`)) return "bucket";
-      if (s.kind === "smb") {
+      // Windows reaches a share by its own name: //server/share/<folder>, in any case.
+      if (s.kind === "smb" && !isMac) {
+        const sub = s.folder.replace(/^\/+|\/+$/g, "");
+        const at = `//${s.server.trim()}/${s.share.replace(/^\/+|\/+$/g, "")}${sub ? `/${sub}` : ""}`;
+        if (at.toLowerCase() === e.path.replace(/\/+$/, "").toLowerCase()) return "share";
+      } else if (s.kind === "smb") {
         const [, vol, mount, ...rest] = e.path.split("/");
         // Where macOS mounts it, by the share's name (-1 and on when that's taken), in any case.
         const share = s.share.replace(/^\/+|\/+$/g, "").toLowerCase();
@@ -761,7 +771,7 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
     // left out, which isn't what the ticks say. Done with the folder ticked whole, or the ticks.
     const mixed = es.find((e) => e.kind === "dir" && partlyChosen(e));
     if (mixed) {
-      const name = mixed.name.startsWith("/") ? tilde(mixed.name, home) : mixed.name;
+      const name = isAbsolute(mixed.name) ? tilde(mixed.name, home) : mixed.name;
       await tell(
         `Some of what's in ${name} is ticked`,
         `Remove from backup takes all of ${name}, ticked or not. To remove only what's ticked, right-click one of the ticked items; to remove all of ${name}, tick it first.`,
@@ -770,7 +780,7 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
     }
     const source = es.find(sourceOf);
     if (source) {
-      const name = source.path.startsWith("/") ? tilde(source.path, home) : source.path;
+      const name = isAbsolute(source.path) ? tilde(source.path, home) : source.path;
       await tell(
         `${name} is a ${sourceOf(source)} this plan backs up`,
         `Remove from backup takes files and folders inside it out of the backup. To stop backing up ${name} and delete what's stored, take it out of what the plan backs up.`,
@@ -857,7 +867,7 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
             className="btn"
             style={{ flexShrink: 0 }}
             onClick={openBackup}
-            title="Restore from a Keepr backup made on another Mac, or by a plan you deleted"
+            title={`Restore from a Keepr backup made on another ${MACHINE}, or by a plan you deleted`}
           >
             Open backup…
           </button>
@@ -953,7 +963,7 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
             <span className="small muted">
               {view === "files"
                 ? "Every file and folder, with its versions."
-                : "Each folder drawn as big as what it holds. Click one to zoom in, ⌘-click to find it in Files."}
+                : `Each folder drawn as big as what it holds. Click one to zoom in, ${shortcut("⌘-click")} to find it in Files.`}
             </span>
           </div>
         )}
@@ -996,7 +1006,7 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
                   chosen={isChosen(e)}
                   canOpen={e.kind === "dir" && !hits && !onlyOnMac(e)}
                   isOpen={open.has(e.path)}
-                  restoreTo={dest === "folder" ? (folder.split("/").pop() ?? "") : "where it was"}
+                  restoreTo={dest === "folder" ? baseName(folder) : "where it was"}
                   onMac={onMac(e)}
                   quickLook={() => void lookAt(snap.id, e)}
                   compare={() => setComparing({ snapshot: snap.id, path: e.path })}
@@ -1008,7 +1018,7 @@ function RestoreOf({ planId }: { planId: string | undefined }) {
                     act(() =>
                       navigator.clipboard.writeText(
                         targets(e)
-                          .map((x) => x.path)
+                          .map((x) => shownPath(x.path))
                           .join("\n"),
                       ),
                     )

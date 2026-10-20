@@ -16,7 +16,6 @@ use keepr_engine::restore::{self, Conflict, Target};
 use keepr_engine::tree::{Node, NodeKind};
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 #[derive(Default)]
@@ -55,7 +54,7 @@ pub fn run(plan: &str, dir: &Path) -> Result<bool, String> {
     let root = repo.load_tree(&snap.tree).map_err(|e| e.0)?;
     for n in &root.nodes {
         let restored = restore::destination(&snap, &n.name, &Target::Folder(dir.to_path_buf())).map_err(|e| e.0)?;
-        walk(&repo, n, Path::new(&n.name), &restored, &mut tally)?;
+        walk(&repo, n, &keepr_engine::paths::native(&n.name), &restored, &mut tally)?;
     }
     println!(
         "{name}: {} files, {} checked · {} identical · {} changed since the backup · {} deleted since · {} FAULTS",
@@ -115,7 +114,7 @@ fn walk(repo: &keepr_engine::repo::Repo, n: &Node, src: &Path, restored: &Path, 
                     return Ok(());
                 }
             };
-            let as_backed_up = sm.len() == n.size && sm.mtime() * 1_000_000_000 + sm.mtime_nsec() == n.mtime;
+            let as_backed_up = sm.len() == n.size && keepr_engine::backup::modified_ns(&sm) == n.mtime;
             match same_bytes(src, restored) {
                 Ok(true) => t.same += 1,
                 Ok(false) if !as_backed_up => {

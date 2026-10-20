@@ -15,6 +15,7 @@ import { confirm, DestIcon, PlanProgress, Seg, Sheet, Switch, useAct, useDismiss
 import { SmbFields, useSmbForm } from "./SmbFields";
 import { AddDestination } from "./Destinations";
 import { ago, bytes, next, tilde } from "./format";
+import { baseName, isMac, KEYCHAIN, MACHINE, smbAddress } from "./platform";
 import { DRAFT_NOTE, getDraft, setDraft } from "./draft";
 
 const DEFAULT_RETENTION: Retention = {
@@ -52,18 +53,25 @@ function blankPlan(dest: string, excludes: string[]): Plan {
   };
 }
 
-/** In a cloud service's sync folder on this Mac. */
+/** How a command reads Keepr's environment variables: $KEEPR_RESULT in zsh, $env:KEEPR_RESULT in
+ *  PowerShell (src-tauri/src/process.rs shell). */
+const ENV = isMac ? "$" : "$env:";
+
+/** In a cloud service's sync folder on this computer: on Windows, by the folder names the services
+ *  give theirs (OneDrive, OneDrive - Contoso, iCloudDrive, Dropbox, Google Drive's My Drive). */
 function isCloud(path: string): boolean {
+  if (!isMac) return /\/(OneDrive( - [^/]+)?|iCloudDrive|Dropbox|Box|My Drive)\//i.test(path + "/");
   return /\/Library\/(CloudStorage|Mobile Documents)\//.test(path + "/");
 }
 
 function placeLabel(p: Place, home: string): { title: string; sub: string } {
   if (p.kind === "folder") {
-    const name = p.path.split("/").filter(Boolean).pop() ?? p.path;
-    const vol = p.path.startsWith("/Volumes/") ? p.path.split("/")[2] : null;
+    const name = baseName(p.path);
+    // A drive: macOS's /Volumes/<name>; on Windows a drive letter other than the system drive's.
+    const vol = p.path.startsWith("/Volumes/") ? p.path.split("/")[2] : /^[A-Za-z]:\//.test(p.path) ? p.path.slice(0, 2) : null;
     return {
       title: p.name?.trim() || name,
-      sub: `${tilde(p.path, home)} · ${vol ? `on ${vol}` : isCloud(p.path) ? "cloud folder" : "folder on this Mac"}`,
+      sub: `${tilde(p.path, home)} · ${vol ? `on ${vol}` : isCloud(p.path) ? "cloud folder" : `folder on this ${MACHINE}`}`,
     };
   }
   if (p.kind === "s3")
@@ -74,7 +82,7 @@ function placeLabel(p: Place, home: string): { title: string; sub: string } {
   const folder = p.folder.replace(/^\/+|\/+$/g, "");
   return {
     title: p.name?.trim() || (folder ? folder.split("/").pop()! : p.share),
-    sub: `smb://${p.server}/${p.share}${folder ? `/${folder}` : ""} · SMB share`,
+    sub: `${smbAddress(p.server, p.share, folder)} · SMB share`,
   };
 }
 
@@ -244,7 +252,7 @@ export function RecoverySheet({ plan, name, onClose }: { plan: string; name: str
   return (
     <Sheet
       title={`${name}: recovery key`}
-      subtitle="If the password is ever lost, this key still opens the backup. Keep it somewhere other than this Mac: printed, or in a password manager."
+      subtitle={`If the password is ever lost, this key still opens the backup. Keep it somewhere other than this ${MACHINE}: printed, or in a password manager.`}
       onClose={onClose}
       foot={
         <>
@@ -820,7 +828,7 @@ export default function Plans() {
             .filter((x) => !p.sources.some((s) => s.kind === "folder" && s.path === x))
             .map((path) => ({ kind: "folder" as const, path })),
         ],
-        name: p.name || (paths[0].split("/").pop() ?? ""),
+        name: p.name || baseName(paths[0]),
       }));
   };
 
@@ -875,7 +883,7 @@ export default function Plans() {
                 }}
               />
             </label>
-            <button className="iconbtn" aria-label="More" title="More" onClick={moreMenu.open}>
+            <button className="iconbtn std" aria-label="More" title="More" onClick={moreMenu.open}>
               <Icon name="more" />
             </button>
             <moreMenu.Menu>
@@ -1049,10 +1057,17 @@ export default function Plans() {
                 them up too (they stay downloaded afterwards).
               </span>
             )}
-            <label className="check">
-              <input type="checkbox" checked={plan.skipMarked} onChange={(e) => update((p) => ({ ...p, skipMarked: e.target.checked }))} />
-              Skip what apps mark as not needing a backup, as Time Machine does
-            </label>
+            {/* Time Machine's mark is macOS's; Windows has none to read. */}
+            {isMac && (
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={plan.skipMarked}
+                  onChange={(e) => update((p) => ({ ...p, skipMarked: e.target.checked }))}
+                />
+                Skip what apps mark as not needing a backup, as Time Machine does
+              </label>
+            )}
             <label className="check">
               <input
                 type="checkbox"
@@ -1176,7 +1191,7 @@ export default function Plans() {
                   </select>
                   <span className="small muted ellipsis">
                     {dest?.place.kind === "smb"
-                      ? `smb://${dest.place.server}/${dest.place.share}${dest.place.folder && dest.place.folder !== "/" ? dest.place.folder : ""}`
+                      ? smbAddress(dest.place.server, dest.place.share, dest.place.folder)
                       : dest?.place.kind === "folder"
                         ? tilde(dest.place.path, home)
                         : dest?.place.kind === "s3"
@@ -1343,12 +1358,14 @@ export default function Plans() {
             <h2>Before each backup</h2>
             <p className="muted" style={{ lineHeight: 1.5 }}>
               A command to run first, for example one that downloads a device's own backups into a folder this plan backs up. Its output
-              goes into the backup's log.
+              goes into the backup's log.{isMac ? "" : " It runs in PowerShell."}
             </p>
             <input
               className="input mono"
               aria-label="Command to run before each backup"
-              placeholder="e.g. python3 ~/scripts/fetch.py ~/Backups/device"
+              placeholder={
+                isMac ? "e.g. python3 ~/scripts/fetch.py ~/Backups/device" : "e.g. python ~\\scripts\\fetch.py ~\\Backups\\device"
+              }
               value={plan.before ?? ""}
               onChange={(e) => update((p) => ({ ...p, before: e.target.value }))}
             />
@@ -1371,14 +1388,15 @@ export default function Plans() {
             <h2>After each backup</h2>
             <p className="muted" style={{ lineHeight: 1.5 }}>
               A command to run when each backup ends, however it went, for example one that tells a home server. It gets the result in{" "}
-              <span className="mono">$KEEPR_RESULT</span> (ok, warning, failed, waiting or cancelled), with{" "}
-              <span className="mono">$KEEPR_PLAN</span>, <span className="mono">$KEEPR_MESSAGE</span> and{" "}
-              <span className="mono">$KEEPR_LAST_SUCCESS</span>. Its output goes into the backup's log.
+              <span className="mono">{ENV}KEEPR_RESULT</span> (ok, warning, failed, waiting or cancelled), with{" "}
+              <span className="mono">{ENV}KEEPR_PLAN</span>, <span className="mono">{ENV}KEEPR_MESSAGE</span> and{" "}
+              <span className="mono">{ENV}KEEPR_LAST_SUCCESS</span>. Its output goes into the backup's log.
+              {isMac ? "" : " It runs in PowerShell."}
             </p>
             <input
               className="input mono"
               aria-label="Command to run after each backup"
-              placeholder="e.g. ~/scripts/report.sh"
+              placeholder={isMac ? "e.g. ~/scripts/report.sh" : "e.g. ~\\scripts\\report.ps1"}
               value={plan.after ?? ""}
               onChange={(e) => update((p) => ({ ...p, after: e.target.value }))}
             />
@@ -1401,7 +1419,7 @@ export default function Plans() {
             </div>
             <p className="muted" style={{ lineHeight: 1.5 }}>
               {plan.encrypted
-                ? `Files are encrypted on this Mac before they leave it. The password is in your Keychain; ${dest?.name ?? "the destination"} only ever sees scrambled data.`
+                ? `Files are encrypted on this ${MACHINE} before they leave it. The password is in your ${KEYCHAIN}; ${dest?.name ?? "the destination"} only ever sees scrambled data.`
                 : "Files are stored as they are, compressed. Anyone who can open the destination can read them."}
             </p>
             {!plan.id && plan.encrypted && (

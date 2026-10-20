@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from "vitest";
-import { appLink, GUIDES, helpUrl, KEYS, keyRows, parseTopic, searchHelp, TOPICS, topicFor } from ".";
+import { appLink, FILES, forPlatform, GUIDES, helpUrl, KEYS, keyRows, parseTopic, searchHelp, TOPICS, topicFor } from ".";
 import type { Screen } from "../context";
+import { isMac } from "../platform";
 
 const SCREENS: Screen["name"][] = ["overview", "sizemap", "plans", "restore", "search", "activity", "destinations", "settings"];
 
@@ -30,12 +31,25 @@ describe("help topics", () => {
     for (const s of SCREENS) expect(topicFor(s)?.screens, s).toContain(s);
   });
 
-  it("has the getting-started guides, each with steps that link into the app", () => {
-    expect(GUIDES.map((g) => g.title)).toEqual(["Start here", "Get a file back", "Keep an eye on it", "Ask about your backups"]);
+  it("has getting-started guides that link into every screen", () => {
+    expect(GUIDES[0].id).toBe("guide-start");
+    expect(GUIDES.length).toBeGreaterThanOrEqual(10);
     for (const g of GUIDES) {
       expect(g.sections.length, g.id).toBeGreaterThanOrEqual(3);
       for (const s of g.sections) expect(s.body, `${g.id} › ${s.title}`).toMatch(/\]\(app:/);
     }
+    const reached = new Set(
+      GUIDES.flatMap((g) =>
+        [
+          ...g.sections
+            .map((s) => s.body)
+            .join("\n")
+            .matchAll(/\]\(app:([a-z]+)/g),
+        ].map((m) => m[1]),
+      ),
+    );
+    // Search opens from the toolbar's box; every other screen has a guide that takes you there.
+    for (const s of SCREENS.filter((x) => x !== "search")) expect(reached, s).toContain(s);
   });
 
   it("keeps to the house rules", () => {
@@ -82,7 +96,34 @@ describe("help topics", () => {
 
   it("gives the shortcut list to the drawer", () => {
     expect(keyRows("- `⌘[` `⌘]` — Back, forward\nnot a row")).toEqual([["⌘[  ⌘]", "Back, forward"]]);
-    expect(KEYS.map(([t]) => t)).toEqual(["Anywhere", "Restore", "Size Map", "Menu bar panel"]);
+    expect(KEYS.map(([t]) => t)).toEqual(["Anywhere", "Restore", "Size Map", isMac ? "Menu bar panel" : "Notification area panel"]);
     expect(KEYS[0][1]).toContainEqual(["?", "Help for this screen"]);
+  });
+
+  it("closes every platform part, so the help and Ask drop only what they should", () => {
+    for (const [name, page] of Object.entries(FILES))
+      for (const m of ["mac", "windows", "github"]) {
+        const opens = page.split(`<!-- ${m} -->`).length - 1;
+        const closes = page.split(`<!-- /${m} -->`).length - 1;
+        expect(closes, `${name}: <!-- ${m} -->`).toBe(opens);
+      }
+  });
+
+  it("keeps this platform's parts", () => {
+    const md =
+      "Show in <!-- mac -->Finder<!-- /mac --><!-- github --> (Mac) or <!-- /github --><!-- windows -->File Explorer<!-- /windows -->.\n\n<!-- windows -->\nOnly Windows.\n<!-- /windows -->\n\nEnd.";
+    expect(forPlatform(md, true)).toBe("Show in Finder.\n\nEnd.");
+    expect(forPlatform(md, false)).toBe("Show in File Explorer.\n\nOnly Windows.\n\nEnd.");
+  });
+
+  it("reads as a whole guide on both platforms", () => {
+    for (const mac of [true, false])
+      for (const [name, page] of Object.entries(FILES)) {
+        const t = parseTopic(name, forPlatform(page, mac));
+        const all = [t.title, t.summary, t.intro, ...t.sections.flatMap((s) => [s.title, s.body])].join("\n");
+        expect(all, `${name} (${mac ? "mac" : "windows"})`).not.toMatch(/<!--/);
+        expect(t.sections.length, name).toBeGreaterThan(0);
+        if (t.kind === "guide") for (const s of t.sections) expect(s.body, `${name} › ${s.title}`).toMatch(/\]\(app:/);
+      }
   });
 });

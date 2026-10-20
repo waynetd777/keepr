@@ -1,12 +1,16 @@
 # Keepr
 
-Backups for your Mac. Every file. Every version. Kept.
+Backups for your Mac or PC. Every file. Every version. Kept.
+
+An app for macOS and Windows.
 
 Keepr keeps every version of the files you choose, on a drive, a NAS, a cloud folder or an S3 bucket, and lets you go back to any moment and restore any file as it was then. The first backup copies everything; after that each one stores only what changed, and every snapshot still restores as a complete copy. Backups can be encrypted, so the place that holds them can't read them.
 
 See it on the [Keepr website](https://keepr.davies.co.za/).
 
 ## Download
+
+### Mac
 
 For a Mac with Apple silicon (M1 or later) and macOS 13 or later.
 
@@ -18,21 +22,33 @@ For a Mac with Apple silicon (M1 or later) and macOS 13 or later.
 
 It opens normally after that. The first time you use some features, macOS asks for permission: see [First run](docs/features.md#first-run).
 
-After that, Keepr checks for a new version once a day and asks before installing it; Keepr › **Check for Updates…** checks now. See [Updates](docs/day-to-day.md#updates).
+### Windows
+
+Windows 10 or 11, 64-bit.
+
+1. Download [Keepr_x64-setup.exe](https://github.com/waynetd777/keepr/releases/latest/download/Keepr_x64-setup.exe) from the [latest release](https://github.com/waynetd777/keepr/releases/latest) and run it. It installs for you alone, with no administrator password.
+2. If Windows says it protected your PC, click **More info**, then **Run anyway**: the installer isn't code-signed.
+3. Open Keepr from the Start menu. There's no Full Disk Access to give, and passwords go in Windows' Credential Manager. A few things differ on Windows: see [On Windows](docs/day-to-day.md#on-windows).
+
+To uninstall, use Windows Settings › Apps; ticking **Delete the application data** removes Keepr's settings and history too. Your backups stay where they are.
+
+### Updates
+
+Keepr checks for a new version once a day and asks before installing it. **Check for Updates…** checks now: Keepr › Check for Updates… on a Mac, or beside Website in Settings and in the notification-area panel on Windows. See [Updates](docs/day-to-day.md#updates).
 
 <a href="docs/images/index.md#the-readme"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.png"><img alt="Backup Plans: three plans with their last and next backups, the space they use, and the destinations" src="docs/images/overview-light.png"></picture></a>
 
 ## What it does
 
-- **Backup plans.** Folders on the Mac, a drive, an SMB share, a cloud folder or an S3 bucket, backed up every 15 minutes, hourly, daily, weekly or when you ask. Rules and `.gitignore` files leave things out. [Backup plans](docs/plans.md)
+- **Backup plans.** Folders on the computer, a drive, an SMB share, a cloud folder or an S3 bucket, backed up every 15 minutes, hourly, daily, weekly or when you ask. Rules and `.gitignore` files leave things out. [Backup plans](docs/plans.md)
 - **Every version.** Every backup is a complete snapshot, kept by rules you set: every backup for a day, one a day for a month, one a week for a year, one a month for ever. Deleted files are kept for at least 90 days.
-- **Only what changed.** Files are split by their content and each piece is stored once, compressed, however many files and snapshots share it. A still copy of the disk means files that change mid-backup are copied as they were at one moment.
+- **Only what changed.** Files are split by their content and each piece is stored once, compressed, however many files and snapshots share it. On a Mac, a still copy of the disk means files that change mid-backup are copied as they were at one moment.
 - **Encryption.** A password and a recovery key; the destination sees only encrypted data.
-- **Restore.** Step back through the snapshots, see every version of a file, Quick Look it or compare it with the file on the Mac, and restore to where it was or somewhere else. Right-click a file for the same and more, or show it in Finder. A size map shows what takes the space, in one snapshot or across every plan. Find a file in every backup at once, or open a backup made on another Mac to restore from it there. [Restore](docs/restore.md)
+- **Restore.** Step back through the snapshots, see every version of a file, Quick Look it (open it, on Windows) or compare it with the file on the computer, and restore to where it was or somewhere else. Right-click a file for the same and more, or show it in Finder or File Explorer. A size map shows what takes the space, in one snapshot or across every plan. Find a file in every backup at once, or open a backup made on another computer, Mac or PC, to restore from it there. [Restore](docs/restore.md)
 - **Destinations.** Folders and drives, NAS shares, iCloud Drive, OneDrive and other cloud folders, Amazon S3, Backblaze B2, Cloudflare R2 and other S3 services, with helpers that make the bucket and a key that can only use it. [Destinations](docs/destinations.md)
-- **In the menu bar.** Keepr keeps backing up with the window closed, waits for drives, batteries and hotspots, catches up after sleep, checks the backups can be read back, and tells you when something goes wrong. [Day to day](docs/day-to-day.md)
-- **Ask.** Ask an AI already signed in on the Mac (Claude Code, Codex, Antigravity or GitHub Copilot) what takes the space and why a backup failed. It sees Keepr's figures and folder names, never files, and can suggest a change to a plan that Keepr checks and shows before you apply it, with Undo in Activity. [Ask](docs/features.md#ask)
-- **Help in the app.** `?` or ⌘? opens help for the screen you're on at the side of the window, with search and step-by-step getting-started guides. [Help](docs/day-to-day.md#help)
+- **In the menu bar** (the notification area on Windows). Keepr keeps backing up with the window closed, waits for drives, batteries and hotspots, catches up after sleep, checks the backups can be read back, and tells you when something goes wrong. [Day to day](docs/day-to-day.md)
+- **Ask.** Ask an AI already signed in on your computer (Claude Code, Codex, Antigravity or GitHub Copilot) what takes the space and why a backup failed. It sees Keepr's figures and folder names, never files, and can suggest a change to a plan that Keepr checks and shows before you apply it, with Undo in Activity. [Ask](docs/features.md#ask)
+- **Help in the app.** `?` or ⌘? (Ctrl+? on Windows) opens help for the screen you're on at the side of the window, with search and step-by-step getting-started guides. [Help](docs/day-to-day.md#help)
 - **Command line.** `keepr` backs up, checks, tidies and restores, and `keepr status` reports each plan for a health check, with `--json` for scripts. [Development](docs/development.md#command-line) lists the commands.
 
 ## Licence
@@ -41,12 +57,14 @@ Keepr is free software under the [GNU General Public License](LICENSE), version 
 
 ## Building it
 
-Needs Rust, Node.js, pandoc (`brew install pandoc`) and Xcode's command-line tools.
+On a Mac: Rust, Node.js, pandoc (`brew install pandoc`) and Xcode's command-line tools.
 
 ```sh
 npm install
 make dev          # run it with hot reload
 make install-app  # build it and put it in /Applications
 ```
+
+On Windows: Rust (MSVC), Node.js and Visual Studio Build Tools; `npm ci`, then `npx tauri dev` or `npx tauri build`. See [Windows](docs/development.md#windows).
 
 [Development](docs/development.md) has the rest: signing, the release DMG, the `keepr` command line, screenshots and where things live.

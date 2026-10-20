@@ -12,9 +12,9 @@ A new plan starts on: hourly, every backup kept for a day, then one a day for 30
 
 **Add a source** adds what the plan backs up:
 
-- **Folder or drive…** — any folders on this Mac or a connected drive. Pick several at once.
-- **SMB share on the network…** — a folder on a NAS or another computer. Keepr lists the servers it finds; fill in the **User name**, **Password** and **Share** (**List** shows the shares), and **Folder in the share** (`/` for all of it). A login Finder or Keepr has already saved is filled in for you.
-- **In iCloud Drive…**, **In Google Drive…**, **In OneDrive…** and so on — a folder in a cloud service synced to this Mac (see [Cloud folders on this Mac](destinations.md#cloud-folders-on-this-mac)).
+- **Folder or drive…** — any folders on this computer or a connected drive. Pick several at once.
+- **SMB share on the network…** — a folder on a NAS or another computer. Keepr lists the servers it finds; fill in the **User name**, **Password** and **Share** (**List** shows the shares), and **Folder in the share** (`/` for all of it). A login Finder (on Windows, Windows itself) or Keepr has already saved is filled in for you.
+- **In iCloud Drive…**, **In Google Drive…**, **In OneDrive…** and so on — a folder in a cloud service synced to this computer (see [Cloud folders on this computer](destinations.md#cloud-folders-on-this-computer)).
 - **S3 bucket…** — a bucket at Amazon S3, Backblaze B2, Cloudflare R2 or another S3 service. Keepr can make a read-only key for it (see [Destinations](destinations.md#amazon-s3) for how the setup works), or you can enter one. **Check** tells you how much is in it. For Amazon, note that data leaving AWS costs about $0.09 a GB.
 
 Keepr only reads your sources. It never changes or moves them. Each source can have its own name; click it to change it.
@@ -23,17 +23,17 @@ Removing a source that has been backed up asks what to do with it: **Keep its ve
 
 ## What to leave out
 
-Rules leave files and folders out of the backup. A new plan leaves out `node_modules/`, `target/`, `.DS_Store`, `*.tmp`, `~/Library/Caches` and `.Trash/`, and the folders macOS keeps for itself on a drive: `.Spotlight-V100/`, `.fseventsd/`, `.Trashes/`, `.DocumentRevisions-V100/` and `.TemporaryItems/`. Type a rule in **+ Rule** and press Return to add one; click × on a rule to remove it.
+Rules leave files and folders out of the backup. A new plan leaves out `node_modules/`, `target/`, `.DS_Store`, `*.tmp`, `~/Library/Caches` and `.Trash/`, and the folders macOS keeps for itself on a drive: `.Spotlight-V100/`, `.fseventsd/`, `.Trashes/`, `.DocumentRevisions-V100/` and `.TemporaryItems/`. On Windows it leaves out `node_modules/`, `target/`, `*.tmp`, `Thumbs.db`, `~/AppData/Local/Temp`, `~/AppData/Local/Microsoft/Windows/INetCache`, `$RECYCLE.BIN/` and `System Volume Information/`. Type a rule in **+ Rule** and press Return to add one; click × on a rule to remove it.
 
 | Rule | Leaves out |
 |---|---|
 | `name` or `*.iso` | Any file or folder with that name, or matching the pattern |
 | `build/` | Any folder with that name, and everything in it |
-| `~/Movies` or `/Volumes/Scratch` | That folder and everything in it |
+| `~/Movies` or `/Volumes/Scratch` (on Windows `~/Videos` or `D:/Scratch`) | That folder and everything in it |
 
 - **Follow .gitignore files in projects** leaves out what a project's `.gitignore` does.
-- **Skip files that are only in the cloud (they aren't downloaded)** leaves out files iCloud Drive, Google Drive, OneDrive, Dropbox and the like have removed from the Mac to save space. Untick it and Keepr downloads them to back them up, and they stay downloaded.
-- **Skip what apps mark as not needing a backup, as Time Machine does** leaves out what apps have marked as not needing a backup, such as their caches and downloaded data they can fetch again. Time Machine skips the same things.
+- **Skip files that are only in the cloud (they aren't downloaded)** leaves out files iCloud Drive, Google Drive, OneDrive, Dropbox and the like have removed from the computer to save space (on Windows, files File Explorer shows with a cloud mark). Untick it and Keepr downloads them to back them up, and they stay downloaded.
+- **Skip what apps mark as not needing a backup, as Time Machine does** leaves out what apps have marked as not needing a backup, such as their caches and downloaded data they can fetch again. Time Machine skips the same things. Windows has no such mark, so the switch is only on a Mac.
 - **Skip files larger than** leaves out anything bigger than 1, 2, 4, 10 or 50 GB.
 - **Leave this plan out of Ask** keeps the plan's folders and runs out of [Ask](features.md#ask): it sees only the plan's name, and can't suggest changes to it.
 
@@ -59,9 +59,9 @@ Thinning out happens in a **Tidy up** after a backup, at most once a day. The sp
 ## When
 
 - **Every 15 min**, **Hourly**, **Daily** or **Weekly** at a time you choose, or **Only when I ask**.
-- **Catch up after sleep or when the destination comes back** runs a backup the Mac missed as soon as it can. Turned off, a missed backup is skipped and the plan waits for the next one.
-- **Back up while on battery**. Turned off, a backup waits until the Mac is on mains power. Under it, **Wait when battery is below 20%** holds a backup back once the battery runs low.
-- **Not on a personal hotspot** waits while the Mac is on a hotspot or another connection macOS marks as expensive.
+- **Catch up after sleep or when the destination comes back** runs a backup the computer missed as soon as it can. Turned off, a missed backup is skipped and the plan waits for the next one.
+- **Back up while on battery**. Turned off, a backup waits until the computer is on mains power. Under it, **Wait when battery is below 20%** holds a backup back once the battery runs low.
+- **Not on a personal hotspot** waits while the computer is on a hotspot or another connection the system marks as expensive (on Windows, a metered connection: Settings › Network & internet › your connection › Metered connection).
 - **Limit speed to** 5, 10, 20, 50 or 100 MB/s, for writing to the destination.
 
 A backup that's due but can't run, because the drive is unplugged, say, waits and tries again every few minutes. It shows as **Waiting** on its card. These conditions hold back scheduled backups only: **Back up now** runs straight away.
@@ -75,11 +75,11 @@ The first backup copies everything. After that, each backup looks only at what c
 
 ## Before each backup
 
-A command to run before each backup, for example one that exports a database into a folder the plan backs up. It runs in your login shell, its output goes into the backup's log in [Activity](day-to-day.md#activity), and it's stopped after 15 minutes. While it runs, Activity and the menu bar show "Running the command before the backup", since nothing is read until it ends. **If it fails**, Keepr either backs up anyway and marks the backup with a warning, or doesn't back up.
+A command to run before each backup, for example one that exports a database into a folder the plan backs up. It runs in your login shell (zsh; on Windows, PowerShell), its output goes into the backup's log in [Activity](day-to-day.md#activity), and it's stopped after 15 minutes. While it runs, Activity and the menu bar show "Running the command before the backup", since nothing is read until it ends. **If it fails**, Keepr either backs up anyway and marks the backup with a warning, or doesn't back up.
 
 ## After each backup
 
-A command to run when each backup ends, however it went, for example one that tells a home server whether the backup worked. It runs in your login shell, its output goes into the backup's log, and it's stopped after 2 minutes. Whatever it does, the backup's own result stays as it was.
+A command to run when each backup ends, however it went, for example one that tells a home server whether the backup worked. It runs in your login shell (on Windows, PowerShell), its output goes into the backup's log, and it's stopped after 2 minutes. Whatever it does, the backup's own result stays as it was.
 
 It's told how the backup went in environment variables:
 
@@ -94,13 +94,15 @@ It's told how the backup went in environment variables:
 | `KEEPR_FILES`, `KEEPR_CHANGED`, `KEEPR_ADDED_BYTES` | How many files it looked at and how many had changed, and how much it added |
 | `KEEPR_PLAN_IDS` | Every plan that's on, comma-separated, so whatever is listening can forget plans that are gone |
 
+In PowerShell, on Windows, read them as `$env:KEEPR_RESULT` and so on.
+
 Times are like `2026-09-30T19:13:12+02:00`. While a plan keeps waiting for the same missing destination, the command runs only the first time.
 
 ## Encryption
 
-An encrypted plan's files can only be read with its password or its recovery key: not by the destination, not by anyone who can open it. Encryption is chosen when you make a plan and can't be turned on or off afterwards. A new plan is encrypted unless you turn it off; choose a password of at least 8 characters. Keepr keeps it in your Keychain, so it doesn't ask again.
+An encrypted plan's files can only be read with its password or its recovery key: not by the destination, not by anyone who can open it. Encryption is chosen when you make a plan and can't be turned on or off afterwards. A new plan is encrypted unless you turn it off; choose a password of at least 8 characters. Keepr keeps it in your Keychain (on Windows, Credential Manager), so it doesn't ask again.
 
-The first backup makes a **recovery key**, which works in place of the password. Keepr asks you to save it (**Save recovery key…**) and keeps asking until you click **I've saved it**. Put it somewhere safe away from the Mac, such as a password manager.
+The first backup makes a **recovery key**, which works in place of the password. Keepr asks you to save it (**Save recovery key…**) and keeps asking until you click **I've saved it**. Put it somewhere safe away from this computer, such as a password manager.
 
 > Without the password or the recovery key, nobody can restore these files, including you.
 
@@ -112,5 +114,5 @@ An unencrypted plan's files are compressed, but anyone who can open the destinat
 
 **Plan on** turns a plan off: it won't back up until you turn it on again, and its backups stay as they are. The ⋯ menu has:
 
-- **Delete plan…** — deletes the plan, and its password and recovery key from the Keychain. For a plan that has backed up, it asks whether to keep the backup at the destination (**Delete Plan, Keep Backup**) or delete it too (**Delete Plan and Backup…**), which frees its space and can't be undone; Activity shows it going, and the plan goes once its backup has. A backup whose folder has already gone is taken as deleted, so the plan still goes. If no other plan uses the destination, **Also remove the destination** takes it off Keepr's list too. That only forgets the destination: the files there are left as they are.
+- **Delete plan…** — deletes the plan, and its password and recovery key from the Keychain (Credential Manager on Windows). For a plan that has backed up, it asks whether to keep the backup at the destination (**Delete Plan, Keep Backup**) or delete it too (**Delete Plan and Backup…**), which frees its space and can't be undone; Activity shows it going, and the plan goes once its backup has. A backup whose folder has already gone is taken as deleted, so the plan still goes. If no other plan uses the destination, **Also remove the destination** takes it off Keepr's list too. That only forgets the destination: the files there are left as they are.
 - **Start a new backup…** — only for when a plan's backup has gone for good, a drive that died, say. It starts a new, empty backup in its place.

@@ -6,6 +6,7 @@
 //! deleted since the snapshot before, with how many versions it has had.
 
 use crate::core::Core;
+use keepr_engine::paths;
 use keepr_engine::repo::{Repo, Snapshot};
 use keepr_engine::tree::{Node, NodeKind};
 use keepr_engine::Id;
@@ -195,9 +196,10 @@ pub fn list(core: &Core, plan: &str, snapshot: &str, path: &str, show_deleted: b
     Ok(out)
 }
 
-/// The newest snapshot's folder against the same folder on the Mac now, so what has gone since
+/// The newest snapshot's folder against the same folder on the computer now, so what has gone since
 /// the last backup, or come since and not been backed up, shows without waiting for the next one.
-/// Only for folders on this Mac; what the plan's rules leave out isn't counted as not backed up.
+/// Only for folders on this computer; what the plan's rules leave out isn't counted as not backed up.
+/// Paths are the app's (keepr_engine::paths); the disk is asked by its own.
 fn against_disk(
     core: &Core,
     plan: &str,
@@ -212,9 +214,9 @@ fn against_disk(
     let Some(p) = core.config.lock().unwrap().plans.iter().find(|p| p.id == plan).cloned() else { return };
     let folders: Vec<PathBuf> =
         p.sources.iter().filter_map(|s| if let Place::Folder { path, .. } = s { Some(PathBuf::from(path)) } else { None }).collect();
-    let local = |e: &str| e.starts_with('/') && folders.iter().any(|f| Path::new(e).starts_with(f));
+    let local = |e: &str| paths::is_absolute(e) && folders.iter().any(|f| Path::new(e).starts_with(f));
     for e in out.iter_mut() {
-        if local(&e.path) && std::fs::symlink_metadata(&e.path).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
+        if local(&e.path) && std::fs::symlink_metadata(paths::native(&e.path)).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
             e.disk = "gone".into();
         }
     }
@@ -229,11 +231,11 @@ fn against_disk(
         skip_dataless: p.skip_cloud_only,
         skip_marked: p.skip_marked,
         max_file_size: (p.max_file_size > 0).then_some(p.max_file_size),
-        skip_paths: core.repo_path(plan).into_iter().collect(),
+        skip_paths: core.repo_path(plan).map(|r| PathBuf::from(paths::app(&r))).into_iter().collect(),
         ..Default::default()
     };
     let Ok(rules) = keepr_engine::backup::Rules::for_dir(&opts, Path::new(path)) else { return };
-    let Ok(rd) = std::fs::read_dir(path) else { return };
+    let Ok(rd) = std::fs::read_dir(paths::native(path)) else { return };
     let names: std::collections::HashSet<&str> = here.iter().map(|n| n.name.as_str()).collect();
     for d in rd.flatten() {
         let name = d.file_name().to_string_lossy().to_string();
@@ -241,7 +243,8 @@ fn against_disk(
             continue;
         }
         let Ok(m) = std::fs::symlink_metadata(d.path()) else { continue };
-        if rules.skips(&d.path(), &m) {
+        let at = paths::join(path, &name);
+        if rules.skips(Path::new(&at), &m) {
             continue;
         }
         // Deleted before the last backup and back since: the same row, now on the Mac.
@@ -249,10 +252,10 @@ fn against_disk(
             e.disk = "unsaved".into();
             continue;
         }
-        use std::os::unix::fs::MetadataExt;
         let ft = m.file_type();
+        let mtime = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis() as i64);
         out.push(Entry {
-            path: d.path().to_string_lossy().to_string(),
+            path: at,
             kind: if ft.is_dir() {
                 "dir"
             } else if ft.is_symlink() {
@@ -261,8 +264,8 @@ fn against_disk(
                 "file"
             }
             .into(),
-            size: if ft.is_file() { m.size() } else { 0 },
-            mtime: m.mtime() * 1000,
+            size: if ft.is_file() { m.len() } else { 0 },
+            mtime,
             tag: if prev.contains_key(name.as_str()) { "deleted".into() } else { String::new() },
             versions: versions.get(&name).copied().unwrap_or(0),
             items: 0,
@@ -273,51 +276,66 @@ fn against_disk(
     }
 }
 
-/// Where a backed-up item is on the Mac now, for Show in Finder. A plan's SMB share is connected
-/// first, as a backup connects it; one mounted somewhere else this time (/Volumes/backup-1, say)
-/// has the path moved onto where it is now.
+/// Where a backed-up item is on the computer now, for Show in Finder (File Explorer on Windows), as
+/// the file system names it. A plan's SMB share is connected first, as a backup connects it; one
+/// mounted somewhere else this time (/Volumes/backup-1, say) has the path moved onto where it is now.
 pub fn on_mac(core: &Core, plan: &str, path: &str) -> Result<std::path::PathBuf, String> {
     use crate::config::Place;
-    use std::path::{Component, Path, PathBuf};
+    use std::path::Path;
     let p = core.config.lock().unwrap().plans.iter().find(|p| p.id == plan).cloned().ok_or("That plan is gone.")?;
     let name = path.rsplit('/').next().unwrap_or(path).to_string();
-    let gone = || format!("{name} isn't on your Mac any more.");
+    let gone = || format!("{name} isn't on your {} any more.", if cfg!(windows) { "PC" } else { "Mac" });
     let mut found = None;
     for s in &p.sources {
         match s {
             Place::Folder { path: root, .. } if Path::new(path).starts_with(root) => {
-                found = Some(PathBuf::from(path));
+                found = Some(paths::native(path));
                 break;
             }
             Place::Smb(_) => {
                 let base = crate::places::resolve(s, &core.mounts, true, true)?;
-                if Path::new(path).starts_with(&base) {
-                    found = Some(PathBuf::from(path));
+                if Path::new(path).starts_with(paths::app(&base)) {
+                    found = Some(paths::native(path));
                     break;
                 }
                 // Backed up from /Volumes/<share> under another name: the rest of the path is the same.
-                let mut parts = Path::new(path).components();
-                if let (Some(Component::RootDir), Some(Component::Normal(v)), Some(Component::Normal(_))) =
-                    (parts.next(), parts.next(), parts.next())
-                {
-                    if v == "Volumes" {
-                        let mount = crate::places::mount_point(&base).unwrap_or_else(|| base.clone());
-                        let moved = mount.join(parts.as_path());
-                        if moved.starts_with(&base) {
-                            found = Some(moved);
-                            break;
-                        }
-                    }
+                // (Windows reaches a share by its own name, never by where it was mounted.)
+                #[cfg(target_os = "macos")]
+                if let Some(moved) = moved_share(&base, path) {
+                    found = Some(moved);
+                    break;
                 }
             }
             _ => {}
         }
     }
-    let at = found.ok_or("It was backed up from somewhere Finder can't show, such as an S3 bucket.")?;
+    let at = found.ok_or(if cfg!(windows) {
+        "It was backed up from somewhere File Explorer can't show, such as an S3 bucket."
+    } else {
+        "It was backed up from somewhere Finder can't show, such as an S3 bucket."
+    })?;
     if std::fs::symlink_metadata(&at).is_err() {
         return Err(gone());
     }
     Ok(at)
+}
+
+/// A path backed up from a share at /Volumes/<name>, moved onto where the share (`base`) is
+/// mounted now, when it lands inside it.
+#[cfg(target_os = "macos")]
+fn moved_share(base: &std::path::Path, path: &str) -> Option<std::path::PathBuf> {
+    use std::path::{Component, Path};
+    let mut parts = Path::new(path).components();
+    let (Some(Component::RootDir), Some(Component::Normal(v)), Some(Component::Normal(_))) = (parts.next(), parts.next(), parts.next())
+    else {
+        return None;
+    };
+    if v != "Volumes" {
+        return None;
+    }
+    let mount = crate::places::mount_point(base).unwrap_or_else(|| base.to_path_buf());
+    let moved = mount.join(parts.as_path());
+    moved.starts_with(base).then_some(moved)
 }
 
 /// One folder in the Restore screen's size map: its size, the files directly in it taken
@@ -664,7 +682,7 @@ const TEXT_LIMIT: u64 = 4 << 20;
 /// at a time against the same stretch of the file, so neither is ever held whole.
 fn same_as_file(repo: &Repo, node: &Node, path: &str) -> std::io::Result<bool> {
     use std::io::Read;
-    let mut f = std::fs::File::open(path)?;
+    let mut f = std::fs::File::open(paths::native(path))?;
     let mut buf = Vec::new();
     for c in &node.content {
         let chunk = repo.load(c).map_err(|e| std::io::Error::other(e.0))?;
@@ -686,7 +704,7 @@ pub fn compare(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result<Co
     if node.kind != NodeKind::File {
         return Err("Only files can be compared.".into());
     }
-    let current_size = std::fs::metadata(path).ok().filter(|m| m.is_file()).map(|m| m.len());
+    let current_size = std::fs::metadata(paths::native(path)).ok().filter(|m| m.is_file()).map(|m| m.len());
     let mut out = Comparison {
         current_exists: current_size.is_some(),
         identical: false,
@@ -707,7 +725,7 @@ pub fn compare(core: &Core, plan: &str, snapshot: &str, path: &str) -> Result<Co
     for c in &node.content {
         old.extend(repo.load(c).map_err(|e| e.0)?);
     }
-    let current = std::fs::read(path).ok();
+    let current = std::fs::read(paths::native(path)).ok();
     out.identical = current.as_deref() == Some(&old[..]);
     out.current_size = current.as_ref().map_or(0, |c| c.len() as u64);
     out.backup_size = old.len() as u64;

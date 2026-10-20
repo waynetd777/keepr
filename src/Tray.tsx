@@ -2,8 +2,9 @@
 // See LICENSE for the full text.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The menu-bar window: how things stand, the backup running now, each plan's state, and the
-// few things worth doing from the menu bar.
+// The menu-bar window (the notification area's on Windows): how things stand, the backup running
+// now, each plan's state, and the few things worth doing from there. Windows has no app menu, so
+// there it also has Help and Check for Updates….
 
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -12,6 +13,7 @@ import { Mark } from "./icons";
 import { statusDot } from "./context";
 import { next, secondsLeft, when } from "./format";
 import { AFTER_COMMAND, BEFORE_COMMAND, pct, Switch } from "./ui";
+import { cmdKey, isMac, shortcut } from "./platform";
 
 const Item = ({ label, keys, onClick, strong }: { label: string; keys?: string; onClick: () => void; strong?: boolean }) => (
   <button
@@ -20,7 +22,7 @@ const Item = ({ label, keys, onClick, strong }: { label: string; keys?: string; 
     onClick={() => (onClick(), hide())}
   >
     <span className="grow">{label}</span>
-    {keys && <span className="tiny faint">{keys}</span>}
+    {keys && <span className="tiny faint">{shortcut(keys)}</span>}
   </button>
 );
 
@@ -36,7 +38,8 @@ export default function Tray() {
       const t = sc && (JSON.parse(sc) as { theme?: string }).theme;
       if (t) document.documentElement.dataset.theme = t;
     });
-    // Read again each time the menu opens: System Settings can change Open at Login too.
+    // Read again each time the menu opens: System Settings (Windows' Startup apps) can change Open
+    // at Login too.
     // Only the newest answer counts: an older one held up by a slow destination doesn't land last.
     let asked = 0;
     const load = () => {
@@ -54,13 +57,14 @@ export default function Tray() {
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       if (e.key === "Escape") return void getCurrentWindow().hide();
-      if (!e.metaKey) return;
+      if (!cmdKey(e)) return;
       const act: Record<string, () => unknown> = {
         b: () => api.backUpAll(),
         r: () => api.showMain("restore"),
         o: () => api.showMain(),
         ",": () => api.showMain("settings"),
         q: () => api.quit(),
+        ...(isMac ? {} : { "?": () => api.showHelp() }),
       };
       const f = act[e.key.toLowerCase()];
       if (f) {
@@ -176,6 +180,12 @@ export default function Tray() {
         )}
         <Item label="Open Keepr" keys="⌘O" onClick={() => api.showMain()} />
         <Item label="Settings…" keys="⌘," onClick={() => api.showMain("settings")} />
+        {!isMac && (
+          <>
+            <Item label="Keepr Help" keys="⌘?" onClick={() => api.showHelp()} />
+            <Item label="Check for Updates…" onClick={() => api.checkForUpdates()} />
+          </>
+        )}
         <Item label="Quit Keepr" keys="⌘Q" onClick={() => api.quit()} />
       </div>
       <div

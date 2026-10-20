@@ -3,12 +3,15 @@
 # See LICENSE for the full text.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Draw Keepr's artwork: design/icon.png (the app icon source) and the menu-bar templates in
-src-tauri/icons/ (tray@2x.png, tray-busy@2x.png, tray-alert@2x.png).
+"""Draw Keepr's artwork: design/icon.png (the app icon source), the menu-bar templates in
+src-tauri/icons/ (tray@2x.png, tray-busy@2x.png, tray-alert@2x.png) and Windows' notification-area
+icons beside them (tray-win.png, tray-win-busy.png, tray-win-alert.png).
 
 The mark is three stacked lines, the last one short: layers of kept versions. The app icon puts
 them in Keepr green on a light rounded tile, with a soft shadow so it holds up on light Docks; the menu-bar images are TEMPLATES (black plus alpha),
-which macOS tints for light and dark menu bars. Drawn with PIL, supersampled for smooth edges.
+which macOS tints for light and dark menu bars. Windows shows a tray icon as it is, so its are in colour:
+the app icon's tile and bars, with a green dot while backing up and an amber one with a mark when
+something needs attention. Drawn with PIL, supersampled for smooth edges.
 
     python3 tools/make_icons.py            # then: npx tauri icon design/icon.png
     make icons                             # does both
@@ -80,10 +83,35 @@ def tray(name, extra=None):
     img.resize((44, 44), Image.LANCZOS).save(ROOT / "src-tauri" / "icons" / name)
 
 
+def tray_win(name, extra=None):
+    # 32px: the notification area's 16px icon on a 200% screen, scaled down elsewhere.
+    S = 32 * SS
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((1 * SS, 1 * SS, 31 * SS, 31 * SS), radius=7 * SS, fill=TILE_TOP + (255,), outline=(0, 0, 0, 60), width=SS)
+    w = 4 * SS
+    x0, x1, xs = 7 * SS, 25 * SS, 18 * SS
+    for y, right in ((10, x1), (16, x1), (22, xs)):
+        y *= SS
+        d.rounded_rectangle((x0, y - w // 2, right, y + w // 2), radius=w // 2, fill=GREEN + (255,))
+    if extra:
+        cx, cy, r = 24 * SS, 24 * SS, 7 * SS
+        colour = GREEN if extra == "busy" else (224, 142, 11)
+        d.ellipse((cx - r - SS, cy - r - SS, cx + r + SS, cy + r + SS), fill=(255, 255, 255, 255))
+        d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=colour + (255,))
+        if extra == "alert":
+            d.rounded_rectangle((cx - SS, cy - 4 * SS, cx + SS, cy + SS), radius=SS, fill=(255, 255, 255, 255))
+            d.ellipse((cx - SS, cy + 2 * SS, cx + SS, cy + 4 * SS), fill=(255, 255, 255, 255))
+    img.resize((32, 32), Image.LANCZOS).save(ROOT / "src-tauri" / "icons" / name)
+
+
 if __name__ == "__main__":
     (ROOT / "src-tauri" / "icons").mkdir(parents=True, exist_ok=True)
     app_icon()
     tray("tray@2x.png")
     tray("tray-busy@2x.png", "busy")
     tray("tray-alert@2x.png", "alert")
+    tray_win("tray-win.png")
+    tray_win("tray-win-busy.png", "busy")
+    tray_win("tray-win-alert.png", "alert")
     print("drew design/icon.png and src-tauri/icons/tray*.png")

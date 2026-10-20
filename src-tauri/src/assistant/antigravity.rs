@@ -28,7 +28,7 @@ pub fn models() -> Vec<Model> {
     let Some(bin) = find() else {
         return Vec::new();
     };
-    let Ok(out) = Command::new(bin).arg("models").output() else {
+    let Ok(out) = crate::process::no_window(Command::new(bin).arg("models")).output() else {
         return Vec::new();
     };
     String::from_utf8_lossy(&out.stdout)
@@ -59,6 +59,11 @@ pub fn ask(
     session: Option<String>,
 ) -> Result<(), String> {
     let bin = find().ok_or("Antigravity CLI isn't installed, or couldn't be found. Install it and sign in, then try again.")?;
+    // Antigravity reads its question from the command line only, which Windows holds to 32,767
+    // characters; its instructions are in the agent file.
+    if cfg!(windows) && prompt.len() > 30_000 {
+        return Err("This question, with what Keepr sends about your plans, is too long for Antigravity on Windows. Ask with another AI, or leave a plan out of Ask in its settings.".into());
+    }
     write_agent(&cwd)?;
     let mut cmd = Command::new(bin);
     cmd.current_dir(&cwd).arg("-p").arg(&prompt).args([
@@ -74,7 +79,7 @@ pub fn ask(
     if let Some(s) = &session {
         cmd.args(["--conversation", s]);
     }
-    let (child, stdout, stderr) = spawn(&mut cmd, &running, &chat_id, "Antigravity")?;
+    let (child, stdout, stderr) = spawn(&mut cmd, &running, &chat_id, "Antigravity", None)?;
 
     std::thread::spawn(move || {
         let mut text = String::new();
