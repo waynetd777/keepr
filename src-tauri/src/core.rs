@@ -468,6 +468,8 @@ impl Core {
     pub fn start(self: &Arc<Self>) {
         let me = self.clone();
         std::thread::spawn(move || loop {
+            // Jobs give way to whatever else the computer is doing (keepr_engine::priority).
+            keepr_engine::priority::background_thread();
             // Taken off the queue and made current under the queue's lock, so nothing sees the
             // job in neither place (and queues it again, or decides all is done).
             let cur = {

@@ -22,6 +22,9 @@ An encrypted plan's pieces and snapshots are encrypted under a random key, which
 ## Never a broken snapshot
 A snapshot is written last, after everything it needs, so a backup that's stopped or cut off never leaves a broken snapshot.
 
+## In the background
+A backup gives way to whatever else you're doing: it runs below normal priority and reads files on half of the computer's cores. On an idle computer that costs little time, since most of a backup's time goes on the disk or the network.
+
 ## Tidying up
 After a backup, at most once a day, Keepr thins out old snapshots by the plan's Versions to keep, and frees the space nothing uses any more.
 <!-- windows -->

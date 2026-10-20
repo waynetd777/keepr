@@ -778,18 +778,20 @@ pub fn run(repo: &Arc<Repo>, opts: &Options, parent: Option<&Snapshot>, ctl: &Co
     // 2. Read.
     ctl.progress.phase.store(PHASE_READ, Relaxed);
     let jobs = std::mem::take(&mut w.jobs);
-    let results: Vec<Result<Vec<Id>>> = jobs
-        .par_iter()
-        .map(|job| {
-            if ctl.cancel.load(Relaxed) {
-                return Err(cancelled());
-            }
-            *ctl.progress.current.lock().unwrap() = job.shown.to_string_lossy().to_string();
-            let r = read_file(repo, ctl, job, &opts.remote);
-            ctl.progress.files_read.fetch_add(1, Relaxed);
-            r
-        })
-        .collect();
+    // On the backup pool: half the cores, below normal priority (priority.rs).
+    let results: Vec<Result<Vec<Id>>> = crate::priority::pool().install(|| {
+        jobs.par_iter()
+            .map(|job| {
+                if ctl.cancel.load(Relaxed) {
+                    return Err(cancelled());
+                }
+                *ctl.progress.current.lock().unwrap() = job.shown.to_string_lossy().to_string();
+                let r = read_file(repo, ctl, job, &opts.remote);
+                ctl.progress.files_read.fetch_add(1, Relaxed);
+                r
+            })
+            .collect()
+    });
     ctl.checkpoint()?;
     let mut stats = w.stats;
     let mut read_bytes = 0;

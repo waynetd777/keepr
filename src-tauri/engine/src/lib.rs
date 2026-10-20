@@ -28,6 +28,7 @@ pub mod browse;
 pub mod check;
 pub mod crypto;
 pub mod paths;
+pub mod priority;
 pub mod prune;
 pub mod repo;
 pub mod restore;

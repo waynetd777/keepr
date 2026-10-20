@@ -7,8 +7,9 @@
 src-tauri/icons/ (tray@2x.png, tray-busy@2x.png, tray-alert@2x.png) and Windows' notification-area
 icons beside them (tray-win.png, tray-win-busy.png, tray-win-alert.png).
 
-The mark is three stacked lines, the last one short: layers of kept versions. The app icon puts
-them in Keepr green on a light rounded tile, with a soft shadow so it holds up on light Docks; the menu-bar images are TEMPLATES (black plus alpha),
+The mark is three stacked lines, the last one short: layers of kept versions. The app icon is the
+mark as the dark theme draws it: near-black lines on a Keepr-green rounded tile, with a soft shadow;
+the menu-bar images are TEMPLATES (black plus alpha),
 which macOS tints for light and dark menu bars. Windows shows a tray icon as it is, so its are in colour:
 the app icon's tile and bars, with a green dot while backing up and an amber one with a mark when
 something needs attention. Drawn with PIL, supersampled for smooth edges.
@@ -23,10 +24,12 @@ from PIL import Image, ImageDraw
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SS = 4
-# A light tile with Keepr-green bars (the sidebar and splash marks are the reverse: green tile, white bars).
-TILE_TOP = (255, 255, 255)
-TILE_BOTTOM = (232, 238, 235)
-GREEN = (15, 122, 92)
+# A green tile with near-black bars, as the dark theme's sidebar mark (src/icons.tsx Mark, --accent
+# and --accent-ink), a touch lighter at the top.
+TILE_TOP = (72, 214, 162)
+TILE_BOTTOM = (52, 184, 136)
+GREEN = (60, 197, 147)
+INK = (6, 35, 24)
 
 
 def app_icon():
@@ -56,7 +59,7 @@ def app_icon():
     x0, x1, xs = 300 * SS, 724 * SS, 560 * SS
     for y, right in ((380, x1), (512, x1), (644, xs)):
         y *= SS
-        d.rounded_rectangle((x0, y - w // 2, right, y + w // 2), radius=w // 2, fill=GREEN + (255,))
+        d.rounded_rectangle((x0, y - w // 2, right, y + w // 2), radius=w // 2, fill=INK + (255,))
     out = ROOT / "design" / "icon.png"
     out.parent.mkdir(exist_ok=True)
     img.resize((1024, 1024), Image.LANCZOS).save(out)
@@ -88,15 +91,15 @@ def tray_win(name, extra=None):
     S = 32 * SS
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle((1 * SS, 1 * SS, 31 * SS, 31 * SS), radius=7 * SS, fill=TILE_TOP + (255,), outline=(0, 0, 0, 60), width=SS)
+    d.rounded_rectangle((1 * SS, 1 * SS, 31 * SS, 31 * SS), radius=7 * SS, fill=GREEN + (255,))
     w = 4 * SS
     x0, x1, xs = 7 * SS, 25 * SS, 18 * SS
     for y, right in ((10, x1), (16, x1), (22, xs)):
         y *= SS
-        d.rounded_rectangle((x0, y - w // 2, right, y + w // 2), radius=w // 2, fill=GREEN + (255,))
+        d.rounded_rectangle((x0, y - w // 2, right, y + w // 2), radius=w // 2, fill=INK + (255,))
     if extra:
         cx, cy, r = 24 * SS, 24 * SS, 7 * SS
-        colour = GREEN if extra == "busy" else (224, 142, 11)
+        colour = (15, 122, 92) if extra == "busy" else (224, 142, 11)
         d.ellipse((cx - r - SS, cy - r - SS, cx + r + SS, cy + r + SS), fill=(255, 255, 255, 255))
         d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=colour + (255,))
         if extra == "alert":
