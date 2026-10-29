@@ -5,7 +5,7 @@ screens: []
 order: 9
 summary: Keepr keeps backing up from the menu bar (the notification area on Windows) when its window is closed.
 ---
-Closing the window doesn't quit Keepr: <!-- mac -->it leaves the Dock and keeps backing up from the menu bar.<!-- /mac --><!-- windows -->it keeps backing up from the notification area, at the right of the taskbar (under the ^ when Windows tucks icons away).<!-- /windows -->
+Closing the window doesn't quit Keepr: <!-- mac -->it leaves the Dock and keeps backing up from the menu bar.<!-- /mac --><!-- windows -->it keeps backing up from the notification area, at the right of the taskbar (under the ^ when Windows tucks icons away). The window's minimise, maximise and close buttons are at its top right; hover over maximise for Windows 11's snap layouts. The empty part of the toolbar drags the window, and a double-click there maximises it.<!-- /windows -->
 
 ## The icon
 Keepr's icon in the <!-- mac -->menu bar<!-- /mac --><!-- github --> (Mac) or <!-- /github --><!-- windows -->notification area<!-- /windows --><!-- github --> (Windows)<!-- /github --> shows a dot while it's backing up, and a mark when a plan needs attention.

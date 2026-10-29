@@ -47,7 +47,8 @@ clap_complete = "4"
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-# A second launch brings the running copy to the front (macOS's LaunchServices does that itself).
+# A second launch brings the running copy to the front (macOS's LaunchServices does that itself),
+# settled first by single_instance_win.rs, which hands over through the plugin's window.
 tauri-plugin-single-instance = "2"
 # Keepr Helper, the service that makes still copies and reads the change journal (helper_service_win.rs).
 windows-service = "0.8"
@@ -56,6 +57,7 @@ windows = { version = "0.62", features = [
   "Foundation_Collections",
   "Networking_Connectivity",
   "Win32_Foundation",
+  "Win32_Graphics_Gdi",
   "Win32_NetworkManagement_NetManagement",
   "Win32_NetworkManagement_WNet",
   "Win32_NetworkManagement_Dns",
@@ -65,7 +67,9 @@ windows = { version = "0.62", features = [
   "Win32_Storage_FileSystem",
   "Win32_System_Com",
   "Win32_System_Console",
+  "Win32_System_DataExchange",
   "Win32_System_IO",
+  "Win32_System_LibraryLoader",
   "Win32_System_Ioctl",
   "Win32_System_Ole",
   "Win32_System_Pipes",
@@ -75,7 +79,9 @@ windows = { version = "0.62", features = [
   "Win32_System_SystemInformation",
   "Win32_System_Variant",
   "Win32_System_Wmi",
+  "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

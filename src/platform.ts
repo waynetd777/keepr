@@ -87,7 +87,8 @@ export function smbAddress(server: string, share: string, folder = ""): string {
   return isMac ? `smb://${server}/${s}${f ? `/${f}` : ""}` : `\\\\${server}\\${s}${f ? `\\${f.replace(/\//g, "\\")}` : ""}`;
 }
 
-/** The window's drag areas, macOS only: there the title bar is hidden and the toolbar stands in
- *  for it. Windows has its own title bar, and treats a drag area as part of it, where nothing
- *  inside scrolls or takes a click. */
-export const dragRegion = (): Record<string, string> => (isMac ? { "data-tauri-drag-region": "" } : {});
+/** The window's drag areas: the main window has no title bar on macOS or Windows, and the toolbar
+ *  stands in for it. Tauri's script acts on a press on the element itself, not on its children, so
+ *  the toolbar's buttons and search keep their clicks; on Windows the element itself no longer
+ *  takes clicks or scrolls, so it goes on a bar's empty space only. */
+export const dragRegion = (): Record<string, string> => (isMac || isWindows ? { "data-tauri-drag-region": "" } : {});

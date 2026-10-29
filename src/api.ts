@@ -317,6 +317,10 @@ export const api = {
   setLoginItem: (on: boolean) => invoke<boolean>("set_login_item", { on }),
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
   scene: () => invoke<string | null>("scene"),
+  /** Where the window's maximise button is, in physical pixels, for Windows 11's snap layouts
+   *  (src-tauri/src/snap_win.rs); null when it isn't shown. Its hover comes back as
+   *  `window-controls-hover`. */
+  windowMaxButton: (rect: [number, number, number, number] | null) => invoke<void>("window_max_button", { rect }),
   showMain: (screen?: string) => invoke<void>("show_main_window", { screen: screen ?? null }),
   /** Asks first: the main window's Quit dialog (src/Quit.tsx). */
   quit: () => invoke<void>("quit"),

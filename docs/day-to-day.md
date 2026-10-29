@@ -99,6 +99,7 @@ Keepr runs on Windows 10 and 11 (64-bit) as it does on a Mac, with Windows' own 
 |---|---|
 | Paths as `/Users/alex/Documents`, `~/Documents` | Paths as `C:\Users\alex\Documents`. Leave-out rules are still written with `/`: `~/AppData/Local/Temp`, `D:/Scratch`, and match in any case |
 | The menu bar | The notification area; either button opens the panel |
+| The traffic lights at the top left | Minimise, maximise and close at the top right of the window, with no title bar: the toolbar's empty part drags the window, double-click it to maximise. Hover over maximise for Windows 11's snap layouts. Close leaves Keepr in the notification area |
 | The Keepr and Help menus | **Keepr Help** and **Check for Updates…** in the notification-area panel, Help on Ctrl+?, Check for Updates… beside Website in Settings, and the version at the foot of Settings |
 | Passwords in one Keychain item, Keepr | Passwords in Credential Manager, one for each, named Keepr/… (Control Panel › Credential Manager › Windows Credentials); Windows never asks |
 | Settings in `~/Library/Application Support/Keepr` | Settings in `%APPDATA%\Keepr`, removed when you uninstall with Delete the application data ticked |

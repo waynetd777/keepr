@@ -1,4 +1,33 @@
 {
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Keepr",
+        "width": 1320,
+        "height": 840,
+        "minWidth": 1040,
+        "minHeight": 640,
+        "decorations": false,
+        "shadow": true,
+        "visible": false
+      },
+      {
+        "label": "tray",
+        "url": "index.html?view=tray",
+        "title": "Keepr",
+        "width": 360,
+        "height": 420,
+        "decorations": false,
+        "transparent": true,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "shadow": true
+      }
+    ]
+  },
   "bundle": {
     "targets": ["nsis"],
     "windows": {

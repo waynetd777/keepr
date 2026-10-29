@@ -57,11 +57,15 @@ mod process;
 mod quick_look;
 mod r2_setup;
 mod scheduler;
+#[cfg(windows)]
+mod single_instance_win;
 #[cfg(target_os = "macos")]
 mod smb;
 #[cfg(windows)]
 #[path = "smb_win.rs"]
 mod smb;
+#[cfg(windows)]
+mod snap_win;
 #[cfg(target_os = "macos")]
 mod still;
 #[cfg(windows)]
@@ -1244,6 +1248,17 @@ fn save_settings(core: State<Core_>, settings: config::Settings) -> Result<(), S
     Ok(())
 }
 
+/// The window's maximise button moved (src/WindowControls.tsx), for Windows 11's snap layouts over
+/// it (snap_win.rs): x, y, width and height in physical pixels of the window, `None` when it isn't
+/// shown. Nothing on macOS, where the window keeps its traffic lights.
+#[tauri::command]
+fn window_max_button(window: tauri::WebviewWindow, rect: Option<(i32, i32, i32, i32)>) {
+    #[cfg(windows)]
+    snap_win::set_max_button(&window, rect);
+    #[cfg(not(windows))]
+    let _ = (window, rect);
+}
+
 /// Screenshot mode: the scene to set up, from KEEPR_SCENE.
 #[tauri::command]
 fn scene() -> Option<String> {
@@ -1584,17 +1599,22 @@ pub fn cli(args: &[String]) -> Option<i32> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let frozen = scene().is_some();
-    let builder = tauri::Builder::default();
+    let context = tauri::generate_context!();
     // On Windows a second launch (the Start menu, a pinned icon) brings this copy forward rather
     // than starting another over the same data; macOS does that itself. Release builds only, and
     // not with KEEPR_DATA set: the lock is per app id, so a dev build beside the installed copy
-    // would hand over to it and end.
+    // would hand over to it and end. Settled here, before anything is opened: the plugin alone
+    // decides too late to be relied on (single_instance_win.rs), and is the channel a second copy
+    // hands over through.
     #[cfg(windows)]
-    let builder = if cfg!(debug_assertions) || frozen || std::env::var_os("KEEPR_DATA").is_some() {
-        builder
-    } else {
-        builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
-    };
+    let one_copy = !cfg!(debug_assertions) && !frozen && std::env::var_os("KEEPR_DATA").is_none();
+    #[cfg(windows)]
+    if one_copy {
+        single_instance_win::claim(&context.config().identifier);
+    }
+    let builder = tauri::Builder::default();
+    #[cfg(windows)]
+    let builder = if one_copy { builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app))) } else { builder };
     builder
         .manage(Arc::new(assistant::Running::default()))
         .plugin(tauri_plugin_window_state::Builder::default().with_state_flags(STATE_FLAGS).with_denylist(&["tray"]).build())
@@ -1680,6 +1700,7 @@ pub fn run() {
             save_settings,
             scene,
             show_main_window,
+            window_max_button,
             quit,
             quit_now,
             quit_cancelled,
@@ -1874,7 +1895,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app, ev| {
             #[cfg(target_os = "macos")]

@@ -25,7 +25,7 @@ document.addEventListener("contextmenu", (e) => {
 applyTheme(savedTheme());
 
 // macOS's room for the traffic lights and its drag areas (html.mac in styles.css); Windows' look
-// (html.windows: its own title bar, Segoe UI).
+// (html.windows: the window's own buttons, src/WindowControls.tsx, and Segoe UI).
 document.documentElement.classList.add(isMac ? "mac" : "windows");
 // Paths are shown with the system drive on Windows (platform.ts shown).
 if (!isMac) void api.systemDrive().then(setSystemDrive, () => {});

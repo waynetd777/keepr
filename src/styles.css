@@ -308,9 +308,9 @@ p {
   flex-direction: column;
   padding: 52px 12px 14px;
 }
-/* Windows has its own title bar above the window, so no room for macOS's traffic lights. */
+/* Windows has no traffic lights to leave room for: the brand sits level with the toolbar. */
 html.windows .sidebar {
-  padding-top: 18px;
+  padding-top: 12px;
 }
 .brand {
   display: flex;
@@ -411,7 +411,8 @@ html.windows .sidebar {
   padding: 0 20px;
   border-bottom: 1px solid var(--line);
 }
-/* The toolbar stands in for the hidden title bar on macOS only (platform.ts dragRegion). */
+/* The toolbar stands in for the hidden title bar (platform.ts dragRegion); WebKit's own drag
+   areas are macOS's only, and Windows drags by Tauri's attribute alone. */
 html.mac .toolbar {
   -webkit-app-region: drag;
 }
@@ -424,6 +425,51 @@ html.mac .toolbar > * {
 }
 html.mac .toolbar .spacer {
   -webkit-app-region: drag;
+}
+/* On Windows the window's own buttons (src/WindowControls.tsx) sit at the toolbar's right end. */
+html.windows .toolbar {
+  padding-right: calc(3 * 46px + 12px);
+}
+
+/* The window's own buttons on Windows: as wide as the native ones (46px) and as tall as the
+   toolbar above its line, the hover filling the whole button. Over every sheet and dialog, as the
+   native ones are. Close turns Windows' red. */
+.winctl {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+}
+.winctl button {
+  width: 46px;
+  height: 51px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink2);
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  cursor: default;
+}
+/* .hover: the pointer is on the snap-layout window over maximise (src-tauri/src/snap_win.rs). */
+.winctl button:hover,
+.winctl button.hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.winctl button:active {
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+}
+.winctl button.close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+.winctl button.close:active {
+  background: rgb(196 43 28 / 85%);
+  color: #fff;
 }
 .iconbtn {
   width: 28px;

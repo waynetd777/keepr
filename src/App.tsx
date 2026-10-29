@@ -25,6 +25,7 @@ import AskPanel, { AskToolbarButton, openAsk, toggleAsk } from "./Ask";
 import { hideSplash } from "./splash";
 import { HelpButton, HelpDrawer, openHelp, type HelpView } from "./help/HelpDrawer";
 import { GuideOffer } from "./help/GuideOffer";
+import { WindowControls } from "./WindowControls";
 import { cmdKey, dragRegion, MACHINE, shortcut } from "./platform";
 
 // Backup Plans is the overview of every plan; a plan's settings open from its card.
@@ -370,6 +371,7 @@ export default function App() {
         <UpdateDialog scene={updateScene} />
         <Confirm />
         <QuitDialog />
+        <WindowControls />
         <Tooltips />
         <SelectMenus />
       </ToastProvider>
